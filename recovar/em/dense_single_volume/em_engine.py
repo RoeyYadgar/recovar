@@ -77,6 +77,9 @@ from .helpers.image_shifts import (
 from .helpers.jax_runtime import block_until_ready as _block_until_ready
 from .helpers.preprocessing import (
     image_preprocess_backend,
+    process_half_image,
+)
+from .helpers.preprocessing import (
     prepare_reconstruction_batch as _prepare_reconstruction_batch,
 )
 from .helpers.preprocessing import (
@@ -84,9 +87,6 @@ from .helpers.preprocessing import (
 )
 from .helpers.preprocessing import (
     preprocess_batch_firstiter_cc as _preprocess_batch_firstiter_cc,
-)
-from .helpers.preprocessing import (
-    process_half_image,
 )
 from .helpers.projection import (
     compute_noise_block as _compute_noise_block,
@@ -1170,9 +1170,7 @@ def run_em(
             if batch_size != actual_batch_size:
                 padded_integer_shifts = pad_axis(integer_pre_shifts, 0, batch_size, value=0)
             normalization_factors = (
-                batch_corr_np / batch_scale_np
-                if batch_corr_np is not None
-                else np.ones(batch_size, dtype=np.float32)
+                batch_corr_np / batch_scale_np if batch_corr_np is not None else np.ones(batch_size, dtype=np.float32)
             )
             relion_preprocess_kwargs = {
                 "relion_normalization_factors": jnp.asarray(normalization_factors, dtype=jnp.float32),
@@ -1436,8 +1434,9 @@ def run_em(
                 ready_values.append(shifted_masked_for_noise)
             _block_until_ready(*ready_values)
         timing.score_prep_s += time.time() - score_prep_t0
-        batch_score_constraint_blocks = (
-            lambda r0, r1, start, end, batch_count, _rows=batch_rows_np: _dense_score_constraint_blocks(
+
+        def batch_score_constraint_blocks(r0, r1, start, end, batch_count, _rows=batch_rows_np):
+            return _dense_score_constraint_blocks(
                 r0,
                 r1,
                 start,
@@ -1445,7 +1444,7 @@ def run_em(
                 batch_count,
                 rows=_rows,
             )
-        )
+
         dense_big_jit_runner = _DenseBigJitBatchRunner(
             shifted_score_half=shifted_score_half,
             batch_norm=batch_norm,
