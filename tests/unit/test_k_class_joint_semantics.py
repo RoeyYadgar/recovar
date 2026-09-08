@@ -710,7 +710,7 @@ def test_dense_k_class_single_class_skips_score_probe(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["return_stats"] is True
     assert calls[0]["accumulate_noise"] is False
-    assert "normalization_log_evidence" not in calls[0]
+    assert calls[0]["normalization_log_evidence"] is None
     np.testing.assert_array_equal(np.asarray(result.class_assignments), np.asarray([0, 0], dtype=np.int32))
     np.testing.assert_array_equal(np.asarray(result.pose_assignments), np.asarray([1, 2], dtype=np.int32))
     np.testing.assert_allclose(np.asarray(result.class_responsibilities), np.ones((1, 2), dtype=np.float32))

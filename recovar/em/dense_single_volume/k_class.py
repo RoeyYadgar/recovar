@@ -15,7 +15,8 @@ import numpy as np
 
 from recovar.utils.nvtx_shim import nvtx
 
-from .em_engine import run_em
+from .dense_em_types import DenseEMInputs, DenseEMResult
+from .em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
 from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significance import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
@@ -943,10 +944,11 @@ def _reject_kwargs(kwargs: dict, names: tuple[str, ...], caller: str) -> None:
         raise ValueError(f"{caller} controls these arguments directly: {', '.join(present)}")
 
 
-def _dense_outputs(output, *, accumulate_noise: bool):
-    new_mean, hard_assignment, Ft_y, Ft_ctf, stats = output[:5]
-    noise_stats = output[5] if accumulate_noise else None
-    return new_mean, hard_assignment, Ft_y, Ft_ctf, stats, noise_stats
+def _run_dense_em_typed(inputs: DenseEMInputs, engine_kwargs: dict) -> DenseEMResult:
+    """Run a grouped dense request while retaining the K-class runner hook."""
+
+    request = dense_em_request_from_legacy_kwargs(inputs, engine_kwargs)
+    return run_dense_em(request, legacy_runner=run_em)
 
 
 def _stack_or_none(values):
@@ -1716,24 +1718,28 @@ def _run_dense_k_class_score_probe(
     for class_index in range(n_classes):
         class_engine_kwargs = _dense_engine_kwargs_for_class(base_engine_kwargs, class_index, n_classes)
         with _DenseScoreDumpClassLabel(class_index):
-            probe = run_em(
-                experiment_dataset,
-                means_array[class_index],
-                _select_class_value(mean_variance, class_index, n_classes),
-                _select_class_value(noise_variance, class_index, n_classes),
-                rotations,
-                translations,
-                disc_type,
-                return_stats=True,
-                accumulate_noise=False,
-                class_log_prior=float(log_priors[class_index]),
-                disable_adjoint_y=True,
-                disable_adjoint_ctf=True,
-                score_only=True,
-                **class_engine_kwargs,
+            probe = _run_dense_em_typed(
+                DenseEMInputs(
+                    experiment_dataset=experiment_dataset,
+                    mean=means_array[class_index],
+                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                    rotations=rotations,
+                    translations=translations,
+                    disc_type=disc_type,
+                ),
+                dict(
+                    class_engine_kwargs,
+                    return_stats=True,
+                    accumulate_noise=False,
+                    class_log_prior=float(log_priors[class_index]),
+                    disable_adjoint_y=True,
+                    disable_adjoint_ctf=True,
+                    score_only=True,
+                ),
             )
-        hard_assignments.append(np.asarray(probe[1], dtype=np.int32))
-        stats = probe[4]
+        hard_assignments.append(np.asarray(probe.hard_assignment, dtype=np.int32))
+        stats = probe.relion_stats
         per_class_stats.append(stats)
         class_log_evidence.append(np.asarray(stats.log_evidence_per_image, dtype=np.float64))
 
@@ -2126,31 +2132,31 @@ def _run_firstiter_global_winner_subset_pass2(
             global_winner=None,
         )
         with _DenseScoreDumpClassLabel(class_index):
-            output = run_em(
-                subset_dataset,
-                means_array[class_index],
-                _select_class_value(mean_variance, class_index, n_classes),
-                _select_class_value(noise_variance, class_index, n_classes),
-                rotations_np,
-                translations_np,
-                disc_type,
-                return_stats=True,
-                accumulate_noise=accumulate_noise,
-                class_log_prior=float(log_priors[class_index]),
-                **class_kwargs,
+            output = _run_dense_em_typed(
+                DenseEMInputs(
+                    experiment_dataset=subset_dataset,
+                    mean=means_array[class_index],
+                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                    rotations=rotations_np,
+                    translations=translations_np,
+                    disc_type=disc_type,
+                ),
+                dict(
+                    class_kwargs,
+                    return_stats=True,
+                    accumulate_noise=accumulate_noise,
+                    class_log_prior=float(log_priors[class_index]),
+                ),
             )
-        _new_mean, hard_subset, class_Ft_y, class_Ft_ctf, stats_subset, noise = _dense_outputs(
-            output,
-            accumulate_noise=accumulate_noise,
-        )
         hard_full = np.zeros(n_images, dtype=np.int32)
-        hard_full[image_indices] = np.asarray(hard_subset, dtype=np.int32)
-        Ft_y.append(class_Ft_y)
-        Ft_ctf.append(class_Ft_ctf)
+        hard_full[image_indices] = np.asarray(output.hard_assignment, dtype=np.int32)
+        Ft_y.append(output.Ft_y)
+        Ft_ctf.append(output.Ft_ctf)
         hard_assignments.append(hard_full)
         per_class_stats.append(
             _full_stats_from_subset(
-                stats_subset,
+                output.relion_stats,
                 image_indices,
                 n_images,
                 class_log_evidence=coarse_result.class_log_evidence[class_index],
@@ -2159,7 +2165,7 @@ def _run_firstiter_global_winner_subset_pass2(
         if per_class_noise is not None:
             per_class_noise.append(
                 _expand_subset_noise_stats(
-                    noise,
+                    output.noise_stats,
                     image_indices,
                     n_images,
                     full_group_count=full_group_count,
@@ -2167,7 +2173,7 @@ def _run_firstiter_global_winner_subset_pass2(
             )
         if return_best_pose_details:
             best_rots, best_trans, best_rot_ids = _decode_dense_best_pose_details(
-                hard_subset,
+                output.hard_assignment,
                 rotations_np,
                 translations_np,
             )
@@ -2487,29 +2493,29 @@ def run_dense_k_class_em(
     overall_t0 = time.time()
     if n_classes == 1:
         class_engine_kwargs = _dense_engine_kwargs_for_class(base_engine_kwargs, 0, n_classes)
-        output = run_em(
-            experiment_dataset,
-            means_array[0],
-            _select_class_value(mean_variance, 0, n_classes),
-            _select_class_value(noise_variance, 0, n_classes),
-            rotations,
-            translations,
-            disc_type,
-            return_stats=True,
-            accumulate_noise=accumulate_noise,
-            class_log_prior=float(log_priors[0]),
-            **class_engine_kwargs,
-        )
-        new_mean, hard_assignment, class_Ft_y, class_Ft_ctf, stats, noise = _dense_outputs(
-            output,
-            accumulate_noise=accumulate_noise,
+        output = _run_dense_em_typed(
+            DenseEMInputs(
+                experiment_dataset=experiment_dataset,
+                mean=means_array[0],
+                mean_variance=_select_class_value(mean_variance, 0, n_classes),
+                noise_variance=_select_class_value(noise_variance, 0, n_classes),
+                rotations=rotations,
+                translations=translations,
+                disc_type=disc_type,
+            ),
+            dict(
+                class_engine_kwargs,
+                return_stats=True,
+                accumulate_noise=accumulate_noise,
+                class_log_prior=float(log_priors[0]),
+            ),
         )
         best_pose_rotations = None
         best_pose_translations = None
         best_pose_rotation_ids = None
         if return_best_pose_details:
             best_pose_rotations, best_pose_translations, best_pose_rotation_ids = _decode_dense_best_pose_details(
-                hard_assignment,
+                output.hard_assignment,
                 rotations_np,
                 translations_np,
             )
@@ -2521,13 +2527,13 @@ def run_dense_k_class_em(
             time.time() - overall_t0,
         )
         return _assemble_result(
-            class_log_evidence=np.asarray(stats.log_evidence_per_image, dtype=np.float64)[None, :],
-            new_means=[new_mean],
-            Ft_y=[class_Ft_y],
-            Ft_ctf=[class_Ft_ctf],
-            per_class_hard_assignments=np.asarray(hard_assignment, dtype=np.int32)[None, :],
-            per_class_stats=(stats,),
-            noise_stats=None if noise is None else (noise,),
+            class_log_evidence=np.asarray(output.relion_stats.log_evidence_per_image, dtype=np.float64)[None, :],
+            new_means=[output.new_mean],
+            Ft_y=[output.Ft_y],
+            Ft_ctf=[output.Ft_ctf],
+            per_class_hard_assignments=np.asarray(output.hard_assignment, dtype=np.int32)[None, :],
+            per_class_stats=(output.relion_stats,),
+            noise_stats=None if output.noise_stats is None else (output.noise_stats,),
             per_class_best_pose_rotations=None if best_pose_rotations is None else [best_pose_rotations],
             per_class_best_pose_translations=None if best_pose_translations is None else [best_pose_translations],
             per_class_best_pose_rotation_ids=None if best_pose_rotation_ids is None else [best_pose_rotation_ids],
@@ -2571,34 +2577,34 @@ def run_dense_k_class_em(
     for class_index in range(n_classes):
         class_engine_kwargs = _dense_engine_kwargs_for_class(mstep_engine_kwargs, class_index, n_classes)
         with _DenseScoreDumpClassLabel(class_index):
-            output = run_em(
-                experiment_dataset,
-                means_array[class_index],
-                _select_class_value(mean_variance, class_index, n_classes),
-                _select_class_value(noise_variance, class_index, n_classes),
-                rotations,
-                translations,
-                disc_type,
-                return_stats=True,
-                accumulate_noise=accumulate_noise,
-                class_log_prior=float(log_priors[class_index]),
-                normalization_log_evidence=global_log_evidence,
-                **class_engine_kwargs,
+            output = _run_dense_em_typed(
+                DenseEMInputs(
+                    experiment_dataset=experiment_dataset,
+                    mean=means_array[class_index],
+                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                    rotations=rotations,
+                    translations=translations,
+                    disc_type=disc_type,
+                ),
+                dict(
+                    class_engine_kwargs,
+                    return_stats=True,
+                    accumulate_noise=accumulate_noise,
+                    class_log_prior=float(log_priors[class_index]),
+                    normalization_log_evidence=global_log_evidence,
+                ),
             )
-        new_mean, hard_assignment, class_Ft_y, class_Ft_ctf, stats, noise = _dense_outputs(
-            output,
-            accumulate_noise=accumulate_noise,
-        )
-        new_means.append(new_mean)
-        Ft_y.append(class_Ft_y)
-        Ft_ctf.append(class_Ft_ctf)
-        hard_assignments.append(np.asarray(hard_assignment, dtype=np.int32))
-        per_class_stats.append(stats)
+        new_means.append(output.new_mean)
+        Ft_y.append(output.Ft_y)
+        Ft_ctf.append(output.Ft_ctf)
+        hard_assignments.append(np.asarray(output.hard_assignment, dtype=np.int32))
+        per_class_stats.append(output.relion_stats)
         if per_class_noise is not None:
-            per_class_noise.append(noise)
+            per_class_noise.append(output.noise_stats)
         if return_best_pose_details:
             best_rots, best_trans, best_rot_ids = _decode_dense_best_pose_details(
-                hard_assignment,
+                output.hard_assignment,
                 rotations_np,
                 translations_np,
             )
