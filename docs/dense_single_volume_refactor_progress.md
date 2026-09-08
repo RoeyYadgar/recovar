@@ -9,7 +9,7 @@ Last updated: 2026-09-08
 | Component | Status | Current result / next action |
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
-| C1 Data contracts | IN PROGRESS | Stable local result, composed request types, typed adapter, and the K=1 caller migration are accepted against their immediate control. Next: migrate the K-class caller family. |
+| C1 Data contracts | IN PROGRESS — LOCAL HOST BOUNDARY COMPLETE | Stable local results and composed requests are used by every in-package K=1 and K-class production caller. The exact engine remains the compatibility/numerical implementation. Next: introduce the dense-engine result seam. |
 | C2 Policy/environment boundary | NOT STARTED | Classify and centralize 206 resolved `RECOVAR_*` reads. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
@@ -86,6 +86,11 @@ GPU identity and paired timing context.
 | 2026-09-08 | Same-GPU candidate repeat | Slurm `60510827` | Candidate completed on A100-SXM4-80GB with correlation `0.9983335769`, FSC-AUC `0.9944632395`, `813.722 s`; control setup then failed before science because the detached worktree lacked the ignored RELION binding. |
 | 2026-09-08 | Corrected candidate repeat | Slurm `60510947` | Candidate completed on the same physical A100 as `60510827`: correlation `0.9983333994`, FSC-AUC `0.9944556956`, `821.328 s`; control stopped before iteration 1 when fresh checkout timestamps triggered a CUDA rebuild without `nvcc`. |
 | 2026-09-08 | Final paired K=1 A/B | Slurm `60511038` | Both arms completed in one allocation on the same A100 with the same pinned CUDA binary. Control/candidate FSC-AUC: `0.9944628985` / `0.9944491811`; exact-local time: `279.213` / `276.223 s`; full details below. |
+| 2026-09-08 | K-class caller formatting | `pixi run test-em-fast-guard` | 16/16 passed before the isolated formatting-only commit `7d1d1d4c`; no functional source changed in that commit. |
+| 2026-09-08 | K-class request compatibility | `pixi run python -m pytest tests/unit/test_local_em_types.py -q` | 21/21 passed. A fully populated exact-engine call round-trips through the K-class request builder with all 52 keyword names, values, and defaults preserved. |
+| 2026-09-08 | K-class local callers | selected local K-class cases in `test_k_class_joint_semantics.py` and `test_refine_relion_mode.py` | 2/2 and 4/4 passed, respectively; the single-class, class-evidence probe, and normalized per-class M-step routes use named results. |
+| 2026-09-08 | K-class regression set | `pixi run python -m pytest tests/unit/test_em_kclass_merge_guards.py tests/unit/test_k_class_joint_semantics.py -q` | 109/109 passed with one pre-existing SciPy gimbal-lock warning. No tolerance or baseline changed. |
+| 2026-09-08 | K-class adapter performance sanity | Five 10,000-call host microbenchmark samples | Median request-build/dispatch overhead `59.334 us/call` (samples `59.313`, `59.334`, `59.362`, `59.569`, `59.330 us/call`), or about `0.475 ms` for eight K=4 probe/M-step calls. |
 
 ## Decision log
 
@@ -239,6 +244,61 @@ compatibility/numerical implementation. Open risk: independently explain or
 stabilize the old-to-current absolute FSC-AUC drift before any broad algorithmic
 quality claim.
 
+### 2026-09-08 — K-class local caller migration
+
+Hypothesis: K-class local orchestration can use the same composed request and
+stable named result as K=1 without changing exact-engine arguments, class
+normalization, diagnostic labeling, numerical execution, or result values.
+
+Files changed: `k_class.py`, `test_local_em_types.py`, and
+`test_k_class_joint_semantics.py`. A hook-required formatter pass over the two
+previously unformatted caller files was isolated before the functional commits.
+
+Algorithmic invariants protected:
+
+- all three routes—single class, per-class evidence probe, and normalized
+  per-class M-step—still invoke `run_local_em_exact` through the K-class module's
+  monkeypatchable binding;
+- `inspect.Signature.bind` and `apply_defaults` preserve the exact legacy
+  signature's validation and all 52 keyword defaults before constructing the
+  grouped request;
+- class priors, shared normalization evidence, profile/support collection,
+  diagnostic phase labels, and output `None` semantics are unchanged;
+- no score, posterior, reconstruction, dtype, array-order, JIT, kernel, or
+  environment logic changed.
+
+Focused validation passed: 21/21 local contract tests; 2/2 selected local
+K-class semantic tests; 4/4 selected refine-mode K-class tests; 46/46 complete
+K-class joint-semantics tests; and 109/109 combined K-class joint/merge tests.
+The CPU EM fast guard passed 16/16 in `50.01 s` at source HEAD `6f50b38b`.
+JAX reported that no CUDA device was present and the guard correctly stayed on
+its CPU-default route; no local GPU work was performed. Ruff formatting and
+lint checks passed on the committed files. No tolerance or baseline was
+modified.
+
+The host compatibility builder's five-sample median is `59.334 us/call`; a K=4
+probe plus M-step sequence therefore adds about `0.475 ms` of Python work. This
+is negligible relative to the exact local engine, but it is only a host
+microbenchmark. No K=4 GPU end-to-end quality, compile-count, device-memory, or
+wall-time result was measured for this slice. Those cells remain **not
+measured**, rather than assumed equal. A new GPU run was not warranted here
+because the exact runner and its fully materialized arguments are unchanged;
+the shared adapter already has the paired K=1 A/B evidence from job `60511038`.
+
+Commits:
+
+- `7d1d1d4c` — `style: format K-class local caller files`;
+- `356638f4` — `em: group flat K-class local request settings`;
+- `6f50b38b` — `em: migrate K-class local calls to typed results`.
+
+Decision: accepted as the completion of the C1 local host request/result
+boundary. `run_local_em_exact` remains the sole numerical implementation and
+compatibility API; its large body and JIT signature are deliberately unchanged.
+Next action: add a stable dense-engine result seam behind `run_em`, then migrate
+one dense caller family. Open risks: the broader C1 dense/sparse/controller
+contracts remain, K-class end-to-end GPU behavior has not been remeasured, and
+the pre-existing absolute K=1 FSC-AUC drift remains unresolved.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -264,12 +324,11 @@ Open risks:
 
 ## Immediate next actions
 
-1. Migrate the three direct K-class `run_local_em_exact` call sites as one
-   caller-family commit and preserve their monkeypatch/debug interception
-   surface.
-2. Run `tests/unit/test_k_class_joint_semantics.py`, the relevant merge guards,
-   and the CPU EM fast guard before accepting that caller migration.
-3. Keep the large JIT signature and all numerical kernels unchanged until a
+1. Introduce a stable named result for `em_engine.run_em` behind its current
+   tuple compatibility API, with exhaustive optional-output shape tests.
+2. Migrate one dense caller family at a time while preserving its module-level
+   monkeypatch and debug interception surface.
+3. Keep the large JIT signatures and all numerical kernels unchanged until a
    dedicated paired GPU benchmark is designed for that boundary.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
    job `60511038` separately from structural-refactor equivalence.
