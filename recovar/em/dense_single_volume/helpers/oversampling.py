@@ -524,7 +524,8 @@ def compute_pass2_stats(
         get_oversampled_translation_grid,
     )
 
-    from ..em_engine import run_em
+    from ..dense_em_types import DenseEMInputs
+    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
 
     n_images = experiment_dataset.n_units
     n_coarse_rot = coarse_rotations.shape[0]
@@ -646,44 +647,45 @@ def compute_pass2_stats(
     # This is correct: we evaluate all oversampled rotations for all images.
     # The significance pruning's benefit is that len(oversampled_rots) <<
     # len(coarse_rotations) * 4^oversampling_order.
-    run_em_outputs = run_em(
-        experiment_dataset,
-        volume,
-        mean_variance,
-        noise_variance,
-        oversampled_rots,
-        oversampled_translations,
-        disc_type,
-        image_batch_size=image_batch_size,
-        rotation_block_size=min(5000, len(oversampled_rots)),
-        current_size=current_size,
-        rotation_log_prior=oversampled_rotation_log_prior,
-        translation_log_prior=oversampled_translation_prior,
-        score_with_masked_images=score_with_masked_images,
-        return_stats=return_stats,
-        accumulate_noise=accumulate_noise,
-        half_spectrum_scoring=half_spectrum_scoring,
-        projection_padding_factor=projection_padding_factor,
-        reconstruction_padding_factor=reconstruction_padding_factor,
-        image_corrections=image_corrections,
-        scale_corrections=scale_corrections,
-        image_pre_shifts=image_pre_shifts,
-        use_float64_scoring=use_float64_scoring,
-        do_gridding_correction=do_gridding_correction,
-        square_window=square_window,
+    em_result = run_dense_em(
+        dense_em_request_from_legacy_kwargs(
+            DenseEMInputs(
+                experiment_dataset=experiment_dataset,
+                mean=volume,
+                mean_variance=mean_variance,
+                noise_variance=noise_variance,
+                rotations=oversampled_rots,
+                translations=oversampled_translations,
+                disc_type=disc_type,
+            ),
+            {
+                "image_batch_size": image_batch_size,
+                "rotation_block_size": min(5000, len(oversampled_rots)),
+                "current_size": current_size,
+                "rotation_log_prior": oversampled_rotation_log_prior,
+                "translation_log_prior": oversampled_translation_prior,
+                "score_with_masked_images": score_with_masked_images,
+                "return_stats": return_stats,
+                "accumulate_noise": accumulate_noise,
+                "half_spectrum_scoring": half_spectrum_scoring,
+                "projection_padding_factor": projection_padding_factor,
+                "reconstruction_padding_factor": reconstruction_padding_factor,
+                "image_corrections": image_corrections,
+                "scale_corrections": scale_corrections,
+                "image_pre_shifts": image_pre_shifts,
+                "use_float64_scoring": use_float64_scoring,
+                "do_gridding_correction": do_gridding_correction,
+                "square_window": square_window,
+            },
+        ),
+        legacy_runner=run_em,
     )
 
-    # Unpack: run_em returns (mean, ha, Ft_y, Ft_ctf, [relion_stats], [noise_stats])
-    # depending on return_stats and accumulate_noise flags.
-    noise_stats = None
-    if return_stats and accumulate_noise:
-        _, ha, Ft_y, Ft_ctf, relion_stats, noise_stats = run_em_outputs
-    elif return_stats:
-        _, ha, Ft_y, Ft_ctf, relion_stats = run_em_outputs
-    elif accumulate_noise:
-        _, ha, Ft_y, Ft_ctf, noise_stats = run_em_outputs
-    else:
-        _, ha, Ft_y, Ft_ctf = run_em_outputs
+    ha = em_result.hard_assignment
+    Ft_y = em_result.Ft_y
+    Ft_ctf = em_result.Ft_ctf
+    relion_stats = em_result.relion_stats
+    noise_stats = em_result.noise_stats
 
     if return_stats:
         coarse_rotation_sums = np.zeros(n_coarse_rot, dtype=np.float64)
@@ -1021,7 +1023,8 @@ def _compute_pass2_stats_sparse_perimage_reference(
         rotation_grid_size,
     )
 
-    from ..em_engine import run_em
+    from ..dense_em_types import DenseEMInputs
+    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
 
     if normalization_log_z is not None:
         raise NotImplementedError(
@@ -1146,63 +1149,65 @@ def _compute_pass2_stats_sparse_perimage_reference(
         local_rot_counts.append(int(oversampled_rots.shape[0]))
         valid_candidate_counts.append(int(candidate_mask.sum()))
 
-        run_em_outputs = run_em(
-            experiment_dataset,
-            volume,
-            mean_variance,
-            noise_variance,
-            oversampled_rots,
-            fine_translations,
-            disc_type,
-            image_batch_size=1,
-            rotation_block_size=min(5000, max(1, oversampled_rots.shape[0])),
-            current_size=current_size,
-            rotation_log_prior=local_rotation_log_prior,
-            translation_log_prior=(
-                None
-                if fine_translation_prior is None
-                else np.asarray(fine_translation_prior[image_idx : image_idx + 1], dtype=np.float32)
-                if np.asarray(fine_translation_prior).ndim == 2
-                else fine_translation_prior
+        em_result = run_dense_em(
+            dense_em_request_from_legacy_kwargs(
+                DenseEMInputs(
+                    experiment_dataset=experiment_dataset,
+                    mean=volume,
+                    mean_variance=mean_variance,
+                    noise_variance=noise_variance,
+                    rotations=oversampled_rots,
+                    translations=fine_translations,
+                    disc_type=disc_type,
+                ),
+                {
+                    "image_batch_size": 1,
+                    "rotation_block_size": min(5000, max(1, oversampled_rots.shape[0])),
+                    "current_size": current_size,
+                    "rotation_log_prior": local_rotation_log_prior,
+                    "translation_log_prior": (
+                        None
+                        if fine_translation_prior is None
+                        else np.asarray(fine_translation_prior[image_idx : image_idx + 1], dtype=np.float32)
+                        if np.asarray(fine_translation_prior).ndim == 2
+                        else fine_translation_prior
+                    ),
+                    "image_indices": np.array([image_idx], dtype=np.int32),
+                    "rotation_translation_mask": candidate_mask,
+                    "score_with_masked_images": score_with_masked_images,
+                    "return_stats": return_stats,
+                    "accumulate_noise": accumulate_noise,
+                    "half_spectrum_scoring": half_spectrum_scoring,
+                    "projection_padding_factor": projection_padding_factor,
+                    "reconstruction_padding_factor": reconstruction_padding_factor,
+                    "image_corrections": image_corrections,
+                    "scale_corrections": scale_corrections,
+                    "image_pre_shifts": image_pre_shifts,
+                    "translation_prior_centers": (
+                        None
+                        if translation_prior_centers is None
+                        else np.asarray(translation_prior_centers[image_idx : image_idx + 1], dtype=np.float32)
+                        if np.asarray(translation_prior_centers).ndim == 2
+                        else np.asarray(translation_prior_centers, dtype=np.float32)
+                    ),
+                    "use_float64_scoring": use_float64_scoring,
+                    "do_gridding_correction": do_gridding_correction,
+                    "square_window": square_window,
+                    "disable_adjoint_y": disable_adjoint_y,
+                    "disable_adjoint_ctf": disable_adjoint_ctf,
+                    "relion_half_volume_mstep": relion_half_volume_mstep,
+                    "relion_firstiter_score_mode": relion_firstiter_score_mode,
+                    "relion_firstiter_winner_take_all": relion_firstiter_winner_take_all,
+                },
             ),
-            image_indices=np.array([image_idx], dtype=np.int32),
-            rotation_translation_mask=candidate_mask,
-            score_with_masked_images=score_with_masked_images,
-            return_stats=return_stats,
-            accumulate_noise=accumulate_noise,
-            half_spectrum_scoring=half_spectrum_scoring,
-            projection_padding_factor=projection_padding_factor,
-            reconstruction_padding_factor=reconstruction_padding_factor,
-            image_corrections=image_corrections,
-            scale_corrections=scale_corrections,
-            image_pre_shifts=image_pre_shifts,
-            translation_prior_centers=(
-                None
-                if translation_prior_centers is None
-                else np.asarray(translation_prior_centers[image_idx : image_idx + 1], dtype=np.float32)
-                if np.asarray(translation_prior_centers).ndim == 2
-                else np.asarray(translation_prior_centers, dtype=np.float32)
-            ),
-            use_float64_scoring=use_float64_scoring,
-            do_gridding_correction=do_gridding_correction,
-            square_window=square_window,
-            disable_adjoint_y=disable_adjoint_y,
-            disable_adjoint_ctf=disable_adjoint_ctf,
-            relion_half_volume_mstep=relion_half_volume_mstep,
-            relion_firstiter_score_mode=relion_firstiter_score_mode,
-            relion_firstiter_winner_take_all=relion_firstiter_winner_take_all,
+            legacy_runner=run_em,
         )
 
-        # Unpack return based on flags
-        noise_stats_i = None
-        if return_stats and accumulate_noise:
-            _, ha_i, Ft_y_i, Ft_ctf_i, stats_i, noise_stats_i = run_em_outputs
-        elif return_stats:
-            _, ha_i, Ft_y_i, Ft_ctf_i, stats_i = run_em_outputs
-        elif accumulate_noise:
-            _, ha_i, Ft_y_i, Ft_ctf_i, noise_stats_i = run_em_outputs
-        else:
-            _, ha_i, Ft_y_i, Ft_ctf_i = run_em_outputs
+        ha_i = em_result.hard_assignment
+        Ft_y_i = em_result.Ft_y
+        Ft_ctf_i = em_result.Ft_ctf
+        stats_i = em_result.relion_stats
+        noise_stats_i = em_result.noise_stats
 
         if return_stats:
             log_evidence[image_idx] = float(np.asarray(stats_i.log_evidence_per_image)[0])
