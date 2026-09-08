@@ -8,8 +8,8 @@ Last updated: 2026-09-08
 
 | Component | Status | Current result / next action |
 |---|---|---|
-| C0 Baseline and guardrails | IN PROGRESS | Inventory and existing same-HEAD K=1 artifact recorded. Next: make a fresh paired, hardware-attributed baseline before a performance-sensitive source edit. |
-| C1 Data contracts | IN PROGRESS | Stable local result, composed request types, typed adapter, and first K=1 caller migration committed. Next: validate GPU parity, then migrate the K-class caller family. |
+| C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
+| C1 Data contracts | IN PROGRESS | Stable local result, composed request types, typed adapter, and the K=1 caller migration are accepted against their immediate control. Next: migrate the K-class caller family. |
 | C2 Policy/environment boundary | NOT STARTED | Classify and centralize 206 resolved `RECOVAR_*` reads. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
@@ -81,6 +81,11 @@ GPU identity and paired timing context.
 | 2026-09-08 | First production caller | `module load FFTW/3.3.10-GCC-12.2.0; pixi run python -m pytest tests/unit/test_refine_relion_mode.py -k 'run_local_search_iteration' -q` | 10 passed, 364 deselected. An initial run without the FFTW module failed four tests before the migrated path because the existing RELION binding could not load `libfftw3.so.3`. |
 | 2026-09-08 | Local-search merge guards | `module load FFTW/3.3.10-GCC-12.2.0; pixi run python -m pytest tests/unit/test_dense_iteration_loop_merge_guards.py -q` | 27/27 passed. |
 | 2026-09-08 | CPU EM fast guard | `pixi run test-em-fast-guard` | 16/16 passed after the result seam, after hook-required formatting, and after the K=1 caller migration. |
+| 2026-09-08 | GPU launcher bootstrap | Slurm `60510554`, `60510585` | Exited `127` during launcher/module bootstrap before Python import or science; excluded from quality and timing comparisons. |
+| 2026-09-08 | Full K=1 candidate | Slurm `60510625` | Completed on A100-SXM4-80GB: 13 iterations, final-all-data, correlation `0.9983320461`, FSC-AUC `0.9944496194`, `841.865 s`. This unpaired result did not meet the older absolute FSC gate. |
+| 2026-09-08 | Same-GPU candidate repeat | Slurm `60510827` | Candidate completed on A100-SXM4-80GB with correlation `0.9983335769`, FSC-AUC `0.9944632395`, `813.722 s`; control setup then failed before science because the detached worktree lacked the ignored RELION binding. |
+| 2026-09-08 | Corrected candidate repeat | Slurm `60510947` | Candidate completed on the same physical A100 as `60510827`: correlation `0.9983333994`, FSC-AUC `0.9944556956`, `821.328 s`; control stopped before iteration 1 when fresh checkout timestamps triggered a CUDA rebuild without `nvcc`. |
+| 2026-09-08 | Final paired K=1 A/B | Slurm `60511038` | Both arms completed in one allocation on the same A100 with the same pinned CUDA binary. Control/candidate FSC-AUC: `0.9944628985` / `0.9944491811`; exact-local time: `279.213` / `276.223 s`; full details below. |
 
 ## Decision log
 
@@ -142,12 +147,71 @@ Algorithmic invariants protected:
 
 Focused tests and exact results: 21/21 local contract tests, 10/10 selected
 local-search tests, and 27/27 merge/source guards passed. CPU fast guard: 16/16
-passed. GPU/Slurm: pending first candidate submission. Quality and performance:
-not yet measured for this slice; the existing reference remains correlation
-`0.9985789461317439`, FSC-AUC `0.995855447698812`, and `1184.1040608882904 s`.
-The adapter adds only frozen host objects around one engine invocation and does
-not alter compiled work; empirical GPU confirmation is still required before
-accepting the migrated production path.
+passed.
+
+GPU validation used the full command requested for this refactor, with a fresh
+output directory for each arm. Final paired job `60511038` ran the immediate
+pre-migration control `df425b0c` first and candidate `e47a128a` second in one
+allocation on node `r818u09n09`, GPU
+`GPU-986d5e56-846f-1864-8fc9-9ef20b0b5b88` (A100-SXM4-80GB, driver
+570.211.01). Both arms used CUDA library SHA-256
+`f2b8dbb0ca0b8bd1151e71652c1bbee2da93eb53a43033bb3bd3cd7f470b9c42` and
+the control used the same RELION binding binary as the candidate (SHA-256
+`0605b857b2c1f052911101fb4ce7ed179332f4bcae42ca89a1de6a6be281079c`).
+Both tracked trees were clean (empty diff SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`) and
+contained all five required parity ancestors. The candidate's preserved
+untracked manifest contains the original 1,427 files; the control's two
+untracked entries are input-fixture symlinks.
+
+Artifact root:
+`/home/ry295/palmer_scratch/tmp/dense_em_refactor_samegpu_final_e47a128a_vs_df425b0c`.
+It contains both output ledgers, complete intermediate trajectories, process
+resource records, environment/provenance manifests, and logs under `logs/`.
+The launcher SHA-256 is
+`a7c40272bdf5956adb50ef5e4a895a2b14f8e69dc58f66257e1e30c34bedec64`.
+The run root and all earlier refactor run roots have `SAFE_TO_DELETE` markers.
+Earlier attempt artifacts and logs are retained under
+`/home/ry295/palmer_scratch/tmp/dense_em_refactor_e47a128a`,
+`/home/ry295/palmer_scratch/tmp/dense_em_refactor_samegpu_e47a128a_vs_df425b0c`,
+and
+`/home/ry295/palmer_scratch/tmp/dense_em_refactor_samegpu_retry_e47a128a_vs_df425b0c`.
+
+| Paired measure | Control `df425b0c` | Candidate `e47a128a` | Candidate delta |
+|---|---:|---:|---:|
+| Completed numbered iterations | 13 | 13 | same |
+| Final all-data path | ran | ran | same |
+| Current-size trajectory | `46,46,72,70,70,70,70,70,70,72,72,72,72` | same | same |
+| Final merged FSC-AUC vs RELION | `0.9944628985` | `0.9944491811` | `-0.0000137174` |
+| Final merged correlation vs RELION (diagnostic) | `0.9983339935` | `0.9983321029` | `-0.0000018907` |
+| Ledger elapsed | `845.936 s` | `870.393 s` | `+2.89%` |
+| Exact-local EM time | `279.213 s` | `276.223 s` | `-1.07%` |
+| External process wall time | `897.06 s` | `946.83 s` | `+5.55%` |
+| Peak RSS | `11,519,084 KiB` | `11,529,036 KiB` | `+0.086%` |
+
+The 310-key result schemas match. Schedule, resolution, finalization, and final
+sampling policy fields match exactly. The maximum per-iteration FSC-state gap
+was `1.2222e-4`, below the `1.6429e-4` gap observed between two unchanged
+candidate runs. Across all iterations the pair differed in 7 significant-count
+rows, 8 best-rotation rows, and 3 best-translation rows; an unchanged-candidate
+repeat differed in 9, 7, and 5 rows respectively. The three candidate FSC-AUC
+values span `0.9944491811` to `0.9944632395`, so the paired quality delta lies
+inside native repeat variability.
+
+The ledger and external wall totals are mixed rather than a demonstrated speed
+improvement: candidate total time was higher, but the exact local engine—the
+only production path changed by the caller migration—was slightly faster, and
+nearly all of the total delta was outside that engine. Candidate ledger times
+across the completed runs span `813.722` to `870.393 s`; peak memory is
+unchanged to `0.1%`. This is sufficient performance sanity for the host-only
+adapter, not a formal performance benchmark.
+
+The older artifact remains materially higher in absolute FSC-AUC
+(`0.9958554477`). Both the new control and candidate are below the program's
+`0.995` cross-FSC gate. Because the immediate pre-migration control reproduces
+the candidate's quality and divergences begin in shared pre-local execution,
+that absolute drift is not attributed to this refactor. It remains open and
+prevents treating this small fixture as a new quality checkpoint.
 
 Provenance: implementation started from `bc0e2954cc3b4e4ade20d4bb0a6b90e17c91735b`.
 At `596d1c898b2d340d4a2f433bd70c5704e465a3f9`, the tracked tree was clean
@@ -167,12 +231,13 @@ Commits:
 - `596d1c89` — `em: migrate K=1 local search to typed engine request` (diff
   SHA-256 `083ecb51...`).
 
-Decision: provisionally accepted pending the GPU K=1 parity run. Next action:
-submit the user-provided multi-iteration command on Slurm `gpu`, compare final
-correlation/FSC-AUC/runtime to the reference, and only then migrate K-class
-callers. Open risk: actual GPU end-to-end behavior and timing are not measured
-yet; the CPU evidence exercises the adapter and caller plumbing but cannot
-replace that gate.
+Decision: accepted for C1 structural equivalence against the immediate control;
+not accepted as a replacement K=1 quality checkpoint because the absolute FSC
+gate is still missing. Next action: migrate the K-class caller family as one
+small commit with its focused tests, retaining `run_local_em_exact` as the
+compatibility/numerical implementation. Open risk: independently explain or
+stabilize the old-to-current absolute FSC-AUC drift before any broad algorithmic
+quality claim.
 
 ## Per-slice update template
 
@@ -199,11 +264,12 @@ Open risks:
 
 ## Immediate next actions
 
-1. Submit the user-provided K=1 multi-iteration parity command on Slurm `gpu`
-   against commit `596d1c89`; preserve the existing reference output.
-2. Compare final correlation and FSC-AUC, current-size/convergence trajectory,
-   elapsed time, and available stage timings with the recorded reference.
-3. If accepted, migrate the three direct K-class `run_local_em_exact` call sites
-   as one caller-family commit with their focused tests.
-4. Keep the large JIT signature unchanged until a paired baseline/candidate
-   harness has been recorded on the same GPU allocation.
+1. Migrate the three direct K-class `run_local_em_exact` call sites as one
+   caller-family commit and preserve their monkeypatch/debug interception
+   surface.
+2. Run `tests/unit/test_k_class_joint_semantics.py`, the relevant merge guards,
+   and the CPU EM fast guard before accepting that caller migration.
+3. Keep the large JIT signature and all numerical kernels unchanged until a
+   dedicated paired GPU benchmark is designed for that boundary.
+4. Track the absolute FSC-AUC gap between the older artifact and both arms of
+   job `60511038` separately from structural-refactor equivalence.
