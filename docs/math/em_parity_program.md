@@ -22478,3 +22478,23 @@ differ by only about `3.1e-8`/`1.9e-8` relative L2 in iteration 1 and
 than approximately `5e-9` absolute between the two arms. Thus this is a valid
 precision correction, but it is not the dominant cause of the remaining
 `tau2`, `sigma2`, or iteration-3 near-tie pose discrepancy.
+
+## 2026-09-08 dense single-volume behavior-preserving refactor planning
+
+The active engineering track now includes a structural refactor of
+`recovar/em/dense_single_volume`. No algorithm, parity policy, numerical
+implementation, or production route changed in this planning step. The
+detailed component plan, JAX boundary rules, validation matrix, quality and
+performance gates, and recommended first slice are recorded in
+`docs/dense_single_volume_refactor_plan.md`; live status and exact validation
+evidence are recorded in `docs/dense_single_volume_refactor_progress.md`.
+
+The baseline checkout is `1e2f229b3e0e8edaec029d2b604937f692148578`
+on `double_parity_refactor`, with an empty tracked diff before the documentation
+change and all required parity ancestors present. Existing same-HEAD K=1 output
+at `/home/ry295/palmer_scratch/tmp/recovar_em_test_regenerated` records final
+merged RECOVAR-versus-RELION correlation `0.9985789461317439`, FSC-AUC
+`0.995855447698812`, 13 numbered iterations, the final-all-data path, and
+`1184.1040608882904 s` elapsed. It is the initial quality reference, not a
+standalone performance acceptance because its ledger lacks a complete paired
+hardware identity.
