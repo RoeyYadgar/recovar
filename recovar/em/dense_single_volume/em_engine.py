@@ -47,6 +47,7 @@ from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
 
 from .dense_big_jit import run_dense_bucket_big_jit
+from .dense_em_types import DenseEMRequest, DenseEMResult
 from .helpers.adjoint import (
     adjoint_slice_volume_half as _adjoint_slice_volume_half,
 )
@@ -2254,6 +2255,72 @@ def run_em(
         noise_stats=noise_stats,
         em_profile=em_profile,
     )
+
+
+def run_dense_em(request: DenseEMRequest, *, legacy_runner=None) -> DenseEMResult:
+    """Run dense EM through the typed host-side request/result boundary.
+
+    ``legacy_runner`` exists only to preserve compatibility and test
+    interception while production callers migrate. It defaults to
+    :func:`run_em`, whose numerical implementation remains the single source
+    of truth.
+    """
+
+    if legacy_runner is None:
+        legacy_runner = run_em
+
+    inputs = request.inputs
+    search = request.search
+    execution = request.execution
+    scoring = request.scoring
+    projection = request.projection
+    corrections = request.corrections
+    posterior = request.posterior
+    reconstruction = request.reconstruction
+    outputs = request.outputs
+
+    legacy_output = legacy_runner(
+        inputs.experiment_dataset,
+        inputs.mean,
+        inputs.mean_variance,
+        inputs.noise_variance,
+        inputs.rotations,
+        inputs.translations,
+        inputs.disc_type,
+        image_batch_size=execution.image_batch_size,
+        rotation_block_size=execution.rotation_block_size,
+        current_size=search.current_size,
+        rotation_log_prior=search.rotation_log_prior,
+        translation_log_prior=search.translation_log_prior,
+        image_indices=search.image_indices,
+        rotation_translation_mask=search.rotation_translation_mask,
+        class_log_prior=posterior.class_log_prior,
+        normalization_log_evidence=posterior.normalization_log_evidence,
+        score_with_masked_images=scoring.score_with_masked_images,
+        return_stats=outputs.return_stats,
+        accumulate_noise=outputs.accumulate_noise,
+        half_spectrum_scoring=scoring.half_spectrum_scoring,
+        projection_padding_factor=projection.projection_padding_factor,
+        reconstruction_padding_factor=projection.reconstruction_padding_factor,
+        image_corrections=corrections.image_corrections,
+        scale_corrections=corrections.scale_corrections,
+        image_pre_shifts=corrections.image_pre_shifts,
+        translation_prior_centers=posterior.translation_prior_centers,
+        relion_firstiter_score_mode=scoring.relion_firstiter_score_mode,
+        relion_firstiter_winner_take_all=scoring.relion_firstiter_winner_take_all,
+        use_float64_scoring=scoring.use_float64_scoring,
+        use_float64_projections=projection.use_float64_projections,
+        do_gridding_correction=projection.do_gridding_correction,
+        square_window=projection.square_window,
+        return_profile=outputs.return_profile,
+        sparse_pass2=execution.sparse_pass2,
+        disable_adjoint_y=reconstruction.disable_adjoint_y,
+        disable_adjoint_ctf=reconstruction.disable_adjoint_ctf,
+        score_only=reconstruction.score_only,
+        relion_half_volume_mstep=reconstruction.relion_half_volume_mstep,
+        return_half_volume_accumulators=outputs.return_half_volume_accumulators,
+    )
+    return DenseEMResult.from_legacy_tuple(legacy_output, outputs.legacy_tuple_spec)
 
 
 def compute_e_step_weights(

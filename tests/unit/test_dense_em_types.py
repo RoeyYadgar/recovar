@@ -1,3 +1,4 @@
+import inspect
 import itertools
 from dataclasses import FrozenInstanceError
 
@@ -17,6 +18,7 @@ from recovar.em.dense_single_volume.dense_em_types import (
     DenseScoringSettings,
     DenseSearchSettings,
 )
+from recovar.em.dense_single_volume.em_engine import run_dense_em, run_em
 
 
 @pytest.mark.unit
@@ -107,3 +109,109 @@ def test_dense_requested_outputs_define_only_legacy_tuple_suffixes():
         return_profile=True,
     )
     assert outputs.legacy_tuple_spec.legacy_tuple_size == 7
+
+
+@pytest.mark.unit
+def test_dense_em_adapter_forwards_every_legacy_engine_parameter():
+    request = DenseEMRequest(
+        inputs=DenseEMInputs(
+            "dataset",
+            "mean",
+            "mean_variance",
+            "noise_variance",
+            "rotations",
+            "translations",
+            "disc_type",
+        ),
+        search=DenseSearchSettings(
+            current_size=40,
+            rotation_log_prior="rotation_log_prior",
+            translation_log_prior="translation_log_prior",
+            image_indices="image_indices",
+            rotation_translation_mask="rotation_translation_mask",
+        ),
+        execution=DenseExecutionSettings(
+            image_batch_size=5,
+            rotation_block_size=7,
+            sparse_pass2=False,
+        ),
+        scoring=DenseScoringSettings(
+            score_with_masked_images=True,
+            half_spectrum_scoring=True,
+            relion_firstiter_score_mode="normalized_cc",
+            relion_firstiter_winner_take_all=True,
+            use_float64_scoring=True,
+        ),
+        projection=DenseProjectionSettings(
+            projection_padding_factor=2,
+            reconstruction_padding_factor=3,
+            use_float64_projections=True,
+            do_gridding_correction=True,
+            square_window=True,
+        ),
+        corrections=DenseCorrectionInputs(
+            image_corrections="image_corrections",
+            scale_corrections="scale_corrections",
+            image_pre_shifts="image_pre_shifts",
+        ),
+        posterior=DensePosteriorInputs(
+            class_log_prior=-1.25,
+            normalization_log_evidence="normalization_log_evidence",
+            translation_prior_centers="translation_prior_centers",
+        ),
+        reconstruction=DenseReconstructionSettings(
+            disable_adjoint_y=True,
+            disable_adjoint_ctf=True,
+            score_only=True,
+            relion_half_volume_mstep=True,
+        ),
+        outputs=DenseEMRequestedOutputs(
+            return_stats=True,
+            accumulate_noise=True,
+            return_profile=True,
+            return_half_volume_accumulators=True,
+        ),
+    )
+    expected_result = DenseEMResult(
+        "new_mean",
+        "hard_assignment",
+        "Ft_y",
+        "Ft_ctf",
+        relion_stats="relion_stats",
+        noise_stats="noise_stats",
+        profile_stats="profile_stats",
+    )
+    captured = {}
+
+    def fake_legacy_runner(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
+
+    result = run_dense_em(request, legacy_runner=fake_legacy_runner)
+
+    expected_kwargs = {}
+    for group in (
+        request.search,
+        request.execution,
+        request.scoring,
+        request.projection,
+        request.corrections,
+        request.posterior,
+        request.reconstruction,
+        request.outputs,
+    ):
+        expected_kwargs.update(vars(group))
+
+    assert result == expected_result
+    assert captured["args"] == (
+        "dataset",
+        "mean",
+        "mean_variance",
+        "noise_variance",
+        "rotations",
+        "translations",
+        "disc_type",
+    )
+    assert captured["kwargs"] == expected_kwargs
+    assert set(expected_kwargs) == set(list(inspect.signature(run_em).parameters)[7:])
