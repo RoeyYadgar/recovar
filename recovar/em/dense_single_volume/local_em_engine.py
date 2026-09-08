@@ -127,7 +127,11 @@ from recovar.em.dense_single_volume.local_debug import (
     parse_debug_noise_component_dump_request,
     parse_debug_score_dump_request,
 )
-from recovar.em.dense_single_volume.local_em_types import LocalEMOutputSpec, LocalEMResult
+from recovar.em.dense_single_volume.local_em_types import (
+    LocalEMOutputSpec,
+    LocalEMRequest,
+    LocalEMResult,
+)
 from recovar.em.dense_single_volume.local_layout import (
     LocalBucketSpec,
     LocalHypothesisLayout,
@@ -5174,3 +5178,89 @@ def run_local_em_exact(
         profile_summary=profile_summary,
         significant_counts=significant_counts,
     )
+
+
+def run_local_em(request: LocalEMRequest, *, legacy_runner=None) -> LocalEMResult:
+    """Run exact local EM through the typed host-side request/result boundary.
+
+    ``legacy_runner`` exists only to preserve compatibility and test
+    interception while production callers migrate. It defaults to
+    :func:`run_local_em_exact`, whose numerical implementation remains the
+    single source of truth.
+    """
+
+    if legacy_runner is None:
+        legacy_runner = run_local_em_exact
+
+    inputs = request.inputs
+    search = request.search
+    execution = request.execution
+    scoring = request.scoring
+    projection = request.projection
+    corrections = request.corrections
+    posterior = request.posterior
+    reconstruction = request.reconstruction
+    outputs = request.outputs
+    diagnostics = request.diagnostics
+
+    legacy_output = legacy_runner(
+        inputs.experiment_dataset,
+        inputs.mean,
+        inputs.mean_variance,
+        inputs.noise_variance,
+        inputs.local_layout,
+        inputs.disc_type,
+        image_batch_size=execution.image_batch_size,
+        rotation_block_size=execution.rotation_block_size,
+        current_size=search.current_size,
+        reconstruction_current_size=search.reconstruction_current_size,
+        accumulate_noise=outputs.accumulate_noise,
+        projection_padding_factor=projection.projection_padding_factor,
+        reconstruction_padding_factor=projection.reconstruction_padding_factor,
+        score_with_masked_images=scoring.score_with_masked_images,
+        half_spectrum_scoring=scoring.half_spectrum_scoring,
+        relion_exact_score_translation=scoring.relion_exact_score_translation,
+        use_float64_scoring=scoring.use_float64_scoring,
+        use_float64_normalization=scoring.use_float64_normalization,
+        use_float64_projections=projection.use_float64_projections,
+        projection_relion_texture_interp=projection.relion_texture_interp,
+        projection_relion_acc_double_floorf_quirk=projection.relion_acc_double_floorf_quirk,
+        projection_force_jax=projection.force_jax,
+        relion_projector_half=inputs.relion_projector_half,
+        relion_projector_r_max=inputs.relion_projector_r_max,
+        do_gridding_correction=projection.do_gridding_correction,
+        square_window=projection.square_window,
+        image_corrections=corrections.image_corrections,
+        scale_corrections=corrections.scale_corrections,
+        group_ids=corrections.group_ids,
+        scale_correction_group_count=corrections.scale_correction_group_count,
+        scale_correction_data_vs_prior=corrections.scale_correction_data_vs_prior,
+        image_pre_shifts=corrections.image_pre_shifts,
+        mstep_subtract_ctf_projection=reconstruction.mstep_subtract_ctf_projection,
+        mstep_relion_x_half=reconstruction.mstep_relion_x_half,
+        return_half_volume_accumulators=outputs.return_half_volume_accumulators,
+        return_profile=outputs.return_profile,
+        disable_adjoint_y=reconstruction.disable_adjoint_y,
+        disable_adjoint_ctf=reconstruction.disable_adjoint_ctf,
+        max_hypotheses_per_microbatch=execution.max_hypotheses_per_microbatch,
+        reconstruct_significant_only=search.reconstruct_significant_only,
+        adaptive_fraction=search.adaptive_fraction,
+        max_significants=search.max_significants,
+        debug_iteration=diagnostics.iteration,
+        debug_pass_label=diagnostics.pass_label,
+        return_best_pose_details=outputs.return_best_pose_details,
+        normalization_log_z=posterior.normalization_log_z,
+        class_log_prior=posterior.class_log_prior,
+        normalization_log_evidence=posterior.normalization_log_evidence,
+        translation_prior_centers=posterior.translation_prior_centers,
+        unify_local_bucket_sizes=execution.unify_local_bucket_sizes,
+        stats_use_reconstruction_probs=reconstruction.stats_use_reconstruction_probs,
+        include_unweighted_norm_high_shell=reconstruction.include_unweighted_norm_high_shell,
+        source_faithful_spectrum_norm=reconstruction.source_faithful_spectrum_norm,
+        reconstruction_probability_threshold=search.reconstruction_probability_threshold,
+        return_reconstruction_probability_values=outputs.return_reconstruction_probability_values,
+        return_reconstruction_sample_indices=outputs.return_reconstruction_sample_indices,
+        return_significant_counts=outputs.return_significant_counts,
+        score_only=reconstruction.score_only,
+    )
+    return LocalEMResult.from_legacy_tuple(legacy_output, outputs.legacy_tuple_spec)
