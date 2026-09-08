@@ -9,7 +9,7 @@ Last updated: 2026-09-08
 | Component | Status | Current result / next action |
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
-| C1 Data contracts | IN PROGRESS — LOCAL COMPLETE, DENSE MIGRATING | Stable local contracts are used by every in-package production caller. The dense typed seam is complete and the K-class dense family is migrated; direct iteration and oversampling callers remain. Legacy engines remain the numerical implementations. |
+| C1 Data contracts | IN PROGRESS — LOCAL COMPLETE, DENSE NEARLY COMPLETE | Stable local contracts are used by every in-package production caller. The dense typed seam, K-class family, and oversampling family are migrated; one direct call in the legacy iteration controller remains. Legacy engines remain the numerical implementations. |
 | C2 Policy/environment boundary | NOT STARTED | Classify and centralize 206 resolved `RECOVAR_*` reads. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
@@ -98,6 +98,9 @@ GPU identity and paired timing context.
 | 2026-09-08 | Dense K-class refine integration | `test_refine_relion_mode.py -k 'dense_k_class' -q` | 3 passed, 371 deselected; existing complex-cast and gimbal-lock warnings only. |
 | 2026-09-08 | Dense caller CPU fast guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.75 s` on the complete dense K-class caller patch. |
 | 2026-09-08 | Dense adapter performance sanity | Five 10,000-call host microbenchmark samples | Median request-build/dispatch overhead `44.373 us/call` (samples `44.507`, `44.349`, `44.373`, `44.333`, `44.398 us/call`), or about `0.355 ms` for eight K=4 probe/M-step calls. |
+| 2026-09-08 | Oversampling formatting prerequisite | `test_adaptive_oversampling.py -q` with FFTW module loaded | 42/42 passed in `66.99 s` before isolated mechanical commit `1ec307d4`. The initial run without FFTW reached 38 passes and failed four binding-dependent tests before the formatted logic. |
+| 2026-09-08 | Oversampling dense callers | Same focused suite with FFTW module loaded | 42/42 passed in `67.31 s`; both union-dense and per-image reference paths consume named dense results. |
+| 2026-09-08 | Oversampling CPU fast guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.71 s` on the complete oversampling caller patch. |
 
 ## Decision log
 
@@ -367,6 +370,49 @@ K-class end-to-end GPU result was measured; direct non-K-class callers still
 decode legacy tuples; the broader sparse/controller contracts and the
 pre-existing absolute K=1 FSC-AUC drift remain unresolved.
 
+### 2026-09-08 — oversampling dense caller migration
+
+Hypothesis: the union-dense adaptive pass and its per-image numerical reference
+can consume `DenseEMResult` without changing their generated fine grids,
+candidate masks, dense-engine arguments, coarse posterior aggregation, noise
+aggregation, or their own public tuple contracts.
+
+Files changed: `helpers/oversampling.py` only. Six pre-existing formatter sites
+were committed mechanically before the caller migration.
+
+Algorithmic invariants protected:
+
+- each path lazily imports the adapter and the legacy runner at its existing
+  call boundary, preserving import-cycle and late monkeypatch behavior;
+- all dense arguments are validated and defaulted against `run_em`'s live
+  signature, and `run_em` remains the sole numerical implementation;
+- oversampled rotation/translation generation, priors, image subsets,
+  candidate masks, accumulator summation order, and returned oversampling tuple
+  layout are unchanged;
+- the removed logic only selected optional dense tuple positions for the four
+  `return_stats`/`accumulate_noise` combinations.
+
+The focused adaptive-oversampling suite passed 42/42 in `67.31 s` with the FFTW
+module loaded, and the CPU EM fast guard passed 16/16 in `49.71 s`. The first
+focused run without FFTW reached 38 passes and failed four tests while importing
+the RELION binding because `libfftw3.so.3` was unavailable; rerunning with the
+required module resolved all four without a source or test change. Existing
+complex-to-real warnings remained. No tolerance or baseline was modified.
+
+Commits:
+
+- `1ec307d4` — `style: format dense oversampling helpers`;
+- `c7255521` — `em: migrate oversampling dense calls to typed results`.
+
+Decision: accepted. Only the direct dense half-step call in
+`iteration_loop.py` still consumes the legacy tuple within package production
+code. That 10,374-line legacy module is not formatter-clean; touching it under
+the current hook would create a broad unrelated rewrite. The next slice must
+choose a reviewable controller seam or an explicitly isolated formatting
+strategy before migrating that call. No new GPU job was warranted because both
+oversampling paths reconstruct the unchanged legacy invocation and all device
+work remains inside `run_em`.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -392,10 +438,11 @@ Open risks:
 
 ## Immediate next actions
 
-1. Migrate the direct dense half-step call in `iteration_loop.py` while
-   preserving its module-level `run_em` monkeypatch/debug interception surface.
-2. Migrate the two oversampling dense caller paths and replace their
-   flag-dependent tuple parsing with named fields.
+1. Establish a reviewable formatter/ownership seam for the direct dense
+   half-step in `iteration_loop.py`; do not mix a whole-file mechanical rewrite
+   into its typed caller migration.
+2. Migrate that final production `run_em` caller while preserving the
+   iteration-loop module's monkeypatch/debug interception surface.
 3. Keep the large JIT signatures and all numerical kernels unchanged until a
    dedicated paired GPU benchmark is designed for that boundary.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
