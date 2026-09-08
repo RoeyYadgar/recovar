@@ -20,11 +20,25 @@ from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significance import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
 from .local_em_engine import run_local_em_exact
+from .local_em_types import (
+    ExecutionSettings,
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalEMInputs,
+    LocalEMRequest,
+    LocalEMRequestedOutputs,
+    LocalPosteriorInputs,
+    LocalProjectionSettings,
+    LocalReconstructionSettings,
+    LocalScoringSettings,
+    LocalSearchSettings,
+)
 from .local_layout import LocalHypothesisLayout
 
 logger = logging.getLogger(__name__)
 NVTX_DOMAIN_EM = "recovar_em"
 _RUN_EM_ALLOWED_KWARGS = frozenset(inspect.signature(run_em).parameters)
+_RUN_LOCAL_EM_EXACT_SIGNATURE = inspect.signature(run_local_em_exact)
 _SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE_ENV = "RECOVAR_SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE"
 _RELION_X_HALF_BP_FUSED_ATOMICS_ENV = "RECOVAR_RELION_X_HALF_BP_FUSED_ATOMICS"
 _DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES_ENV = "RECOVAR_DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES"
@@ -663,6 +677,106 @@ def _local_engine_kwargs_for_class(engine_kwargs: dict, class_index: int, n_clas
             n_classes,
         )
     return kwargs
+
+
+def _local_em_request_from_legacy_kwargs(
+    inputs: LocalEMInputs,
+    engine_kwargs: dict,
+) -> LocalEMRequest:
+    """Group the K-class compatibility API's flat kwargs into one local request."""
+
+    bound = _RUN_LOCAL_EM_EXACT_SIGNATURE.bind(
+        inputs.experiment_dataset,
+        inputs.mean,
+        inputs.mean_variance,
+        inputs.noise_variance,
+        inputs.local_layout,
+        inputs.disc_type,
+        **engine_kwargs,
+    )
+    bound.apply_defaults()
+    values = bound.arguments
+
+    return LocalEMRequest(
+        inputs=LocalEMInputs(
+            experiment_dataset=inputs.experiment_dataset,
+            mean=inputs.mean,
+            mean_variance=inputs.mean_variance,
+            noise_variance=inputs.noise_variance,
+            local_layout=inputs.local_layout,
+            disc_type=inputs.disc_type,
+            relion_projector_half=values["relion_projector_half"],
+            relion_projector_r_max=values["relion_projector_r_max"],
+        ),
+        search=LocalSearchSettings(
+            current_size=values["current_size"],
+            reconstruction_current_size=values["reconstruction_current_size"],
+            reconstruct_significant_only=values["reconstruct_significant_only"],
+            adaptive_fraction=values["adaptive_fraction"],
+            max_significants=values["max_significants"],
+            reconstruction_probability_threshold=values["reconstruction_probability_threshold"],
+        ),
+        execution=ExecutionSettings(
+            image_batch_size=values["image_batch_size"],
+            rotation_block_size=values["rotation_block_size"],
+            max_hypotheses_per_microbatch=values["max_hypotheses_per_microbatch"],
+            unify_local_bucket_sizes=values["unify_local_bucket_sizes"],
+        ),
+        scoring=LocalScoringSettings(
+            score_with_masked_images=values["score_with_masked_images"],
+            half_spectrum_scoring=values["half_spectrum_scoring"],
+            relion_exact_score_translation=values["relion_exact_score_translation"],
+            use_float64_scoring=values["use_float64_scoring"],
+            use_float64_normalization=values["use_float64_normalization"],
+        ),
+        projection=LocalProjectionSettings(
+            projection_padding_factor=values["projection_padding_factor"],
+            reconstruction_padding_factor=values["reconstruction_padding_factor"],
+            use_float64_projections=values["use_float64_projections"],
+            relion_texture_interp=values["projection_relion_texture_interp"],
+            relion_acc_double_floorf_quirk=values["projection_relion_acc_double_floorf_quirk"],
+            force_jax=values["projection_force_jax"],
+            do_gridding_correction=values["do_gridding_correction"],
+            square_window=values["square_window"],
+        ),
+        corrections=LocalCorrectionInputs(
+            image_corrections=values["image_corrections"],
+            scale_corrections=values["scale_corrections"],
+            group_ids=values["group_ids"],
+            scale_correction_group_count=values["scale_correction_group_count"],
+            scale_correction_data_vs_prior=values["scale_correction_data_vs_prior"],
+            image_pre_shifts=values["image_pre_shifts"],
+        ),
+        posterior=LocalPosteriorInputs(
+            normalization_log_z=values["normalization_log_z"],
+            class_log_prior=values["class_log_prior"],
+            normalization_log_evidence=values["normalization_log_evidence"],
+            translation_prior_centers=values["translation_prior_centers"],
+        ),
+        reconstruction=LocalReconstructionSettings(
+            mstep_subtract_ctf_projection=values["mstep_subtract_ctf_projection"],
+            mstep_relion_x_half=values["mstep_relion_x_half"],
+            disable_adjoint_y=values["disable_adjoint_y"],
+            disable_adjoint_ctf=values["disable_adjoint_ctf"],
+            stats_use_reconstruction_probs=values["stats_use_reconstruction_probs"],
+            include_unweighted_norm_high_shell=values["include_unweighted_norm_high_shell"],
+            source_faithful_spectrum_norm=values["source_faithful_spectrum_norm"],
+            score_only=values["score_only"],
+        ),
+        outputs=LocalEMRequestedOutputs(
+            accumulate_noise=values["accumulate_noise"],
+            return_half_volume_accumulators=values["return_half_volume_accumulators"],
+            return_profile=values["return_profile"],
+            return_best_pose_details=values["return_best_pose_details"],
+            return_reconstruction_probability_values=values["return_reconstruction_probability_values"],
+            return_reconstruction_sample_indices=values["return_reconstruction_sample_indices"],
+            return_significant_counts=values["return_significant_counts"],
+        ),
+        diagnostics=LocalEMDiagnostics(
+            iteration=values["debug_iteration"],
+            pass_label=values["debug_pass_label"],
+        ),
+    )
 
 
 class _DenseScoreDumpClassLabel:
