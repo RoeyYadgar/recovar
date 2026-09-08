@@ -127,6 +127,7 @@ from recovar.em.dense_single_volume.local_debug import (
     parse_debug_noise_component_dump_request,
     parse_debug_score_dump_request,
 )
+from recovar.em.dense_single_volume.local_em_types import LocalEMOutputSpec, LocalEMResult
 from recovar.em.dense_single_volume.local_layout import (
     LocalBucketSpec,
     LocalHypothesisLayout,
@@ -851,23 +852,26 @@ def _local_em_return_tuple(
     profile_summary=None,
     significant_counts=None,
 ):
-    result = [Ft_y, Ft_ctf, hard_assignment]
-    if return_best_pose_details:
-        result.extend(
-            [
-                best_pose_rotations,
-                best_pose_translations,
-                best_pose_rotation_ids,
-            ]
+    result = LocalEMResult(
+        Ft_y=Ft_y,
+        Ft_ctf=Ft_ctf,
+        hard_assignment=hard_assignment,
+        relion_stats=relion_stats,
+        best_pose_rotations=best_pose_rotations,
+        best_pose_translations=best_pose_translations,
+        best_pose_rotation_ids=best_pose_rotation_ids,
+        noise_stats=noise_stats,
+        profile_summary=profile_summary,
+        significant_counts=significant_counts,
+    )
+    return result.to_legacy_tuple(
+        LocalEMOutputSpec(
+            accumulate_noise=accumulate_noise,
+            return_profile=return_profile,
+            return_best_pose_details=return_best_pose_details,
+            return_significant_counts=return_significant_counts,
         )
-    result.append(relion_stats)
-    if accumulate_noise:
-        result.append(noise_stats)
-    if return_profile:
-        result.append(profile_summary)
-    if return_significant_counts:
-        result.append(significant_counts)
-    return tuple(result)
+    )
 
 
 def _project_local_bucket(
