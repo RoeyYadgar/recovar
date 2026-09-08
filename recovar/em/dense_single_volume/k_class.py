@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import time
-import inspect
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -123,8 +123,7 @@ def _log_pass1_top2_debug(
     second_score_raw = full_coarse_stats.get("class_second_best_offset_free_log_score_per_image")
     if best_score_raw is None or second_score_raw is None:
         logger.warning(
-            "RECOVAR_PASS1_TOP2_DEBUG_INDICES set but class_best/second_best "
-            "log scores were not returned (K != 1?)"
+            "RECOVAR_PASS1_TOP2_DEBUG_INDICES set but class_best/second_best log scores were not returned (K != 1?)"
         )
         return
     best_score = np.asarray(best_score_raw)
@@ -132,10 +131,7 @@ def _log_pass1_top2_debug(
     best_assign = full_coarse_stats.get("class_hard_assignments")
     second_assign = full_coarse_stats.get("class_second_hard_assignments")
     if best_score.size == 0 or second_score.size == 0:
-        logger.warning(
-            "RECOVAR_PASS1_TOP2_DEBUG_INDICES set but class_best/second_best "
-            "log scores are empty"
-        )
+        logger.warning("RECOVAR_PASS1_TOP2_DEBUG_INDICES set but class_best/second_best log scores are empty")
         return
     for idx in indices:
         if idx < 0 or idx >= best_score.shape[-1]:
@@ -210,15 +206,12 @@ def _parse_diagnostic_firstiter_class_overrides(value: str, *, n_classes: int) -
             class_index = int(fields[1])
         except ValueError as error:
             raise ValueError(
-                f"Invalid {_DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES_ENV} entry {token!r}; "
-                "both fields must be integers"
+                f"Invalid {_DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES_ENV} entry {token!r}; both fields must be integers"
             ) from error
         if original_index < 0:
             raise ValueError("diagnostic firstiter original image indices must be non-negative")
         if not 0 <= class_index < int(n_classes):
-            raise ValueError(
-                f"diagnostic firstiter class {class_index} is outside [0, {int(n_classes)})"
-            )
+            raise ValueError(f"diagnostic firstiter class {class_index} is outside [0, {int(n_classes)})")
         if original_index in overrides:
             raise ValueError(f"duplicate diagnostic firstiter override for original image {original_index}")
         overrides[original_index] = class_index
@@ -241,8 +234,7 @@ def _diagnostic_firstiter_class_assignments(
     resolver = getattr(experiment_dataset, "original_image_indices_from_local", None)
     if resolver is None:
         raise ValueError(
-            f"{_DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES_ENV} requires "
-            "experiment_dataset.original_image_indices_from_local"
+            f"{_DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES_ENV} requires experiment_dataset.original_image_indices_from_local"
         )
     original_indices = np.asarray(resolver(local_indices), dtype=np.int64)
     if original_indices.shape != local_indices.shape:
@@ -451,8 +443,7 @@ def _fine_support_stats(
                 significant_coarse_rot = np.flatnonzero(excluded_per_rot < n_trans_coarse)
                 excluded_fine_pose_count = int(
                     np.sum(
-                        fine_children_per_coarse[excluded_rot_ids]
-                        * fine_trans_children_per_coarse[excluded_trans_ids],
+                        fine_children_per_coarse[excluded_rot_ids] * fine_trans_children_per_coarse[excluded_trans_ids],
                         dtype=np.int64,
                     ),
                 )
@@ -473,8 +464,7 @@ def _fine_support_stats(
             pose_counts.append(
                 int(
                     np.sum(
-                        fine_children_per_coarse[coarse_rot_ids]
-                        * fine_trans_children_per_coarse[coarse_trans_ids],
+                        fine_children_per_coarse[coarse_rot_ids] * fine_trans_children_per_coarse[coarse_trans_ids],
                     ),
                 ),
             )
@@ -603,10 +593,7 @@ def _strict_exact_fine_gaussian_requested(
         if firstiter_cc_pass2_only_best_coarse
         else engine_kwargs.get("relion_firstiter_score_mode", "gaussian")
     )
-    return bool(
-        engine_kwargs.get("relion_exact_fine_gaussian", True)
-        and score_mode == "gaussian"
-    )
+    return bool(engine_kwargs.get("relion_exact_fine_gaussian", True) and score_mode == "gaussian")
 
 
 def _dense_engine_kwargs_for_class(engine_kwargs: dict, class_index: int, n_classes: int) -> dict:
@@ -981,9 +968,7 @@ def _run_sparse_k_class_adaptive_pass2(
         from recovar import cuda_backproject
 
         use_k1_fine_diff2_ffi = cuda_backproject.cuda_available()
-    source_faithful_spectrum_norm = bool(
-        base_engine_kwargs.get("source_faithful_spectrum_norm", False)
-    )
+    source_faithful_spectrum_norm = bool(base_engine_kwargs.get("source_faithful_spectrum_norm", False))
     if source_faithful_spectrum_norm and n_classes != 1:
         raise ValueError("source-faithful powerClass normalization is K=1-only")
 
@@ -1036,9 +1021,7 @@ def _run_sparse_k_class_adaptive_pass2(
             "relion_firstiter_score_mode",
             "gaussian",
         ),
-        relion_exact_fine_gaussian=bool(
-            base_engine_kwargs.get("relion_exact_fine_gaussian", True)
-        ),
+        relion_exact_fine_gaussian=bool(base_engine_kwargs.get("relion_exact_fine_gaussian", True)),
         # The exact rectangular/pair CUDA reduction is qualified for K=1.
         # Preserve the existing K>1 scorer until its independent boundary is
         # localized.
@@ -1050,18 +1033,14 @@ def _run_sparse_k_class_adaptive_pass2(
         # The exact normalized-CC tree is a deliberately K=1-scoped parity
         # candidate. Keep the K>1 route byte-preserving until K=1 closes.
         relion_exact_fine_normalized_cc=n_classes == 1,
-        relion_firstiter_winner_take_all=bool(
-            base_engine_kwargs.get("relion_firstiter_winner_take_all", False)
-        ),
+        relion_firstiter_winner_take_all=bool(base_engine_kwargs.get("relion_firstiter_winner_take_all", False)),
         random_perturbation=float(random_perturbation),
         fine_rotations_override=fine_rotations_np,
         fine_mstep_rotations_override=fine_mstep_rotations_np,
         fine_rotation_parent_override=rot_parent_map_np,
         fine_translations_override=fine_translations_np,
         fine_translation_parent_override=trans_parent_map_np,
-        bpref_device_signature_active=bool(
-            base_engine_kwargs.get("bpref_device_signature_active", False)
-        ),
+        bpref_device_signature_active=bool(base_engine_kwargs.get("bpref_device_signature_active", False)),
         source_faithful_spectrum_norm=source_faithful_spectrum_norm,
     )
     preserve_bpref_particle_order = _apply_bpref_particle_order_policy(
@@ -1100,17 +1079,13 @@ def _run_sparse_k_class_adaptive_pass2(
 
     use_fused_pass2 = _use_fused_sparse_k_class_pass2(n_classes)
     if preserve_bpref_particle_order and use_fused_pass2:
-        raise RuntimeError(
-            "RELION BPref particle-order preservation requires the K=1 single-class sparse path"
-        )
+        raise RuntimeError("RELION BPref particle-order preservation requires the K=1 single-class sparse path")
     strict_exact_gaussian = bool(
-        common["relion_exact_fine_gaussian"]
-        and common["relion_firstiter_score_mode"] == "gaussian"
+        common["relion_exact_fine_gaussian"] and common["relion_firstiter_score_mode"] == "gaussian"
     )
     if strict_exact_gaussian and n_classes > 1 and not use_fused_pass2:
         raise RuntimeError(
-            "strict exact RELION Gaussian K-class pass2 requires fused scoring "
-            "with one common class-by-pose minimum"
+            "strict exact RELION Gaussian K-class pass2 requires fused scoring with one common class-by-pose minimum"
         )
     if use_fused_pass2:
         from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
@@ -1138,9 +1113,7 @@ def _run_sparse_k_class_adaptive_pass2(
                 noise_variance,
                 coarse_translations_np,
                 sig_sample_indices_by_class,
-                rotation_log_priors_by_class=[
-                    _class_rotation_prior(class_index) for class_index in range(n_classes)
-                ],
+                rotation_log_priors_by_class=[_class_rotation_prior(class_index) for class_index in range(n_classes)],
                 accumulate_noise=accumulate_noise,
                 relion_fine_mstep_prune_mode=_k_class_fused_relion_fine_mstep_prune_mode_override(
                     relion_fine_mstep_prune=bool(base_engine_kwargs.get("relion_fine_mstep_prune", False)),
@@ -1150,8 +1123,7 @@ def _run_sparse_k_class_adaptive_pass2(
         except NotImplementedError as exc:
             if strict_exact_gaussian:
                 raise RuntimeError(
-                    "strict exact RELION Gaussian K-class pass2 cannot fall back to "
-                    "independent per-class minima"
+                    "strict exact RELION Gaussian K-class pass2 cannot fall back to independent per-class minima"
                 ) from exc
             logger.info("Sparse fused K-class pass2 unavailable; falling back to 2K-1 sparse path: %s", exc)
         else:
@@ -1489,9 +1461,7 @@ def _assemble_result(
     # carries whatever dtype its own caller correctly chose (float64 under
     # double-precision scoring) -- forcing float32 here discards that
     # upstream precision at this universal per-image aggregation step.
-    output_dtype = (
-        np.asarray(per_class_stats[0].best_log_score_per_image).dtype if per_class_stats else np.float32
-    )
+    output_dtype = np.asarray(per_class_stats[0].best_log_score_per_image).dtype if per_class_stats else np.float32
     global_log_evidence = _logsumexp_np(class_log_evidence, axis=0).astype(np.float64)
     # Guard against -inf - (-inf) = NaN when an entire (image, class) had all
     # poses masked out (e.g., RELION firstiter_cc_pass2_only_best_coarse where
@@ -1634,9 +1604,8 @@ def _run_dense_k_class_score_probe(
     log_priors = _class_log_priors(n_classes, class_log_priors)
     base_engine_kwargs = dict(engine_kwargs)
 
-    if (
-        base_engine_kwargs.get("relion_firstiter_score_mode") == "normalized_cc"
-        and bool(base_engine_kwargs.get("relion_firstiter_winner_take_all", False))
+    if base_engine_kwargs.get("relion_firstiter_score_mode") == "normalized_cc" and bool(
+        base_engine_kwargs.get("relion_firstiter_winner_take_all", False)
     ):
         return _run_dense_k_class_joint_firstiter_score_probe(
             experiment_dataset,
@@ -1765,9 +1734,7 @@ def _run_dense_k_class_joint_firstiter_score_probe(
     )[-1]
     from .helpers.sparse_pass2_bucketed import _resolve_local_target_indices
 
-    _top2_debug_indices = _resolve_local_target_indices(
-        experiment_dataset, _pass1_top2_debug_target_indices()
-    )
+    _top2_debug_indices = _resolve_local_target_indices(experiment_dataset, _pass1_top2_debug_target_indices())
     if _top2_debug_indices:
         # This is the RELION firstiter_cc winner-take-all coarse probe (K=1
         # global search, iteration 1) -- the actual pass-1 code path for
@@ -1852,10 +1819,7 @@ def _full_group_count_from_kwargs(kwargs: dict) -> int | None:
             or not np.isfinite(float(explicit_count))
             or float(explicit_count) != float(normalized_explicit_count)
         ):
-            raise ValueError(
-                "scale_correction_group_count must be a non-negative integer, "
-                f"got {explicit_count!r}"
-            )
+            raise ValueError(f"scale_correction_group_count must be a non-negative integer, got {explicit_count!r}")
     else:
         normalized_explicit_count = 0
     group_ids = kwargs.get("group_ids")
@@ -2004,8 +1968,7 @@ def _run_firstiter_global_winner_subset_pass2(
     relion_projector_r_max = pass2_kwargs.get("relion_projector_r_max")
     pose_dtype = (
         np.float64
-        if pass2_kwargs.get("use_float64_scoring", False)
-        or pass2_kwargs.get("use_float64_projections", False)
+        if pass2_kwargs.get("use_float64_scoring", False) or pass2_kwargs.get("use_float64_projections", False)
         else np.float32
     )
     score_dtype = np.float64 if pass2_kwargs.get("use_float64_scoring", False) else np.float32
@@ -2183,16 +2146,13 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
     n_images = int(coarse_class_assignments.shape[0])
     relion_projector_half_by_class = pass2_kwargs.get("relion_projector_half")
     relion_projector_r_max = pass2_kwargs.get("relion_projector_r_max")
-    source_faithful_spectrum_norm = bool(
-        pass2_kwargs.get("source_faithful_spectrum_norm", False)
-    )
+    source_faithful_spectrum_norm = bool(pass2_kwargs.get("source_faithful_spectrum_norm", False))
     if source_faithful_spectrum_norm and n_classes != 1:
         raise ValueError("source-faithful powerClass normalization is K=1-only")
     score_dtype = np.float64 if pass2_kwargs.get("use_float64_scoring", False) else np.float32
     pose_dtype = (
         np.float64
-        if pass2_kwargs.get("use_float64_scoring", False)
-        or pass2_kwargs.get("use_float64_projections", False)
+        if pass2_kwargs.get("use_float64_scoring", False) or pass2_kwargs.get("use_float64_projections", False)
         else np.float32
     )
 
@@ -2231,9 +2191,7 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
         # algebraic shortcut.  Both are algebraically equivalent, but the
         # literal route follows RELION's reduction contract directly.
         relion_exact_fine_normalized_cc=n_classes == 1,
-        bpref_device_signature_active=bool(
-            pass2_kwargs.get("bpref_device_signature_active", False)
-        ),
+        bpref_device_signature_active=bool(pass2_kwargs.get("bpref_device_signature_active", False)),
         source_faithful_spectrum_norm=source_faithful_spectrum_norm,
     )
     _apply_bpref_particle_order_policy(
@@ -3142,9 +3100,7 @@ def run_dense_k_class_em_adaptive(
     coarse_translations_np = np.asarray(coarse_translations)
     fine_rotations_np = np.asarray(fine_rotations)
     fine_mstep_rotations_np = (
-        None
-        if fine_mstep_rotations_override is None
-        else np.asarray(fine_mstep_rotations_override)
+        None if fine_mstep_rotations_override is None else np.asarray(fine_mstep_rotations_override)
     )
     fine_translations_source_np = np.asarray(fine_translations)
     fine_translations_np = np.asarray(fine_translations_source_np)
@@ -3159,9 +3115,7 @@ def run_dense_k_class_em_adaptive(
     # the deployed build) and rounds only the CUDA translation angle to
     # float32. Preserve that source precision for K=1 sparse pass 2 while
     # retaining the established float32 pose/prior/output representation.
-    sparse_fine_translations_np = (
-        fine_translations_source_np if n_classes == 1 else fine_translations_np
-    )
+    sparse_fine_translations_np = fine_translations_source_np if n_classes == 1 else fine_translations_np
 
     if fine_mstep_rotations_np is not None and fine_mstep_rotations_np.shape != fine_rotations_np.shape:
         raise ValueError(
@@ -3239,9 +3193,7 @@ def run_dense_k_class_em_adaptive(
         coarse_probe_kwargs["rotation_block_size"] = sig_rbs
         coarse_probe_kwargs["relion_firstiter_score_mode"] = "normalized_cc"
         coarse_probe_kwargs["relion_firstiter_winner_take_all"] = True
-        coarse_probe_kwargs["coarse_relion_projector_texture_interp"] = (
-            coarse_relion_projector_texture_interp
-        )
+        coarse_probe_kwargs["coarse_relion_projector_texture_interp"] = coarse_relion_projector_texture_interp
         coarse_probe_kwargs["current_size"] = (
             coarse_current_size if coarse_current_size is not None else fine_current_size
         )
@@ -3252,9 +3204,7 @@ def run_dense_k_class_em_adaptive(
             # RELION builds CUDA translation phases from host RFLOAT
             # coordinates. Keep the established float32 pose/prior grid, but
             # do not derive strict K=1 score phases from that rounded copy.
-            coarse_probe_kwargs["translation_phase_source"] = (
-                coarse_translation_phase_source
-            )
+            coarse_probe_kwargs["translation_phase_source"] = coarse_translation_phase_source
         with _DenseScoreDumpPhaseLabel("coarse"):
             with nvtx.annotate("kclass.adaptive.coarse_probe", color="yellow", domain=NVTX_DOMAIN_EM):
                 coarse_result = _run_dense_k_class_score_probe(
@@ -3322,9 +3272,7 @@ def run_dense_k_class_em_adaptive(
             relion_projector_texture_interp=coarse_relion_projector_texture_interp,
             debug_iteration=debug_iteration,
             translation_phase_source=coarse_translation_phase_source,
-            relion_coarse_gaussian_default=bool(
-                engine_kwargs.get("preserve_bpref_particle_order", False)
-            ),
+            relion_coarse_gaussian_default=bool(engine_kwargs.get("preserve_bpref_particle_order", False)),
         )
         _top2_debug_indices = _pass1_top2_debug_target_indices()
         if _top2_debug_indices:
@@ -3385,9 +3333,7 @@ def run_dense_k_class_em_adaptive(
     pass2_kwargs.pop("rotation_translation_mask", None)
     sparse_pass2_requested = bool(pass2_kwargs.pop("sparse_pass2", False))
     if bool(pass2_kwargs.get("preserve_bpref_particle_order", False)) and not sparse_pass2_requested:
-        raise RuntimeError(
-            "RELION BPref particle-order preservation requires sparse adaptive pass 2"
-        )
+        raise RuntimeError("RELION BPref particle-order preservation requires sparse adaptive pass 2")
     if fine_mstep_rotations_np is not None and not sparse_pass2_requested:
         raise NotImplementedError("fine_mstep_rotations_override requires sparse_pass2=True")
     # The explicit bucketed sparse pass-2 path consumes ``sparse_pass2`` above.
@@ -3401,13 +3347,10 @@ def run_dense_k_class_em_adaptive(
     if "current_size" not in pass2_kwargs and fine_current_size is not None:
         pass2_kwargs["current_size"] = fine_current_size
 
-    device_signature_configured = bool(
-        os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
-    )
+    device_signature_configured = bool(os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip())
     fused_atomic_env_enabled = _env_flag_enabled(_RELION_X_HALF_BP_FUSED_ATOMICS_ENV)
     fused_atomic_diagnostic_requested = bool(
-        fused_atomic_env_enabled
-        and (bpref_device_signature_active or not device_signature_configured)
+        fused_atomic_env_enabled and (bpref_device_signature_active or not device_signature_configured)
     )
     firstiter_fused_atomic_supported = (
         sparse_pass2_requested
@@ -3421,15 +3364,10 @@ def run_dense_k_class_em_adaptive(
         and sparse_pass2_requested
         and not firstiter_cc_pass2_only_best_coarse
         and not skip_significance_pruning
-        and (
-            n_classes == 1
-            or _use_fused_sparse_k_class_pass2(n_classes)
-        )
+        and (n_classes == 1 or _use_fused_sparse_k_class_pass2(n_classes))
         and bool(pass2_kwargs.get("mstep_relion_x_half", False))
     )
-    fused_atomic_diagnostic_supported = bool(
-        firstiter_fused_atomic_supported or later_soft_particle_fused_supported
-    )
+    fused_atomic_diagnostic_supported = bool(firstiter_fused_atomic_supported or later_soft_particle_fused_supported)
     if fused_atomic_diagnostic_requested and not fused_atomic_diagnostic_supported:
         raise RuntimeError(
             "RECOVAR_RELION_X_HALF_BP_FUSED_ATOMICS is qualified only for the sparse "
@@ -3444,9 +3382,7 @@ def run_dense_k_class_em_adaptive(
             n_classes=n_classes,
         )
         if not later_soft_particle_fused_supported and not firstiter_fused_atomic_supported:
-            raise RuntimeError(
-                "active BPref device signature scope requires supported sparse RELION x-half topology"
-            )
+            raise RuntimeError("active BPref device signature scope requires supported sparse RELION x-half topology")
         pass2_kwargs["bpref_device_signature_active"] = True
 
     if (
@@ -3519,8 +3455,7 @@ def run_dense_k_class_em_adaptive(
         compact_sparse_preferred = _compact_sparse_pass2_preferred_over_dense(n_classes, n_images)
         compact_sparse_min_images = _compact_sparse_pass2_large_dataset_image_threshold(n_classes)
         dense_by_median = (
-            not compact_sparse_preferred
-            and support_stats["rotation_median_fraction"] >= dense_support_threshold
+            not compact_sparse_preferred and support_stats["rotation_median_fraction"] >= dense_support_threshold
         )
         dense_by_mean = (
             not compact_sparse_preferred
