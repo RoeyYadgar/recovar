@@ -38,8 +38,8 @@ from recovar.em.dense_single_volume.helpers.half_volume_mstep import (
     half_volume_accumulator_shape,
     half_volume_accumulators_to_full,
     relion_backprojector_volume_shape,
-    relion_x_half_mstep_accumulator_dtypes,
     relion_x_half_accumulators_to_public_layout,
+    relion_x_half_mstep_accumulator_dtypes,
 )
 from recovar.em.dense_single_volume.helpers.image_shifts import (
     apply_relion_integer_pre_shifts,
@@ -49,50 +49,21 @@ from recovar.em.dense_single_volume.helpers.image_shifts import (
 from recovar.em.dense_single_volume.helpers.jax_runtime import block_until_ready as _block_until_ready
 from recovar.em.dense_single_volume.helpers.preprocessing import (
     _cast_shift_inputs,
+    _norm_inputs,
+    process_half_image,
+    resolve_image_mask_for_half_preprocess,
+)
+from recovar.em.dense_single_volume.helpers.preprocessing import (
     apply_half_translation_phases as _apply_half_translation_phases,
 )
 from recovar.em.dense_single_volume.helpers.preprocessing import (
     half_translation_phase_table as _half_translation_phase_table,
 )
-from recovar.em.dense_single_volume.helpers.preprocessing import (
-    _norm_inputs,
-    process_half_image,
-    resolve_image_mask_for_half_preprocess,
-)
-from recovar.em.dense_single_volume.local_timing import (  # noqa: F401
-    _LOCAL_ACCOUNTED_TIMING_FIELDS,
-    _LOCAL_ACCOUNTED_TIMING_SETUP_FIELDS,
-    _LOCAL_PREPROCESS_TIMER_KEYS,
-    _LOCAL_TIMING_PROFILE_FIELDS,
-    _LOCAL_TRANSFER_TIMER_KEYS,
-    _LocalTiming,
-    _local_timing_profile,
-    _new_local_preprocess_timer,
-    _new_local_transfer_timer,
-    _new_zero_timer,
-    _prefixed_timer_profile,
-)
-from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
-    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
-    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
-    EXACT_LOCAL_RAW_CACHE_MAX_GB,
-    EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
-    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
-    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
-    _LocalProcessedHalfCache,
-    _all_integer_pre_shifts_or_none,
-    _build_local_processed_half_cache,
-    _build_local_raw_cache,
-    _local_processed_half_cache_enabled,
-    _local_raw_cache_enabled,
-    _sparse_big_jit_mstep_tensors_memory_gb,
-    _validate_native_half_batch,
-)
 from recovar.em.dense_single_volume.helpers.projection import (
     compute_noise_block as _compute_noise_block,
+)
+from recovar.em.dense_single_volume.helpers.projection import (
     compute_norm_residual_per_image as _compute_norm_residual_per_image,
-    compute_scale_correction_terms_per_image as _compute_scale_correction_terms_per_image,
-    relion_scale_correction_pixel_mask as _relion_scale_correction_pixel_mask,
 )
 from recovar.em.dense_single_volume.helpers.projection import (
     compute_projections_block as _compute_projections_block,
@@ -101,12 +72,17 @@ from recovar.em.dense_single_volume.helpers.projection import (
     compute_relion_projector_projections_block as _compute_relion_projector_projections_block,
 )
 from recovar.em.dense_single_volume.helpers.projection import (
+    compute_scale_correction_terms_per_image as _compute_scale_correction_terms_per_image,
+)
+from recovar.em.dense_single_volume.helpers.projection import (
     indexed_projection_available as _indexed_projection_available,
 )
 from recovar.em.dense_single_volume.helpers.projection import (
     project_indexed_half_spectrum as _project_indexed_half_spectrum,
 )
-from recovar.em.dense_single_volume.helpers.timing import TimingAccumulator
+from recovar.em.dense_single_volume.helpers.projection import (
+    relion_scale_correction_pixel_mask as _relion_scale_correction_pixel_mask,
+)
 from recovar.em.dense_single_volume.helpers.translation_prior import (
     translation_prior_centers_for_images,
     translation_sqdist_angstrom,
@@ -123,6 +99,22 @@ from recovar.em.dense_single_volume.local_backprojection import (
 from recovar.em.dense_single_volume.local_big_jit import (
     _norm_correction_image_power_per_image,
     run_local_bucket_big_jit,
+)
+from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+    _all_integer_pre_shifts_or_none,
+    _build_local_processed_half_cache,
+    _build_local_raw_cache,
+    _local_processed_half_cache_enabled,
+    _local_raw_cache_enabled,
+    _LocalProcessedHalfCache,
+    _sparse_big_jit_mstep_tensors_memory_gb,
+    _validate_native_half_batch,
 )
 from recovar.em.dense_single_volume.local_debug import (
     current_size_matches_request,
@@ -146,16 +138,28 @@ from recovar.em.dense_single_volume.local_score_pass import (
     compute_reconstruction_support,
     compute_reconstruction_support_from_threshold,
     fused_score_normalize_mstep_abs2_on_demand,
-    fused_score_normalize_mstep_abs2_with_log_z_on_demand,
     fused_score_normalize_support_abs2_on_demand,
-    fused_score_normalize_support_probs_abs2_with_log_z_on_demand,
     fused_score_normalize_support_probs_abs2_on_demand,
+    fused_score_normalize_support_probs_abs2_with_log_z_on_demand,
     normalize_local_scores,
     normalize_local_scores_float32,
     normalize_local_scores_with_log_z,
     normalize_local_scores_with_log_z_float32,
     score_local_bucket_abs2_on_demand,
     score_local_bucket_abs2_weighted_on_demand,
+)
+from recovar.em.dense_single_volume.local_timing import (  # noqa: F401
+    _LOCAL_ACCOUNTED_TIMING_FIELDS,
+    _LOCAL_ACCOUNTED_TIMING_SETUP_FIELDS,
+    _LOCAL_PREPROCESS_TIMER_KEYS,
+    _LOCAL_TIMING_PROFILE_FIELDS,
+    _LOCAL_TRANSFER_TIMER_KEYS,
+    _local_timing_profile,
+    _LocalTiming,
+    _new_local_preprocess_timer,
+    _new_local_transfer_timer,
+    _new_zero_timer,
+    _prefixed_timer_profile,
 )
 from recovar.em.dense_single_volume.shape_buckets import pad_axis, pad_batch_data_ctf_and_valid_mask
 from recovar.reconstruction import noise as noise_utils
@@ -178,15 +182,11 @@ def _maybe_dump_exact_local_bpref_contribution_rows(**kwargs) -> None:
     if not os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip():
         return
     if os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip():
-        raise RuntimeError(
-            "Exact-local BPref contribution capture does not yet support device signatures"
-        )
+        raise RuntimeError("Exact-local BPref contribution capture does not yet support device signatures")
     _sparse_pass2_diagnostics._maybe_dump_bpref_contribution_rows(**kwargs)
 
 
-def _exact_local_bpref_contribution_capture_active(
-    *, current_size: int | None, debug_iteration: int | None
-) -> bool:
+def _exact_local_bpref_contribution_capture_active(*, current_size: int | None, debug_iteration: int | None) -> bool:
     """Return whether this exact-local half is the explicitly targeted boundary."""
 
     if not os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip():
@@ -196,9 +196,7 @@ def _exact_local_bpref_contribution_capture_active(
     context_half = int(context["half"])
     target_iteration = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION", "").strip()
     target_half = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF", "").strip()
-    target_current_size = os.environ.get(
-        "RECOVAR_BPREF_CONTRIBUTION_DUMP_CURRENT_SIZE", ""
-    ).strip()
+    target_current_size = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_CURRENT_SIZE", "").strip()
     if not (target_iteration and target_half and target_current_size):
         return False
     if context_iteration != int(target_iteration):
@@ -228,9 +226,7 @@ def _exact_local_bpref_contribution_capture_for_call(
     if not requested or score_only:
         return False
     if not mstep_relion_x_half:
-        raise RuntimeError(
-            "Exact-local BPref contribution capture requires RELION x-half M-step geometry"
-        )
+        raise RuntimeError("Exact-local BPref contribution capture requires RELION x-half M-step geometry")
     return True
 
 
@@ -256,9 +252,7 @@ EXACT_LOCAL_XHALF_AUTO_MICROBATCH_BOOST_ENV = "RECOVAR_EXACT_LOCAL_XHALF_AUTO_MI
 # automatic x-half buckets on the proven side of that boundary.  The cap never
 # splits one particle's exact rotation neighborhood.
 EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS = 40_000_000
-EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV = (
-    "RECOVAR_EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS"
-)
+EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV = "RECOVAR_EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS"
 # Score-only big-JIT lowers the score residual to a dense
 # (image, rotation, translation, pixel) float32 tile.  Limit that one tile to
 # a conservative share of memory that is still free at local-search entry;
@@ -564,10 +558,12 @@ def _exact_local_default_big_jit_matmul_max_gb(*, allow_high_memory_default: boo
 
 
 def _exact_local_relion_projection_cache_chunk_rows(n_projection_pixels: int) -> int:
-    target = int(os.environ.get(
-        EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV,
-        EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS,
-    ))
+    target = int(
+        os.environ.get(
+            EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV,
+            EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS,
+        )
+    )
     if target <= 0:
         raise ValueError(f"{EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV} must be positive")
     return max(1, int(target) // max(1, int(n_projection_pixels)))
@@ -1229,9 +1225,7 @@ def _postprocess_local_bucket(
     transfer_t0 = time.time()
     probs_sum_t_np = np.asarray(probs_sum_t, dtype=np.float64)
     collect_significant_counts = collect_profile_stats or buffers.significant_counts is not None
-    n_significant_samples_np = (
-        np.asarray(n_significant_samples, dtype=np.int32) if collect_significant_counts else None
-    )
+    n_significant_samples_np = np.asarray(n_significant_samples, dtype=np.int32) if collect_significant_counts else None
     buffers.transfer_profile["postprocess_posterior_to_host_s"] += time.time() - transfer_t0
 
     if buffers.significant_counts is not None:
@@ -1358,15 +1352,11 @@ def _exact_local_max_hypotheses_per_microbatch(
         if value <= 0:
             raise ValueError("max_hypotheses_per_microbatch must be positive")
         return value
-    target_row_pixels = _exact_local_default_target_row_pixels(
-        allow_high_memory_default=allow_high_memory_default
-    )
+    target_row_pixels = _exact_local_default_target_row_pixels(allow_high_memory_default=allow_high_memory_default)
     if target_row_pixels <= 0:
         raise ValueError(f"{EXACT_LOCAL_TARGET_ROW_PIXELS_ENV} must be positive")
     value = target_row_pixels // max(1, int(n_windowed))
-    max_gb = _exact_local_default_big_jit_matmul_max_gb(
-        allow_high_memory_default=allow_high_memory_default
-    )
+    max_gb = _exact_local_default_big_jit_matmul_max_gb(allow_high_memory_default=allow_high_memory_default)
     if max_gb > 0.0:
         # The fused local M-step lowers to a matmul whose large outputs are
         # per-rotation image sums, not a literal (rotation, translation, pixel)
@@ -1511,9 +1501,7 @@ def _exact_local_effective_max_hypotheses_per_microbatch(
         * EXACT_LOCAL_SCORE_TILE_LIVE_FACTOR
     )
     score_tile_cap = int(
-        int(runtime_free_memory_bytes)
-        * EXACT_LOCAL_SCORE_TILE_FREE_MEMORY_FRACTION
-        // score_tile_bytes_per_hypothesis
+        int(runtime_free_memory_bytes) * EXACT_LOCAL_SCORE_TILE_FREE_MEMORY_FRACTION // score_tile_bytes_per_hypothesis
     )
     return int(max(1, min(effective_cap, score_tile_cap)))
 
@@ -1689,11 +1677,7 @@ def _prepare_local_exact_bucket(
         )
 
     ctf_t0 = time.time()
-    ctf_eval_params = (
-        jnp.asarray(ctf_params, dtype=score_real_dtype)
-        if score_real_dtype is not None
-        else ctf_params
-    )
+    ctf_eval_params = jnp.asarray(ctf_params, dtype=score_real_dtype) if score_real_dtype is not None else ctf_params
     ctf_half = config.compute_ctf_half(ctf_eval_params)
     ctf2_over_nv_ctf = ctf_half.astype(score_real_dtype) if score_real_dtype is not None else ctf_half
     ctf2_over_nv_noise = (
@@ -1979,11 +1963,7 @@ def run_local_em_exact(
     image_shape = experiment_dataset.image_shape
     volume_shape = experiment_dataset.volume_shape
     H, W = image_shape
-    mstep_current_size = (
-        current_size
-        if reconstruction_current_size is None
-        else int(reconstruction_current_size)
-    )
+    mstep_current_size = current_size if reconstruction_current_size is None else int(reconstruction_current_size)
     n_half = H * (W // 2 + 1)
     n_trans = int(local_layout.translation_grid.shape[0])
     n_images = int(local_layout.n_images)
@@ -1999,8 +1979,7 @@ def run_local_em_exact(
             or float(scale_correction_group_count) != float(explicit_scale_group_count)
         ):
             raise ValueError(
-                "scale_correction_group_count must be a non-negative integer, "
-                f"got {scale_correction_group_count!r}"
+                "scale_correction_group_count must be a non-negative integer, " f"got {scale_correction_group_count!r}"
             )
     if group_ids is not None:
         group_ids_np = np.asarray(group_ids, dtype=np.int64).reshape(-1)
@@ -2082,14 +2061,8 @@ def run_local_em_exact(
         score_only=score_only,
         mstep_relion_x_half=mstep_relion_x_half,
     )
-    debug_score_dump_operands = bool(
-        debug_score_dump_filter_matches
-        and _env_flag(LOCAL_SCORE_DUMP_OPERANDS_ENV)
-    )
-    debug_score_dump_force_split = bool(
-        debug_score_dump_filter_matches
-        and _env_flag(LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV)
-    )
+    debug_score_dump_operands = bool(debug_score_dump_filter_matches and _env_flag(LOCAL_SCORE_DUMP_OPERANDS_ENV))
+    debug_score_dump_force_split = bool(debug_score_dump_filter_matches and _env_flag(LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV))
     debug_score_dump_big_jit = bool(debug_score_dump_filter_matches and not debug_score_dump_force_split)
     config = ForwardModelConfig.from_dataset(
         experiment_dataset,
@@ -2213,9 +2186,7 @@ def run_local_em_exact(
     noise_sumw = jnp.asarray(0.0, dtype=precision_policy.score_real_dtype)
     return_noise_split = noise_split_diagnostics_requested()
     require_materialized_recon_projection = bool(
-        mstep_subtract_ctf_projection
-        or debug_noise_dump_filter_matches
-        or return_noise_split
+        mstep_subtract_ctf_projection or debug_noise_dump_filter_matches or return_noise_split
     )
     can_defer_local_noise_projection = (
         relion_projector_half is None
@@ -2224,9 +2195,7 @@ def run_local_em_exact(
         and _indexed_projection_available()
     )
     defer_local_noise_projection = (
-        not require_materialized_recon_projection
-        and window_spec.use_window
-        and can_defer_local_noise_projection
+        not require_materialized_recon_projection and window_spec.use_window and can_defer_local_noise_projection
     )
     need_local_recon_projection = require_materialized_recon_projection or (
         accumulate_noise and not defer_local_noise_projection
@@ -2253,11 +2222,7 @@ def run_local_em_exact(
         noise_img_power = jnp.zeros(n_shells, dtype=precision_policy.score_real_dtype)
         noise_norm_correction = jnp.zeros(
             n_images,
-            dtype=(
-                jnp.float64
-                if source_faithful_spectrum_norm
-                else precision_policy.score_real_dtype
-            ),
+            dtype=(jnp.float64 if source_faithful_spectrum_norm else precision_policy.score_real_dtype),
         )
         noise_a2 = jnp.zeros(n_shells, dtype=precision_policy.score_real_dtype)
         noise_xa = jnp.zeros(n_shells, dtype=precision_policy.score_real_dtype)
@@ -2350,9 +2315,7 @@ def run_local_em_exact(
     allow_microbatch_auto_boost = True
     xhalf_bpref_mstep = bool(relion_projector_half is not None and mstep_relion_x_half and not score_only)
     xhalf_auto_microbatch_boost = _exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None
-    xhalf_full_bpref_mstep = bool(
-        xhalf_bpref_mstep and int(recon_volume_shape[0]) >= (2 * int(image_shape[0]) + 1)
-    )
+    xhalf_full_bpref_mstep = bool(xhalf_bpref_mstep and int(recon_volume_shape[0]) >= (2 * int(image_shape[0]) + 1))
     if xhalf_bpref_mstep and max_hypotheses_per_microbatch is None and not _exact_local_microbatch_env_overridden():
         bpreftype = "full-BPref" if xhalf_full_bpref_mstep else "current-size BPref"
         logger.info(
@@ -2434,9 +2397,7 @@ def run_local_em_exact(
         and _env_flag(LOCAL_SCORE_DUMP_TARGET_ONLY_ENV)
     )
     debug_target_only_original_bucket_count = len(bucket_specs)
-    debug_target_only_original_image_count = int(
-        sum(int(bucket.image_indices.shape[0]) for bucket in bucket_specs)
-    )
+    debug_target_only_original_image_count = int(sum(int(bucket.image_indices.shape[0]) for bucket in bucket_specs))
     debug_target_only_original_rotations = int(total_local_rotations)
     if debug_score_dump_target_only:
         filter_t0 = time.time()
@@ -2471,10 +2432,7 @@ def run_local_em_exact(
         )
         unique_bucket_counts, unique_bucket_freq = np.unique(bucket_rotation_counts, return_counts=True)
         top_bucket_counts = sorted(
-            (
-                (int(bucket_count), int(freq))
-                for bucket_count, freq in zip(unique_bucket_counts, unique_bucket_freq)
-            ),
+            ((int(bucket_count), int(freq)) for bucket_count, freq in zip(unique_bucket_counts, unique_bucket_freq)),
             key=lambda item: item[1],
             reverse=True,
         )[:6]
@@ -2502,14 +2460,10 @@ def run_local_em_exact(
     progress_chunks_override = _optional_nonnegative_int_env(EXACT_LOCAL_PROGRESS_CHUNKS_ENV)
     progress_seconds_override = _optional_nonnegative_int_env(EXACT_LOCAL_PROGRESS_SECONDS_ENV)
     exact_local_progress_chunks = (
-        DEFAULT_EXACT_LOCAL_PROGRESS_CHUNKS
-        if progress_chunks_override is None
-        else int(progress_chunks_override)
+        DEFAULT_EXACT_LOCAL_PROGRESS_CHUNKS if progress_chunks_override is None else int(progress_chunks_override)
     )
     exact_local_progress_seconds = (
-        DEFAULT_EXACT_LOCAL_PROGRESS_SECONDS
-        if progress_seconds_override is None
-        else int(progress_seconds_override)
+        DEFAULT_EXACT_LOCAL_PROGRESS_SECONDS if progress_seconds_override is None else int(progress_seconds_override)
     )
     progress_total_chunks = len(bucket_specs)
     progress_total_images = int(sum(int(bucket.image_indices.shape[0]) for bucket in bucket_specs))
@@ -2577,13 +2531,11 @@ def run_local_em_exact(
         image_shape,
         dtype=precision_policy.score_real_dtype,
     )
-    relion_score_translation_angles = (
-        _sparse_pass2_diagnostics._relion_cuda_score_translation_angles_if_available(
-            local_layout.translation_grid,
-            image_shape,
-            enabled=relion_exact_score_translation,
-            dtype=np.float64 if use_float64_scoring else np.float32,
-        )
+    relion_score_translation_angles = _sparse_pass2_diagnostics._relion_cuda_score_translation_angles_if_available(
+        local_layout.translation_grid,
+        image_shape,
+        enabled=relion_exact_score_translation,
+        dtype=np.float64 if use_float64_scoring else np.float32,
     )
     if return_profile:
         _block_until_ready(translation_phases_half)
@@ -2619,7 +2571,9 @@ def run_local_em_exact(
     )
     use_relion_projector = relion_projector_half is not None
     compact_relion_projector_big_jit = bool(use_relion_projector and window_spec.use_window)
-    relion_projector_big_jit_supported = bool(use_relion_projector and (not use_window or compact_relion_projector_big_jit))
+    relion_projector_big_jit_supported = bool(
+        use_relion_projector and (not use_window or compact_relion_projector_big_jit)
+    )
     disable_big_jit_buckets = os.environ.get("RECOVAR_DISABLE_LOCAL_BIG_JIT", "").lower() in {
         "1",
         "true",
@@ -2679,9 +2633,7 @@ def run_local_em_exact(
             )
         relion_projector_r_max_big_jit = int(relion_projector_r_max)
         if compact_relion_projector_big_jit:
-            big_jit_relion_projector_output_size = (
-                int(2 * window_spec.max_r) if window_spec.max_r is not None else 0
-            )
+            big_jit_relion_projector_output_size = int(2 * window_spec.max_r) if window_spec.max_r is not None else 0
             if score_only:
                 big_jit_projection_pixel_indices_arg = jnp.asarray(window_spec.score_indices, dtype=jnp.int32)
                 big_jit_projection_score_take_arg = jnp.arange(window_spec.n_score, dtype=jnp.int32)
@@ -2690,11 +2642,7 @@ def run_local_em_exact(
                 big_jit_projection_pixel_indices_arg = jnp.asarray(window_spec.projection_indices, dtype=jnp.int32)
                 big_jit_projection_score_take_arg = jnp.asarray(window_spec.score_projection_take, dtype=jnp.int32)
                 big_jit_projection_recon_take_arg = jnp.asarray(window_spec.recon_projection_take, dtype=jnp.int32)
-    if (
-        use_big_jit_buckets
-        and compact_relion_projector_big_jit
-        and not score_only
-    ):
+    if use_big_jit_buckets and compact_relion_projector_big_jit and not score_only:
         requested_cache_rows, relion_projection_cache_cap_gb = _exact_local_relion_projection_cache_capacity_rows(
             int(window_spec.n_projection)
         )
@@ -2723,9 +2671,7 @@ def run_local_em_exact(
             relion_projection_cache_n_projection_pixels = int(window_spec.n_projection)
             valid_layout_ids = np.asarray(local_layout.rotation_ids_flat, dtype=np.int64)
             valid_layout_ids = valid_layout_ids[valid_layout_ids >= 0]
-            relion_projection_cache_id_map_rows = (
-                int(np.max(valid_layout_ids)) + 1 if valid_layout_ids.size else 1
-            )
+            relion_projection_cache_id_map_rows = int(np.max(valid_layout_ids)) + 1 if valid_layout_ids.size else 1
             logger.info(
                 "Exact local RELION projection cache groups enabled: groups=%d capacity_rows=%d "
                 "requested_rows=%d cap=%.2f GB projection_pixels=%d id_map_rows=%d",
@@ -2793,7 +2739,9 @@ def run_local_em_exact(
             relion_projection_cache_group_cursor += 1
             relion_projection_cache_groups_built += int(relion_projection_cache.enabled)
             relion_projection_cache_total_build_s += float(relion_projection_cache.build_s)
-            relion_projection_cache_max_rows = max(relion_projection_cache_max_rows, int(relion_projection_cache.row_count))
+            relion_projection_cache_max_rows = max(
+                relion_projection_cache_max_rows, int(relion_projection_cache.row_count)
+            )
             relion_projection_cache_max_estimated_gb = max(
                 relion_projection_cache_max_estimated_gb,
                 float(relion_projection_cache.estimated_gb),
@@ -2834,24 +2782,16 @@ def run_local_em_exact(
                 debug_fused_posterior_dump_targets,
             )
         )
-        debug_score_dump_bucket_matches = (
-            debug_score_dump_filter_matches
-            and _bucket_contains_debug_target(
-                experiment_dataset,
-                bucket.image_indices,
-                debug_score_dump_targets,
-            )
+        debug_score_dump_bucket_matches = debug_score_dump_filter_matches and _bucket_contains_debug_target(
+            experiment_dataset,
+            bucket.image_indices,
+            debug_score_dump_targets,
         )
         use_big_jit_buckets_for_bucket = bool(
-            use_big_jit_buckets
-            and not (debug_score_dump_force_split and debug_score_dump_bucket_matches)
+            use_big_jit_buckets and not (debug_score_dump_force_split and debug_score_dump_bucket_matches)
         )
         need_local_recon_projection_for_bucket = bool(
-            need_local_recon_projection
-            or (
-                debug_score_dump_bucket_matches
-                and debug_score_dump_operands
-            )
+            need_local_recon_projection or (debug_score_dump_bucket_matches and debug_score_dump_operands)
         )
         translation_sqdist_ang = None
         if translation_prior_centers_np is not None:
@@ -2870,17 +2810,14 @@ def run_local_em_exact(
         sparse_big_jit_mstep_estimated_gb = 0.0
         sparse_big_jit_mstep_cap_gb = 0.0
         if use_big_jit_buckets_for_bucket and significant_backprojection_candidate:
-            sparse_big_jit_mstep_estimated_gb, sparse_big_jit_mstep_cap_gb = (
-                _sparse_big_jit_mstep_tensors_memory_gb(
-                    image_count=max(batch_size, int(getattr(bucket, "bucket_image_count", batch_size))),
-                    rotation_count=int(bucket.bucket_rotation_count),
-                    n_recon_windowed=window_spec.n_recon,
-                    use_float64_scoring=use_float64_scoring,
-                )
+            sparse_big_jit_mstep_estimated_gb, sparse_big_jit_mstep_cap_gb = _sparse_big_jit_mstep_tensors_memory_gb(
+                image_count=max(batch_size, int(getattr(bucket, "bucket_image_count", batch_size))),
+                rotation_count=int(bucket.bucket_rotation_count),
+                n_recon_windowed=window_spec.n_recon,
+                use_float64_scoring=use_float64_scoring,
             )
             sparse_big_jit_backprojection = (
-                sparse_big_jit_mstep_cap_gb > 0.0
-                and sparse_big_jit_mstep_estimated_gb <= sparse_big_jit_mstep_cap_gb
+                sparse_big_jit_mstep_cap_gb > 0.0 and sparse_big_jit_mstep_estimated_gb <= sparse_big_jit_mstep_cap_gb
             )
         can_defer_big_jit_backprojection = (
             use_big_jit_buckets_for_bucket
@@ -2890,12 +2827,8 @@ def run_local_em_exact(
             and (not disable_adjoint_y or not disable_adjoint_ctf or accumulate_noise)
         )
         force_deferred_big_jit_backprojection = _env_flag(EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV)
-        deferred_big_jit_backprojection = (
-            can_defer_big_jit_backprojection
-            and (
-                force_deferred_big_jit_backprojection
-                or not sparse_big_jit_backprojection
-            )
+        deferred_big_jit_backprojection = can_defer_big_jit_backprojection and (
+            force_deferred_big_jit_backprojection or not sparse_big_jit_backprojection
         )
         if (
             deferred_big_jit_backprojection
@@ -3002,11 +2935,7 @@ def run_local_em_exact(
                 if translation_sqdist_ang is not None
                 else jnp.zeros((batch_size, n_trans), dtype=precision_policy.score_real_dtype)
             )
-            sample_mask_arg = (
-                None
-                if bucket.local_sample_mask is None
-                else jnp.asarray(bucket.local_sample_mask)
-            )
+            sample_mask_arg = None if bucket.local_sample_mask is None else jnp.asarray(bucket.local_sample_mask)
             normalization_log_z_arg = (
                 jnp.asarray(
                     pad_axis(normalization_log_z_np[bucket_image_indices], 0, batch_size, value=0),
@@ -3075,9 +3004,7 @@ def run_local_em_exact(
             return_big_jit_mstep_tensors = sparse_big_jit_backprojection and (
                 not disable_adjoint_y or not disable_adjoint_ctf
             )
-            return_big_jit_deferred_mstep_inputs = (
-                deferred_big_jit_backprojection and not return_big_jit_mstep_tensors
-            )
+            return_big_jit_deferred_mstep_inputs = deferred_big_jit_backprojection and not return_big_jit_mstep_tensors
             big_jit_disable_adjoint_y = (
                 disable_adjoint_y or return_big_jit_mstep_tensors or return_big_jit_deferred_mstep_inputs
             )
@@ -3339,7 +3266,9 @@ def run_local_em_exact(
                     ),
                 )
             if accumulate_noise:
-                noise_norm_correction = noise_norm_correction.at[jnp.asarray(bucket_image_indices, dtype=jnp.int32)].add(
+                noise_norm_correction = noise_norm_correction.at[
+                    jnp.asarray(bucket_image_indices, dtype=jnp.int32)
+                ].add(
                     bucket_norm_correction[:unpadded_batch_size].astype(noise_norm_correction.dtype),
                 )
             timing.big_jit_bucket_s += time.time() - big_jit_t0
@@ -3349,11 +3278,7 @@ def run_local_em_exact(
 
             if return_big_jit_debug_arrays:
                 debug_probs_unpadded = debug_probs[:unpadded_batch_size]
-                debug_scores_unpadded = (
-                    debug_scores[:unpadded_batch_size]
-                    if return_big_jit_debug_scores
-                    else None
-                )
+                debug_scores_unpadded = debug_scores[:unpadded_batch_size] if return_big_jit_debug_scores else None
                 log_Z_unpadded = log_Z[:unpadded_batch_size]
                 best_log_score_unpadded = best_log_score[:unpadded_batch_size]
                 best_argmax_unpadded = best_argmax[:unpadded_batch_size]
@@ -3717,9 +3642,7 @@ def run_local_em_exact(
                 block_a2_shells = jnp.zeros(n_shells, dtype=precision_policy.score_real_dtype)
                 block_xa_shells = jnp.zeros(n_shells, dtype=precision_policy.score_real_dtype)
                 block_norm_residual = jnp.zeros(unpadded_batch_size, dtype=precision_policy.score_real_dtype)
-                bucket_group_ids = (
-                    group_ids_arg[:unpadded_batch_size] if group_ids_np is not None else None
-                )
+                bucket_group_ids = group_ids_arg[:unpadded_batch_size] if group_ids_np is not None else None
                 batch_scale_unpadded = scale_corrections_arg[:unpadded_batch_size]
                 for chunk_start in range(0, packed_rotation_count, chunk_rows):
                     chunk_stop = min(packed_rotation_count, chunk_start + chunk_rows)
@@ -3781,15 +3704,21 @@ def run_local_em_exact(
                             batch_scale_unpadded,
                             scale_correction_pixel_mask,
                         )
-                        noise_scale_xa = noise_scale_xa.at[bucket_group_ids].add(scale_xa_per_image.astype(noise_scale_xa.dtype))
-                        noise_scale_aa = noise_scale_aa.at[bucket_group_ids].add(scale_aa_per_image.astype(noise_scale_aa.dtype))
+                        noise_scale_xa = noise_scale_xa.at[bucket_group_ids].add(
+                            scale_xa_per_image.astype(noise_scale_xa.dtype)
+                        )
+                        noise_scale_aa = noise_scale_aa.at[bucket_group_ids].add(
+                            scale_aa_per_image.astype(noise_scale_aa.dtype)
+                        )
                 if return_profile:
                     _block_until_ready(block_noise_shells, block_norm_residual)
                 noise_wsum = noise_wsum + block_noise_shells
                 if return_noise_split:
                     noise_a2 = noise_a2 + block_a2_shells
                     noise_xa = noise_xa + block_xa_shells
-                noise_norm_correction = noise_norm_correction.at[jnp.asarray(bucket_image_indices, dtype=jnp.int32)].add(
+                noise_norm_correction = noise_norm_correction.at[
+                    jnp.asarray(bucket_image_indices, dtype=jnp.int32)
+                ].add(
                     (batch_img_power_per_image + block_norm_residual).astype(noise_norm_correction.dtype),
                 )
                 noise_sigma2_offset = noise_sigma2_offset + noise_sumw_offset
@@ -3820,9 +3749,7 @@ def run_local_em_exact(
                 best_log_score=best_log_score[:unpadded_batch_size],
                 max_posterior=max_posterior[:unpadded_batch_size],
                 probs_sum_t=(
-                    stats_probs_sum_t[:unpadded_batch_size]
-                    if stats_probs_sum_t_np is None
-                    else stats_probs_sum_t_np
+                    stats_probs_sum_t[:unpadded_batch_size] if stats_probs_sum_t_np is None else stats_probs_sum_t_np
                 ),
                 n_significant_samples=n_significant_samples[:unpadded_batch_size],
                 reconstruction_sample_mask=reconstruction_sample_mask[:unpadded_batch_size],
@@ -3985,7 +3912,9 @@ def run_local_em_exact(
         threshold_for_bucket = (
             None
             if reconstruction_probability_threshold_np is None
-            else jnp.asarray(reconstruction_probability_threshold_np[np.asarray(bucket.image_indices)], dtype=jnp.float64)
+            else jnp.asarray(
+                reconstruction_probability_threshold_np[np.asarray(bucket.image_indices)], dtype=jnp.float64
+            )
         )
         if can_use_fused_score_mstep and score_only and not has_external_normalization:
             fused_t0 = time.time()
@@ -4712,7 +4641,8 @@ def run_local_em_exact(
             if translation_sqdist_ang is not None:
                 translation_posterior = jnp.sum(reconstruction_probs, axis=1).astype(precision_policy.score_real_dtype)
                 noise_sumw_offset = jnp.sum(
-                    translation_posterior * jnp.asarray(translation_sqdist_ang, dtype=precision_policy.score_real_dtype),
+                    translation_posterior
+                    * jnp.asarray(translation_sqdist_ang, dtype=precision_policy.score_real_dtype),
                 )
             else:
                 noise_sumw_offset = jnp.asarray(0.0, dtype=precision_policy.score_real_dtype)
@@ -4889,8 +4819,12 @@ def run_local_em_exact(
                             batch_scale,
                             scale_correction_pixel_mask,
                         )
-                        noise_scale_xa = noise_scale_xa.at[bucket_group_ids].add(scale_xa_per_image.astype(noise_scale_xa.dtype))
-                        noise_scale_aa = noise_scale_aa.at[bucket_group_ids].add(scale_aa_per_image.astype(noise_scale_aa.dtype))
+                        noise_scale_xa = noise_scale_xa.at[bucket_group_ids].add(
+                            scale_xa_per_image.astype(noise_scale_xa.dtype)
+                        )
+                        noise_scale_aa = noise_scale_aa.at[bucket_group_ids].add(
+                            scale_aa_per_image.astype(noise_scale_aa.dtype)
+                        )
             else:
                 packed_rotation_count = int(reconstruction_take_indices_jnp.shape[1])
                 noise_projection_pixels = int(proj_for_noise.shape[-1])
@@ -4961,8 +4895,12 @@ def run_local_em_exact(
                             batch_scale,
                             scale_correction_pixel_mask,
                         )
-                        noise_scale_xa = noise_scale_xa.at[bucket_group_ids].add(scale_xa_per_image.astype(noise_scale_xa.dtype))
-                        noise_scale_aa = noise_scale_aa.at[bucket_group_ids].add(scale_aa_per_image.astype(noise_scale_aa.dtype))
+                        noise_scale_xa = noise_scale_xa.at[bucket_group_ids].add(
+                            scale_xa_per_image.astype(noise_scale_xa.dtype)
+                        )
+                        noise_scale_aa = noise_scale_aa.at[bucket_group_ids].add(
+                            scale_aa_per_image.astype(noise_scale_aa.dtype)
+                        )
             if return_profile:
                 _block_until_ready(block_noise_shells, block_norm_residual)
             noise_wsum = noise_wsum + block_noise_shells
