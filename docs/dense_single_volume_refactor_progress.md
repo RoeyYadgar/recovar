@@ -9,7 +9,7 @@ Last updated: 2026-09-08
 | Component | Status | Current result / next action |
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
-| C1 Data contracts | IN PROGRESS — LOCAL HOST BOUNDARY COMPLETE | Stable local results and composed requests are used by every in-package K=1 and K-class production caller. The exact engine remains the compatibility/numerical implementation. Next: introduce the dense-engine result seam. |
+| C1 Data contracts | IN PROGRESS — LOCAL COMPLETE, DENSE MIGRATING | Stable local contracts are used by every in-package production caller. The dense typed seam is complete and the K-class dense family is migrated; direct iteration and oversampling callers remain. Legacy engines remain the numerical implementations. |
 | C2 Policy/environment boundary | NOT STARTED | Classify and centralize 206 resolved `RECOVAR_*` reads. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
@@ -91,6 +91,13 @@ GPU identity and paired timing context.
 | 2026-09-08 | K-class local callers | selected local K-class cases in `test_k_class_joint_semantics.py` and `test_refine_relion_mode.py` | 2/2 and 4/4 passed, respectively; the single-class, class-evidence probe, and normalized per-class M-step routes use named results. |
 | 2026-09-08 | K-class regression set | `pixi run python -m pytest tests/unit/test_em_kclass_merge_guards.py tests/unit/test_k_class_joint_semantics.py -q` | 109/109 passed with one pre-existing SciPy gimbal-lock warning. No tolerance or baseline changed. |
 | 2026-09-08 | K-class adapter performance sanity | Five 10,000-call host microbenchmark samples | Median request-build/dispatch overhead `59.334 us/call` (samples `59.313`, `59.334`, `59.362`, `59.569`, `59.330 us/call`), or about `0.475 ms` for eight K=4 probe/M-step calls. |
+| 2026-09-08 | Dense result contract | `pixi run python -m pytest tests/unit/test_dense_em_types.py -q` | 9/9 initial result tests passed; all eight optional legacy tuple shapes round-trip and malformed tuples fail closed. |
+| 2026-09-08 | Dense request and adapter | Same focused test file | 12/12 passed after request grouping and adapter wiring; all 32 optional `run_em` parameters round-trip by exact name/value against the live signature. |
+| 2026-09-08 | Dense-engine formatting prerequisite | `pixi run test-em-fast-guard` | 16/16 passed in `49.57 s` before isolated mechanical commit `656ca2c5`. |
+| 2026-09-08 | Dense K-class caller family | `test_dense_em_types.py`, `test_em_kclass_merge_guards.py`, and `test_k_class_joint_semantics.py` | 121/121 passed. Sandbox-only read-only JAX cache warnings and the pre-existing gimbal-lock warning were non-failures. |
+| 2026-09-08 | Dense K-class refine integration | `test_refine_relion_mode.py -k 'dense_k_class' -q` | 3 passed, 371 deselected; existing complex-cast and gimbal-lock warnings only. |
+| 2026-09-08 | Dense caller CPU fast guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.75 s` on the complete dense K-class caller patch. |
+| 2026-09-08 | Dense adapter performance sanity | Five 10,000-call host microbenchmark samples | Median request-build/dispatch overhead `44.373 us/call` (samples `44.507`, `44.349`, `44.373`, `44.333`, `44.398 us/call`), or about `0.355 ms` for eight K=4 probe/M-step calls. |
 
 ## Decision log
 
@@ -299,6 +306,67 @@ one dense caller family. Open risks: the broader C1 dense/sparse/controller
 contracts remain, K-class end-to-end GPU behavior has not been remeasured, and
 the pre-existing absolute K=1 FSC-AUC drift remains unresolved.
 
+### 2026-09-08 — dense request/result seam and K-class callers
+
+Hypothesis: dense EM can expose a composed request and stable named result, and
+the dense K-class caller family can consume them, without changing `run_em`'s
+signature, numerical implementation, flags, call interception, or result
+values.
+
+Files changed: `dense_em_types.py`, `em_engine.py`, `k_class.py`,
+`test_dense_em_types.py`, and `test_k_class_joint_semantics.py`. The pre-existing
+format/lint delta in `em_engine.py` was isolated in its own mechanical commit
+before adapter wiring.
+
+Algorithmic invariants protected:
+
+- `run_em` retains its public signature, eight historical tuple shapes, and
+  remains the only dense numerical implementation;
+- the typed adapter forwards the seven required positional inputs and all 32
+  optional parameters, while `inspect.Signature.bind` and `apply_defaults`
+  preserve legacy validation/defaults at dictionary-based compatibility sites;
+- all four dense K-class routes—ordinary score probe, first-iteration winner
+  subset pass 2, single class, and normalized per-class M-step—still invoke the
+  K-class module's monkeypatchable `run_em` binding;
+- class priors, shared evidence normalization, subset correction slicing,
+  diagnostic class labels, half-volume accumulation, and output `None`
+  semantics are unchanged;
+- no score, posterior, reconstruction, dtype, array order, reduction, JIT,
+  kernel, or environment behavior changed.
+
+Focused validation passed: 12/12 dense contract/adapter tests; 46/46 complete
+K-class joint-semantics tests; 121/121 combined dense-contract, K-class
+joint-semantics, and merge tests; and 3/3 selected dense K-class refine-mode
+tests. The CPU EM fast guard passed 16/16 in `49.75 s` on the complete caller
+patch. Ruff formatting and lint checks passed. No tolerance or baseline was
+modified.
+
+The dense compatibility builder plus typed dispatch has a five-sample median
+of `44.373 us/call`; a normal K=4 probe plus M-step sequence adds about
+`0.355 ms` of Python work. This is negligible relative to the dense engine but
+is only host-side evidence. No K-class GPU end-to-end quality, compile-count,
+device-memory, or wall-time cell was run for this slice, so those results remain
+**not measured**. The user-specified K=1 job was not repeated because this
+caller migration changes only K-class routing and the legacy engine invocation
+is reconstructed exactly.
+
+Commits:
+
+- `8a987a4f` — `em: add stable dense-engine result contract`;
+- `64fee97f` — `em: define cohesive dense-engine request types`;
+- `656ca2c5` — `style: format dense EM engine`;
+- `ce432b87` — `em: adapt typed dense requests to legacy engine`;
+- `bfcee8af` — `em: group flat dense request settings`;
+- `65732ebb` — `em: migrate K-class dense calls to typed results`.
+
+Decision: accepted as the dense engine seam and first dense caller-family
+migration. `run_em` remains the compatibility/numerical implementation. Next
+action: migrate the direct dense half-step call in `iteration_loop.py`, then the
+two oversampling caller paths, one reviewable family at a time. Open risks: no
+K-class end-to-end GPU result was measured; direct non-K-class callers still
+decode legacy tuples; the broader sparse/controller contracts and the
+pre-existing absolute K=1 FSC-AUC drift remain unresolved.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -324,10 +392,10 @@ Open risks:
 
 ## Immediate next actions
 
-1. Introduce a stable named result for `em_engine.run_em` behind its current
-   tuple compatibility API, with exhaustive optional-output shape tests.
-2. Migrate one dense caller family at a time while preserving its module-level
-   monkeypatch and debug interception surface.
+1. Migrate the direct dense half-step call in `iteration_loop.py` while
+   preserving its module-level `run_em` monkeypatch/debug interception surface.
+2. Migrate the two oversampling dense caller paths and replace their
+   flag-dependent tuple parsing with named fields.
 3. Keep the large JIT signatures and all numerical kernels unchanged until a
    dedicated paired GPU benchmark is designed for that boundary.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
