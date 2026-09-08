@@ -120,9 +120,7 @@ def relion_cuda_f32_coarse_posterior(
         )
 
     threshold = sorted_weights[jnp.arange(scores_f32.shape[0]), threshold_idx]
-    mask = has_mass[:, None] & (raw_weights > jnp.float32(0.0)) & (
-        raw_weights >= threshold[:, None]
-    )
+    mask = has_mass[:, None] & (raw_weights > jnp.float32(0.0)) & (raw_weights >= threshold[:, None])
     safe_sum_weight = jnp.where(has_mass, sum_weight, jnp.float32(1.0))
     probabilities = jnp.where(
         has_mass[:, None],
@@ -803,9 +801,7 @@ def compute_pass2_stats_sparse(
     RELION's fine-search diff2/minimum ordering. Float64 diagnostics retain
     the historical algebraic scorer so they do not silently downcast.
     """
-    has_external_score_normalization = (
-        normalization_log_z is not None or normalization_other_score_log_z is not None
-    )
+    has_external_score_normalization = normalization_log_z is not None or normalization_other_score_log_z is not None
     if has_external_score_normalization and normalization_score_mode is None:
         raise ValueError(
             "external sparse pass-2 score normalization requires normalization_score_mode; "
@@ -813,10 +809,7 @@ def compute_pass2_stats_sparse(
         )
     if normalization_score_mode is not None and not has_external_score_normalization:
         raise ValueError("normalization_score_mode requires an external score normalization")
-    if (
-        normalization_score_mode is not None
-        and normalization_score_mode != relion_firstiter_score_mode
-    ):
+    if normalization_score_mode is not None and normalization_score_mode != relion_firstiter_score_mode:
         raise ValueError(
             "external score normalization mode does not match this pass: "
             f"external={normalization_score_mode!r}, pass={relion_firstiter_score_mode!r}"
@@ -829,9 +822,7 @@ def compute_pass2_stats_sparse(
         and relion_firstiter_score_mode == "gaussian"
         and not use_float64_scoring
     ):
-        raise NotImplementedError(
-            "exact RELION fine Gaussian scoring requires the bucketed sparse pass-2 path"
-        )
+        raise NotImplementedError("exact RELION fine Gaussian scoring requires the bucketed sparse pass-2 path")
     if use_perimage_reference and group_ids is not None:
         logger.warning(
             "Sparse per-image reference pass-2 does not accumulate native group-scale correction stats; "
@@ -863,10 +854,7 @@ def compute_pass2_stats_sparse(
         and include_unweighted_norm_high_shell
         and not preserve_bpref_particle_order
         and reconstruction_current_size is None
-        and not (
-            relion_exact_fine_gaussian
-            and not use_float64_scoring
-        )
+        and not (relion_exact_fine_gaussian and not use_float64_scoring)
     )
     if not use_perimage_reference and not full_grid_reference:
         from .sparse_pass2_bucketed import compute_pass2_stats_sparse_bucketed
@@ -1034,6 +1022,7 @@ def _compute_pass2_stats_sparse_perimage_reference(
     )
 
     from ..em_engine import run_em
+
     if normalization_log_z is not None:
         raise NotImplementedError(
             "normalization_log_z is only implemented for the bucketed sparse pass-2 path",
