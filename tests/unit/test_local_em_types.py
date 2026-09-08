@@ -1,8 +1,23 @@
 import itertools
+from dataclasses import FrozenInstanceError
 
 import pytest
 
-from recovar.em.dense_single_volume.local_em_types import LocalEMOutputSpec, LocalEMResult
+from recovar.em.dense_single_volume.local_em_types import (
+    ExecutionSettings,
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalEMInputs,
+    LocalEMOutputSpec,
+    LocalEMRequest,
+    LocalEMRequestedOutputs,
+    LocalEMResult,
+    LocalPosteriorInputs,
+    LocalProjectionSettings,
+    LocalReconstructionSettings,
+    LocalScoringSettings,
+    LocalSearchSettings,
+)
 
 
 @pytest.mark.unit
@@ -58,3 +73,37 @@ def test_local_em_result_rejects_legacy_tuple_with_wrong_shape():
 
     with pytest.raises(ValueError, match="expected 5 values, received 4"):
         LocalEMResult.from_legacy_tuple((1, 2, 3, 4), output_spec)
+
+
+@pytest.mark.unit
+def test_local_em_request_composes_immutable_default_groups():
+    request = LocalEMRequest(
+        inputs=LocalEMInputs("dataset", "mean", "mean_variance", "noise_variance", "layout", "disc_type"),
+        search=LocalSearchSettings(current_size=40),
+        execution=ExecutionSettings(image_batch_size=5, rotation_block_size=7),
+    )
+
+    assert request.scoring == LocalScoringSettings()
+    assert request.projection == LocalProjectionSettings()
+    assert request.corrections == LocalCorrectionInputs()
+    assert request.posterior == LocalPosteriorInputs()
+    assert request.reconstruction == LocalReconstructionSettings()
+    assert request.outputs == LocalEMRequestedOutputs()
+    assert request.diagnostics == LocalEMDiagnostics()
+    with pytest.raises(FrozenInstanceError):
+        request.execution.image_batch_size = 9
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("probability_values", "sample_indices"),
+    [(True, False), (False, True)],
+)
+def test_local_em_requested_captures_enable_legacy_profile_result(probability_values, sample_indices):
+    outputs = LocalEMRequestedOutputs(
+        return_reconstruction_probability_values=probability_values,
+        return_reconstruction_sample_indices=sample_indices,
+    )
+
+    assert outputs.return_profile is False
+    assert outputs.legacy_tuple_spec.return_profile is True
