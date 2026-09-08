@@ -19,7 +19,7 @@ from .em_engine import run_em
 from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significance import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
-from .local_em_engine import run_local_em_exact
+from .local_em_engine import run_local_em, run_local_em_exact
 from .local_em_types import (
     ExecutionSettings,
     LocalCorrectionInputs,
@@ -27,6 +27,7 @@ from .local_em_types import (
     LocalEMInputs,
     LocalEMRequest,
     LocalEMRequestedOutputs,
+    LocalEMResult,
     LocalPosteriorInputs,
     LocalProjectionSettings,
     LocalReconstructionSettings,
@@ -779,6 +780,13 @@ def _local_em_request_from_legacy_kwargs(
     )
 
 
+def _run_local_em_typed(inputs: LocalEMInputs, engine_kwargs: dict) -> LocalEMResult:
+    """Run a grouped request while retaining the K-class exact-runner hook."""
+
+    request = _local_em_request_from_legacy_kwargs(inputs, engine_kwargs)
+    return run_local_em(request, legacy_runner=run_local_em_exact)
+
+
 class _DenseScoreDumpClassLabel:
     """Temporarily label env-gated dense score dumps by K-class index."""
 
@@ -939,36 +947,6 @@ def _dense_outputs(output, *, accumulate_noise: bool):
     new_mean, hard_assignment, Ft_y, Ft_ctf, stats = output[:5]
     noise_stats = output[5] if accumulate_noise else None
     return new_mean, hard_assignment, Ft_y, Ft_ctf, stats, noise_stats
-
-
-def _local_outputs(output, *, accumulate_noise: bool, return_best_pose_details: bool, return_profile: bool = False):
-    Ft_y, Ft_ctf, hard_assignment = output[:3]
-    next_index = 3
-    best_pose_rotations = None
-    best_pose_translations = None
-    best_pose_rotation_ids = None
-    if return_best_pose_details:
-        best_pose_rotations = output[next_index]
-        best_pose_translations = output[next_index + 1]
-        best_pose_rotation_ids = output[next_index + 2]
-        next_index += 3
-    stats = output[next_index]
-    next_index += 1
-    noise_stats = output[next_index] if accumulate_noise else None
-    if accumulate_noise:
-        next_index += 1
-    profile_summary = output[next_index] if return_profile else None
-    return (
-        Ft_y,
-        Ft_ctf,
-        hard_assignment,
-        best_pose_rotations,
-        best_pose_translations,
-        best_pose_rotation_ids,
-        stats,
-        noise_stats,
-        profile_summary,
-    )
 
 
 def _stack_or_none(values):
@@ -2671,7 +2649,7 @@ def run_local_k_class_em(
     class_posterior_sums_from_noise: bool = False,
     **engine_kwargs,
 ) -> KClassEMResult:
-    """Run exact-local K-class EM using ``run_local_em_exact`` for all kernels."""
+    """Run exact-local K-class EM through typed requests and the exact kernel."""
 
     _reject_kwargs(
         engine_kwargs,
@@ -2734,50 +2712,44 @@ def run_local_k_class_em(
             )
             class_engine_kwargs = _local_engine_kwargs_for_class(base_engine_kwargs, 0, n_classes)
             with _LocalDebugDumpPhaseLabel("single_class"):
-                output = run_local_em_exact(
-                    experiment_dataset,
-                    means_array[0],
-                    _select_class_value(mean_variance, 0, n_classes),
-                    _select_class_value(noise_variance, 0, n_classes),
-                    class_layout,
-                    disc_type,
-                    accumulate_noise=accumulate_noise,
-                    return_profile=return_profile,
-                    return_best_pose_details=return_best_pose_details,
-                    class_log_prior=float(log_priors[0]),
-                    stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-                    **class_engine_kwargs,
+                output = _run_local_em_typed(
+                    LocalEMInputs(
+                        experiment_dataset=experiment_dataset,
+                        mean=means_array[0],
+                        mean_variance=_select_class_value(mean_variance, 0, n_classes),
+                        noise_variance=_select_class_value(noise_variance, 0, n_classes),
+                        local_layout=class_layout,
+                        disc_type=disc_type,
+                    ),
+                    dict(
+                        class_engine_kwargs,
+                        accumulate_noise=accumulate_noise,
+                        return_profile=return_profile,
+                        return_best_pose_details=return_best_pose_details,
+                        class_log_prior=float(log_priors[0]),
+                        stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                    ),
                 )
-            (
-                class_Ft_y,
-                class_Ft_ctf,
-                hard_assignment,
-                best_pose_rotations,
-                best_pose_translations,
-                best_pose_rotation_ids,
-                stats,
-                noise,
-                profile_summary,
-            ) = _local_outputs(
-                output,
-                accumulate_noise=accumulate_noise,
-                return_best_pose_details=return_best_pose_details,
-                return_profile=return_profile,
-            )
             return _assemble_result(
-                class_log_evidence=np.asarray(stats.log_evidence_per_image, dtype=np.float64)[None, :],
+                class_log_evidence=np.asarray(output.relion_stats.log_evidence_per_image, dtype=np.float64)[None, :],
                 new_means=None,
-                Ft_y=[class_Ft_y],
-                Ft_ctf=[class_Ft_ctf],
-                per_class_hard_assignments=np.asarray(hard_assignment, dtype=np.int32)[None, :],
-                per_class_stats=(stats,),
-                noise_stats=None if noise is None else (noise,),
-                per_class_best_pose_rotations=None if best_pose_rotations is None else [best_pose_rotations],
-                per_class_best_pose_translations=None if best_pose_translations is None else [best_pose_translations],
-                per_class_best_pose_rotation_ids=None if best_pose_rotation_ids is None else [best_pose_rotation_ids],
-                profile_summary=profile_summary,
+                Ft_y=[output.Ft_y],
+                Ft_ctf=[output.Ft_ctf],
+                per_class_hard_assignments=np.asarray(output.hard_assignment, dtype=np.int32)[None, :],
+                per_class_stats=(output.relion_stats,),
+                noise_stats=None if output.noise_stats is None else (output.noise_stats,),
+                per_class_best_pose_rotations=(
+                    None if output.best_pose_rotations is None else [output.best_pose_rotations]
+                ),
+                per_class_best_pose_translations=(
+                    None if output.best_pose_translations is None else [output.best_pose_translations]
+                ),
+                per_class_best_pose_rotation_ids=(
+                    None if output.best_pose_rotation_ids is None else [output.best_pose_rotation_ids]
+                ),
+                profile_summary=output.profile_summary,
                 class_posterior_sums_override=_class_posterior_sums_override(
-                    None if noise is None else (noise,),
+                    None if output.noise_stats is None else (output.noise_stats,),
                 ),
             )
 
@@ -2796,26 +2768,30 @@ def run_local_k_class_em(
             )
             class_engine_kwargs = _local_engine_kwargs_for_class(base_engine_kwargs, class_index, n_classes)
             with _LocalDebugDumpPhaseLabel(f"probe_class{class_index:03d}"):
-                probe = run_local_em_exact(
-                    experiment_dataset,
-                    means_array[class_index],
-                    _select_class_value(mean_variance, class_index, n_classes),
-                    _select_class_value(noise_variance, class_index, n_classes),
-                    class_layout,
-                    disc_type,
-                    accumulate_noise=False,
-                    return_best_pose_details=False,
-                    class_log_prior=float(log_priors[class_index]),
-                    disable_adjoint_y=True,
-                    disable_adjoint_ctf=True,
-                    stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-                    return_profile=return_profile or collect_global_reconstruction_threshold,
-                    return_reconstruction_probability_values=collect_global_reconstruction_threshold,
-                    **class_engine_kwargs,
+                probe = _run_local_em_typed(
+                    LocalEMInputs(
+                        experiment_dataset=experiment_dataset,
+                        mean=means_array[class_index],
+                        mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                        noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                        local_layout=class_layout,
+                        disc_type=disc_type,
+                    ),
+                    dict(
+                        class_engine_kwargs,
+                        accumulate_noise=False,
+                        return_best_pose_details=False,
+                        class_log_prior=float(log_priors[class_index]),
+                        disable_adjoint_y=True,
+                        disable_adjoint_ctf=True,
+                        stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                        return_profile=return_profile or collect_global_reconstruction_threshold,
+                        return_reconstruction_probability_values=collect_global_reconstruction_threshold,
+                    ),
                 )
-            class_log_evidence.append(np.asarray(probe[3].log_evidence_per_image, dtype=np.float64))
+            class_log_evidence.append(np.asarray(probe.relion_stats.log_evidence_per_image, dtype=np.float64))
             if support_values_by_class is not None:
-                profile = probe[-1]
+                profile = probe.profile_summary
                 support_values_by_class.append(tuple(profile["reconstruction_probability_values_by_image"]))
         class_log_evidence_np = np.stack(class_log_evidence, axis=0)
         normalization_log_evidence_np = _logsumexp_np(class_log_evidence_np, axis=0)
@@ -2857,49 +2833,37 @@ def run_local_k_class_em(
         )
         class_engine_kwargs = _local_engine_kwargs_for_class(base_engine_kwargs, class_index, n_classes)
         with _LocalDebugDumpPhaseLabel(f"mstep_class{class_index:03d}"):
-            output = run_local_em_exact(
-                experiment_dataset,
-                means_array[class_index],
-                _select_class_value(mean_variance, class_index, n_classes),
-                _select_class_value(noise_variance, class_index, n_classes),
-                class_layout,
-                disc_type,
-                accumulate_noise=accumulate_noise,
-                return_profile=return_profile,
-                return_best_pose_details=return_best_pose_details,
-                class_log_prior=float(log_priors[class_index]),
-                normalization_log_evidence=global_log_evidence,
-                stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-                **class_engine_kwargs,
+            output = _run_local_em_typed(
+                LocalEMInputs(
+                    experiment_dataset=experiment_dataset,
+                    mean=means_array[class_index],
+                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                    local_layout=class_layout,
+                    disc_type=disc_type,
+                ),
+                dict(
+                    class_engine_kwargs,
+                    accumulate_noise=accumulate_noise,
+                    return_profile=return_profile,
+                    return_best_pose_details=return_best_pose_details,
+                    class_log_prior=float(log_priors[class_index]),
+                    normalization_log_evidence=global_log_evidence,
+                    stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                ),
             )
-        (
-            class_Ft_y,
-            class_Ft_ctf,
-            hard_assignment,
-            best_pose_rotations,
-            best_pose_translations,
-            best_pose_rotation_ids,
-            stats,
-            noise,
-            profile_summary,
-        ) = _local_outputs(
-            output,
-            accumulate_noise=accumulate_noise,
-            return_best_pose_details=return_best_pose_details,
-            return_profile=return_profile,
-        )
-        Ft_y.append(class_Ft_y)
-        Ft_ctf.append(class_Ft_ctf)
-        hard_assignments.append(np.asarray(hard_assignment, dtype=np.int32))
-        per_class_stats.append(stats)
+        Ft_y.append(output.Ft_y)
+        Ft_ctf.append(output.Ft_ctf)
+        hard_assignments.append(np.asarray(output.hard_assignment, dtype=np.int32))
+        per_class_stats.append(output.relion_stats)
         if per_class_noise is not None:
-            per_class_noise.append(noise)
+            per_class_noise.append(output.noise_stats)
         if return_best_pose_details:
-            per_class_best_pose_rotations.append(best_pose_rotations)
-            per_class_best_pose_translations.append(best_pose_translations)
-            per_class_best_pose_rotation_ids.append(best_pose_rotation_ids)
+            per_class_best_pose_rotations.append(output.best_pose_rotations)
+            per_class_best_pose_translations.append(output.best_pose_translations)
+            per_class_best_pose_rotation_ids.append(output.best_pose_rotation_ids)
         if per_class_profile_summaries is not None:
-            per_class_profile_summaries.append(profile_summary)
+            per_class_profile_summaries.append(output.profile_summary)
 
     profile_summary = None
     if per_class_profile_summaries is not None:

@@ -1921,13 +1921,16 @@ def test_local_k_class_single_class_skips_score_probe(monkeypatch):
         jnp.ones(4, dtype=jnp.float32),
         local_layout,
         "linear_interp",
+        image_batch_size=1,
+        rotation_block_size=1,
+        current_size=None,
         return_best_pose_details=True,
     )
 
     assert len(calls) == 1
     assert calls[0]["return_best_pose_details"] is True
     assert calls[0]["accumulate_noise"] is False
-    assert "normalization_log_evidence" not in calls[0]
+    assert calls[0]["normalization_log_evidence"] is None
     np.testing.assert_array_equal(np.asarray(result.class_assignments), np.asarray([0, 0], dtype=np.int32))
     np.testing.assert_array_equal(np.asarray(result.pose_assignments), np.asarray([1, 0], dtype=np.int32))
     np.testing.assert_allclose(np.asarray(result.class_responsibilities), np.ones((1, 2), dtype=np.float32))
@@ -1992,6 +1995,9 @@ def test_local_k_class_accepts_per_class_layouts_and_external_evidence(monkeypat
         jnp.ones(4, dtype=jnp.float32),
         (layout_with_prior([0.0, -1.0]), layout_with_prior([-2.0, -3.0])),
         "linear_interp",
+        image_batch_size=1,
+        rotation_block_size=1,
+        current_size=None,
         class_log_priors=np.log(np.asarray([0.5, 0.5], dtype=np.float64)),
         class_log_evidence=class_log_evidence,
         normalization_log_evidence=normalization_log_evidence,
