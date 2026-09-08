@@ -28,6 +28,20 @@ from recovar.em.dense_single_volume.helpers.local_search import (
 )
 from recovar.em.dense_single_volume.helpers.types import NoiseStats, RelionStats
 from recovar.em.dense_single_volume.k_class import run_local_k_class_em
+from recovar.em.dense_single_volume.local_em_engine import run_local_em
+from recovar.em.dense_single_volume.local_em_types import (
+    ExecutionSettings,
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalEMInputs,
+    LocalEMRequest,
+    LocalEMRequestedOutputs,
+    LocalPosteriorInputs,
+    LocalProjectionSettings,
+    LocalReconstructionSettings,
+    LocalScoringSettings,
+    LocalSearchSettings,
+)
 from recovar.em.sampling import build_local_search_grid_metadata
 
 logger = logging.getLogger(__name__)
@@ -458,78 +472,108 @@ def _run_local_search_iteration(
             k_class_result.stats,
             k_class_result.aggregate_noise_stats,
         )
-    else:
-        class_details = None
-        engine_outputs = _il.run_local_em_exact(
-            experiment_dataset,
-            mean,
-            mean_variance,
-            noise_variance,
-            local_layout,
-            disc_type,
-            image_batch_size=image_batch_size,
-            rotation_block_size=rotation_block_size,
-            current_size=current_size,
-            reconstruction_current_size=reconstruction_current_size,
+        result = _unpack_local_search_engine_outputs(
+            engine_outputs,
             accumulate_noise=accumulate_noise,
-            projection_padding_factor=projection_padding_factor,
-            reconstruction_padding_factor=reconstruction_padding_factor,
-            score_with_masked_images=score_with_masked_images,
-            half_spectrum_scoring=half_spectrum_scoring,
-            relion_exact_score_translation=relion_exact_score_translation,
-            projection_relion_texture_interp=projection_relion_texture_interp,
-            projection_relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
-            projection_force_jax=projection_force_jax,
-            relion_projector_half=relion_projector_half,
-            relion_projector_r_max=relion_projector_r_max,
-            use_float64_scoring=use_float64_scoring,
-            # Keep posterior/log-Z reductions in float64 even when score/projection
-            # tensors stay float32 for throughput. The dtype policy default is
-            # float64 normalization, and the significance threshold is sensitive
-            # to small log-sum-exp changes near RELION's 0.999 cutoff.
-            use_float64_normalization=True,
-            use_float64_projections=use_float64_projections,
-            do_gridding_correction=do_gridding_correction,
-            square_window=square_window,
-            image_corrections=image_corrections,
-            scale_corrections=scale_corrections,
-            group_ids=group_ids,
-            scale_correction_group_count=scale_correction_group_count,
-            scale_correction_data_vs_prior=scale_correction_data_vs_prior,
-            image_pre_shifts=image_pre_shifts,
-            mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
-            mstep_relion_x_half=mstep_relion_x_half,
-            return_half_volume_accumulators=return_half_volume_accumulators,
             return_profile=return_profile,
-            disable_adjoint_y=disable_adjoint_y,
-            disable_adjoint_ctf=disable_adjoint_ctf,
-            reconstruct_significant_only=reconstruct_significant_only,
-            adaptive_fraction=adaptive_fraction,
-            # RELION's maximum_significants cap is used to define the coarse
-            # adaptive support. In pass 2, the reconstruction threshold is
-            # governed by adaptive_fraction only; do not reapply the cap there.
-            max_significants=max_significants if apply_max_significants_to_support else -1,
-            debug_iteration=debug_iteration,
-            debug_pass_label=debug_pass_label,
             return_best_pose_details=return_best_pose_details,
-            normalization_log_z=normalization_log_z,
-            normalization_log_evidence=normalization_log_evidence,
-            translation_prior_centers=translation_prior_centers,
-            return_reconstruction_sample_indices=return_reconstruction_sample_indices,
             return_significant_counts=return_significant_counts,
-            stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-            score_only=score_only,
-            source_faithful_spectrum_norm=source_faithful_spectrum_norm,
+            class_details=class_details,
         )
-
-    result = _unpack_local_search_engine_outputs(
-        engine_outputs,
-        accumulate_noise=accumulate_noise,
-        return_profile=return_profile,
-        return_best_pose_details=return_best_pose_details,
-        return_significant_counts=return_significant_counts,
-        class_details=class_details,
-    )
+    else:
+        engine_result = run_local_em(
+            LocalEMRequest(
+                inputs=LocalEMInputs(
+                    experiment_dataset=experiment_dataset,
+                    mean=mean,
+                    mean_variance=mean_variance,
+                    noise_variance=noise_variance,
+                    local_layout=local_layout,
+                    disc_type=disc_type,
+                    relion_projector_half=relion_projector_half,
+                    relion_projector_r_max=relion_projector_r_max,
+                ),
+                search=LocalSearchSettings(
+                    current_size=current_size,
+                    reconstruction_current_size=reconstruction_current_size,
+                    reconstruct_significant_only=reconstruct_significant_only,
+                    adaptive_fraction=adaptive_fraction,
+                    # RELION's maximum_significants cap defines the coarse
+                    # adaptive support, not the pass-2 reconstruction threshold.
+                    max_significants=max_significants if apply_max_significants_to_support else -1,
+                ),
+                execution=ExecutionSettings(
+                    image_batch_size=image_batch_size,
+                    rotation_block_size=rotation_block_size,
+                ),
+                scoring=LocalScoringSettings(
+                    score_with_masked_images=score_with_masked_images,
+                    half_spectrum_scoring=half_spectrum_scoring,
+                    relion_exact_score_translation=relion_exact_score_translation,
+                    use_float64_scoring=use_float64_scoring,
+                    # Keep posterior/log-Z reductions in float64 even when
+                    # score/projection tensors stay float32 for throughput.
+                    use_float64_normalization=True,
+                ),
+                projection=LocalProjectionSettings(
+                    projection_padding_factor=projection_padding_factor,
+                    reconstruction_padding_factor=reconstruction_padding_factor,
+                    use_float64_projections=use_float64_projections,
+                    relion_texture_interp=projection_relion_texture_interp,
+                    relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
+                    force_jax=projection_force_jax,
+                    do_gridding_correction=do_gridding_correction,
+                    square_window=square_window,
+                ),
+                corrections=LocalCorrectionInputs(
+                    image_corrections=image_corrections,
+                    scale_corrections=scale_corrections,
+                    group_ids=group_ids,
+                    scale_correction_group_count=scale_correction_group_count,
+                    scale_correction_data_vs_prior=scale_correction_data_vs_prior,
+                    image_pre_shifts=image_pre_shifts,
+                ),
+                posterior=LocalPosteriorInputs(
+                    normalization_log_z=normalization_log_z,
+                    normalization_log_evidence=normalization_log_evidence,
+                    translation_prior_centers=translation_prior_centers,
+                ),
+                reconstruction=LocalReconstructionSettings(
+                    mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
+                    mstep_relion_x_half=mstep_relion_x_half,
+                    disable_adjoint_y=disable_adjoint_y,
+                    disable_adjoint_ctf=disable_adjoint_ctf,
+                    stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                    source_faithful_spectrum_norm=source_faithful_spectrum_norm,
+                    score_only=score_only,
+                ),
+                outputs=LocalEMRequestedOutputs(
+                    accumulate_noise=accumulate_noise,
+                    return_half_volume_accumulators=return_half_volume_accumulators,
+                    return_profile=return_profile,
+                    return_best_pose_details=return_best_pose_details,
+                    return_reconstruction_sample_indices=return_reconstruction_sample_indices,
+                    return_significant_counts=return_significant_counts,
+                ),
+                diagnostics=LocalEMDiagnostics(
+                    iteration=debug_iteration,
+                    pass_label=debug_pass_label,
+                ),
+            ),
+            legacy_runner=_il.run_local_em_exact,
+        )
+        result = _LocalSearchIterationResult(
+            Ft_y=engine_result.Ft_y,
+            Ft_ctf=engine_result.Ft_ctf,
+            hard_assignment=engine_result.hard_assignment,
+            relion_stats=engine_result.relion_stats,
+            noise_stats=engine_result.noise_stats,
+            profile_summary=engine_result.profile_summary,
+            significant_counts=engine_result.significant_counts,
+            best_pose_rotations=engine_result.best_pose_rotations,
+            best_pose_translations=engine_result.best_pose_translations,
+            best_pose_rotation_ids=engine_result.best_pose_rotation_ids,
+        )
 
     if return_profile and result.profile_summary is not None:
         result.profile_summary = dict(result.profile_summary)
