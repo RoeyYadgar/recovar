@@ -18,7 +18,11 @@ from recovar.em.dense_single_volume.dense_em_types import (
     DenseScoringSettings,
     DenseSearchSettings,
 )
-from recovar.em.dense_single_volume.em_engine import run_dense_em, run_em
+from recovar.em.dense_single_volume.em_engine import (
+    dense_em_request_from_legacy_kwargs,
+    run_dense_em,
+    run_em,
+)
 
 
 @pytest.mark.unit
@@ -215,3 +219,14 @@ def test_dense_em_adapter_forwards_every_legacy_engine_parameter():
     )
     assert captured["kwargs"] == expected_kwargs
     assert set(expected_kwargs) == set(list(inspect.signature(run_em).parameters)[7:])
+
+    round_trip_request = dense_em_request_from_legacy_kwargs(request.inputs, captured["kwargs"])
+    round_trip_capture = {}
+
+    def round_trip_runner(*args, **kwargs):
+        round_trip_capture["args"] = args
+        round_trip_capture["kwargs"] = kwargs
+        return expected_result.to_legacy_tuple(round_trip_request.outputs.legacy_tuple_spec)
+
+    assert run_dense_em(round_trip_request, legacy_runner=round_trip_runner) == expected_result
+    assert round_trip_capture == captured

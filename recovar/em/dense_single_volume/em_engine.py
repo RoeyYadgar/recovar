@@ -34,6 +34,7 @@ Fourier windowing:
    scattered back to a full half-spectrum before adjoint_slice_volume.
 """
 
+import inspect
 import logging
 import os
 import time
@@ -47,7 +48,19 @@ from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
 
 from .dense_big_jit import run_dense_bucket_big_jit
-from .dense_em_types import DenseEMRequest, DenseEMResult
+from .dense_em_types import (
+    DenseCorrectionInputs,
+    DenseEMInputs,
+    DenseEMRequest,
+    DenseEMRequestedOutputs,
+    DenseEMResult,
+    DenseExecutionSettings,
+    DensePosteriorInputs,
+    DenseProjectionSettings,
+    DenseReconstructionSettings,
+    DenseScoringSettings,
+    DenseSearchSettings,
+)
 from .helpers.adjoint import (
     adjoint_slice_volume_half as _adjoint_slice_volume_half,
 )
@@ -2254,6 +2267,77 @@ def run_em(
         relion_stats=relion_stats,
         noise_stats=noise_stats,
         em_profile=em_profile,
+    )
+
+
+_RUN_EM_SIGNATURE = inspect.signature(run_em)
+
+
+def dense_em_request_from_legacy_kwargs(inputs: DenseEMInputs, engine_kwargs: dict) -> DenseEMRequest:
+    """Build a grouped request with ``run_em``'s exact validation/defaults."""
+
+    bound = _RUN_EM_SIGNATURE.bind(
+        inputs.experiment_dataset,
+        inputs.mean,
+        inputs.mean_variance,
+        inputs.noise_variance,
+        inputs.rotations,
+        inputs.translations,
+        inputs.disc_type,
+        **engine_kwargs,
+    )
+    bound.apply_defaults()
+    values = bound.arguments
+    return DenseEMRequest(
+        inputs=inputs,
+        search=DenseSearchSettings(
+            current_size=values["current_size"],
+            rotation_log_prior=values["rotation_log_prior"],
+            translation_log_prior=values["translation_log_prior"],
+            image_indices=values["image_indices"],
+            rotation_translation_mask=values["rotation_translation_mask"],
+        ),
+        execution=DenseExecutionSettings(
+            image_batch_size=values["image_batch_size"],
+            rotation_block_size=values["rotation_block_size"],
+            sparse_pass2=values["sparse_pass2"],
+        ),
+        scoring=DenseScoringSettings(
+            score_with_masked_images=values["score_with_masked_images"],
+            half_spectrum_scoring=values["half_spectrum_scoring"],
+            relion_firstiter_score_mode=values["relion_firstiter_score_mode"],
+            relion_firstiter_winner_take_all=values["relion_firstiter_winner_take_all"],
+            use_float64_scoring=values["use_float64_scoring"],
+        ),
+        projection=DenseProjectionSettings(
+            projection_padding_factor=values["projection_padding_factor"],
+            reconstruction_padding_factor=values["reconstruction_padding_factor"],
+            use_float64_projections=values["use_float64_projections"],
+            do_gridding_correction=values["do_gridding_correction"],
+            square_window=values["square_window"],
+        ),
+        corrections=DenseCorrectionInputs(
+            image_corrections=values["image_corrections"],
+            scale_corrections=values["scale_corrections"],
+            image_pre_shifts=values["image_pre_shifts"],
+        ),
+        posterior=DensePosteriorInputs(
+            class_log_prior=values["class_log_prior"],
+            normalization_log_evidence=values["normalization_log_evidence"],
+            translation_prior_centers=values["translation_prior_centers"],
+        ),
+        reconstruction=DenseReconstructionSettings(
+            disable_adjoint_y=values["disable_adjoint_y"],
+            disable_adjoint_ctf=values["disable_adjoint_ctf"],
+            score_only=values["score_only"],
+            relion_half_volume_mstep=values["relion_half_volume_mstep"],
+        ),
+        outputs=DenseEMRequestedOutputs(
+            return_stats=values["return_stats"],
+            accumulate_noise=values["accumulate_noise"],
+            return_profile=values["return_profile"],
+            return_half_volume_accumulators=values["return_half_volume_accumulators"],
+        ),
     )
 
 
