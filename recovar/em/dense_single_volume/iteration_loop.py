@@ -169,6 +169,8 @@ from recovar.em.dense_single_volume.runtime_options import (
     current_algorithm_settings,
     current_environment as _runtime_environment,
     load_algorithm_settings,
+    load_runtime_configuration,
+    runtime_configuration_scope,
 )
 from recovar.em.dense_single_volume.relion_metadata import (
     _radial_profile_from_noise_variance,
@@ -4824,20 +4826,42 @@ def refine_single_volume(
     if options is None:
         options = RefinementOptions()
 
-    if options.adaptive.relion_current_sizes is not None and len(options.adaptive.relion_current_sizes) == 0:
-        raise ValueError("relion_current_sizes must be non-empty when provided")
-    options = _with_validated_relion_healpix_orders(options)
-
-    return _run_relion_iteration_loop(
-        experiment_datasets=experiment_datasets,
-        init_volume=init_volume,
-        init_reference_real=options.replay.init_reference_real,
-        init_noise_variance=init_noise_variance,
-        init_mean_variance=init_mean_variance,
-        rotations=rotations,
-        translations=translations,
-        options=options,
+    runtime = options.runtime
+    if runtime is None:
+        runtime = load_runtime_configuration(execution=options.execution)
+    elif options.execution is not None and options.execution != runtime.execution:
+        raise ValueError(
+            "RefinementOptions.execution conflicts with RefinementOptions.runtime.execution"
+        )
+    options = dataclasses.replace(
+        options,
+        execution=runtime.execution,
+        runtime=runtime,
     )
+    logger.info(
+        "Resolved dense EM runtime: algorithm=%s execution=%s "
+        "passive_diagnostics=%s invasive_experiments=%s",
+        runtime.algorithm,
+        runtime.execution,
+        tuple(sorted(runtime.diagnostics.passive)),
+        tuple(sorted(runtime.diagnostics.invasive)),
+    )
+
+    with runtime_configuration_scope(runtime):
+        if options.adaptive.relion_current_sizes is not None and len(options.adaptive.relion_current_sizes) == 0:
+            raise ValueError("relion_current_sizes must be non-empty when provided")
+        options = _with_validated_relion_healpix_orders(options)
+
+        return _run_relion_iteration_loop(
+            experiment_datasets=experiment_datasets,
+            init_volume=init_volume,
+            init_reference_real=options.replay.init_reference_real,
+            init_noise_variance=init_noise_variance,
+            init_mean_variance=init_mean_variance,
+            rotations=rotations,
+            translations=translations,
+            options=options,
+        )
 
 
 # ---------------------------------------------------------------------------

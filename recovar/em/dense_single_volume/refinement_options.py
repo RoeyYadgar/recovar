@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from recovar.em.dense_single_volume.helpers.convergence import LOCAL_SEARCH_HEALPIX_ORDER
-from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
+from recovar.em.dense_single_volume.runtime_options import (
+    ExecutionSettings,
+    RuntimeConfiguration,
+)
 
 
 @dataclass(frozen=True)
@@ -244,6 +247,9 @@ class RefinementOptions:
     # None preserves direct environment compatibility while callers migrate to
     # an explicitly resolved, parse-once host snapshot.
     execution: ExecutionSettings | None = None
+    # Full run configuration is normally captured by ``refine_single_volume``.
+    # Advanced callers may inject one to make replay and testing deterministic.
+    runtime: RuntimeConfiguration | None = None
     disc_type: str = "linear_interp"
 
 

@@ -109,11 +109,15 @@ from recovar.em.dense_single_volume.runtime_options import (
     EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
     RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
+    USE_FLOAT64_SCORING_ENV,
     AlgorithmSettings,
     DenseBatchPlanningSettings,
     FirstIterationBatchSettings,
     LocalCacheSettings,
     RawImageCacheSettings,
+    current_algorithm_settings,
+    current_runtime_configuration,
+    load_runtime_configuration,
 )
 from recovar.em.dense_single_volume.runtime_options import (
     ExecutionSettings as HostExecutionSettings,
@@ -13929,12 +13933,15 @@ class TestRelionDefault:
         translations,
         monkeypatch,
     ):
-        """The ``options=RefinementOptions(...)`` struct reaches the iteration loop unchanged."""
+        """The options groups reach the loop inside one resolved runtime scope."""
         sentinel = {"convergence_state": object()}
         captured: dict = {}
 
         def fake_relion_loop(**kwargs):
             captured.update(kwargs)
+            captured["active_runtime"] = current_runtime_configuration()
+            monkeypatch.setenv(USE_FLOAT64_SCORING_ENV, "1")
+            captured["active_algorithm"] = current_algorithm_settings()
             return sentinel
 
         monkeypatch.setattr(
@@ -13960,6 +13967,7 @@ class TestRelionDefault:
             replay=ReplayState(init_group_count=[7, 8]),
             execution=execution,
         )
+        monkeypatch.delenv(USE_FLOAT64_SCORING_ENV, raising=False)
         result = refine_single_volume(
             half_datasets,
             init_volume,
@@ -13983,6 +13991,46 @@ class TestRelionDefault:
         assert forwarded.parity.image_fourier_backend == "jax_gpu"
         assert forwarded.k_class.n_classes == 4
         assert forwarded.replay.init_group_count == [7, 8]
+        assert forwarded.runtime is captured["active_runtime"]
+        assert forwarded.runtime.algorithm is captured["active_algorithm"]
+        assert forwarded.runtime.algorithm.use_float64_scoring is False
+
+    def test_conflicting_execution_and_runtime_fail_before_iteration_loop(
+        self,
+        half_datasets,
+        init_volume,
+        rotations,
+        translations,
+        monkeypatch,
+    ):
+        explicit_execution = HostExecutionSettings(
+            dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.3)
+        )
+        runtime = load_runtime_configuration(
+            {},
+            execution=HostExecutionSettings(
+                dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4)
+            ),
+        )
+        monkeypatch.setattr(
+            iteration_loop_module,
+            "_run_relion_iteration_loop",
+            lambda **_kwargs: pytest.fail("iteration loop must not run"),
+        )
+
+        with pytest.raises(ValueError, match="execution conflicts"):
+            refine_single_volume(
+                half_datasets,
+                init_volume,
+                jnp.ones(IMAGE_SIZE, dtype=jnp.float32),
+                jnp.ones(VOLUME_SIZE, dtype=jnp.float32) * 100.0,
+                rotations,
+                translations,
+                options=RefinementOptions(
+                    execution=explicit_execution,
+                    runtime=runtime,
+                ),
+            )
 
     def test_execution_settings_reach_top_level_cache_and_batch_planners(
         self,

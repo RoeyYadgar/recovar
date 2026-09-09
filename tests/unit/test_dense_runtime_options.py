@@ -46,16 +46,21 @@ from recovar.em.dense_single_volume.runtime_options import (
     FirstIterationBatchSettings,
     LocalCacheSettings,
     RawImageCacheSettings,
-    capture_environment,
+    RuntimeConfiguration,
     algorithm_settings_scope,
+    capture_environment,
     current_algorithm_settings,
+    current_environment,
+    current_runtime_configuration,
     environment_scope,
+    load_algorithm_settings,
     load_dense_batch_planning_settings,
     load_execution_settings,
-    load_algorithm_settings,
     load_first_iteration_batch_settings,
     load_local_cache_settings,
     load_raw_image_cache_settings,
+    load_runtime_configuration,
+    runtime_configuration_scope,
 )
 
 
@@ -101,6 +106,33 @@ def test_algorithm_settings_scope_is_immutable_and_ignores_later_environment(mon
 def test_algorithm_settings_reject_strict_boolean_aliases(name):
     with pytest.raises(ValueError, match="must be a boolean value"):
         load_algorithm_settings({name: "sometimes"})
+
+
+@pytest.mark.unit
+def test_runtime_configuration_resolves_every_host_group_from_one_snapshot(monkeypatch):
+    source = {
+        USE_FLOAT64_SCORING_ENV: "1",
+        RELION_EM_BATCH_PROJECTION_FRACTION_ENV: "0.4",
+        "RECOVAR_PASS2_DUMP_DIR": "/tmp/pass2",
+        "RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET": "1",
+    }
+    runtime = load_runtime_configuration(source)
+
+    assert isinstance(runtime, RuntimeConfiguration)
+    assert runtime.algorithm.use_float64_scoring is True
+    assert runtime.execution.dense_batch_planning.projection_fraction == 0.4
+    assert tuple(runtime.diagnostics.passive) == ("RECOVAR_PASS2_DUMP_DIR",)
+    assert tuple(runtime.diagnostics.invasive) == (
+        "RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET",
+    )
+
+    with runtime_configuration_scope(runtime):
+        monkeypatch.setenv(USE_FLOAT64_SCORING_ENV, "0")
+        assert current_runtime_configuration() is runtime
+        assert current_algorithm_settings() is runtime.algorithm
+        assert current_environment() is runtime.environment
+
+    assert current_runtime_configuration() is None
 
 
 @pytest.mark.unit

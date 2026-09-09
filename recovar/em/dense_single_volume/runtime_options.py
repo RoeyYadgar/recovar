@@ -10,7 +10,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
+
+if TYPE_CHECKING:
+    from recovar.em.dense_single_volume.diagnostics.config import DiagnosticsPlan
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +257,42 @@ class ExecutionSettings:
     local_cache: LocalCacheSettings = field(default_factory=LocalCacheSettings)
 
 
+@dataclass(frozen=True)
+class RuntimeConfiguration:
+    """Immutable algorithm, execution, diagnostics, and environment snapshot."""
+
+    environment: EnvironmentSnapshot
+    algorithm: AlgorithmSettings
+    execution: ExecutionSettings
+    diagnostics: DiagnosticsPlan
+
+
+_ACTIVE_RUNTIME_CONFIGURATION: ContextVar[RuntimeConfiguration | None] = ContextVar(
+    "dense_single_volume_runtime_configuration",
+    default=None,
+)
+
+
+@contextmanager
+def runtime_configuration_scope(configuration: RuntimeConfiguration):
+    """Activate every resolved host setting for one refinement invocation."""
+
+    token = _ACTIVE_RUNTIME_CONFIGURATION.set(configuration)
+    try:
+        with environment_scope(configuration.environment), algorithm_settings_scope(
+            configuration.algorithm
+        ):
+            yield configuration
+    finally:
+        _ACTIVE_RUNTIME_CONFIGURATION.reset(token)
+
+
+def current_runtime_configuration() -> RuntimeConfiguration | None:
+    """Return the active run configuration, if called inside refinement."""
+
+    return _ACTIVE_RUNTIME_CONFIGURATION.get()
+
+
 def load_first_iteration_batch_settings(
     environ: Mapping[str, str] | None = None,
 ) -> FirstIterationBatchSettings:
@@ -366,4 +405,28 @@ def load_execution_settings(environ: Mapping[str, str] | None = None) -> Executi
         raw_image_cache=load_raw_image_cache_settings(environ),
         dense_batch_planning=load_dense_batch_planning_settings(environ),
         local_cache=load_local_cache_settings(environ),
+    )
+
+
+def load_runtime_configuration(
+    environ: Mapping[str, str] | None = None,
+    *,
+    algorithm: AlgorithmSettings | None = None,
+    execution: ExecutionSettings | None = None,
+    diagnostics: DiagnosticsPlan | None = None,
+) -> RuntimeConfiguration:
+    """Resolve one complete host configuration from one immutable snapshot."""
+
+    from recovar.em.dense_single_volume.diagnostics.config import DiagnosticsPlan
+
+    snapshot = capture_environment(environ)
+    return RuntimeConfiguration(
+        environment=snapshot,
+        algorithm=algorithm if algorithm is not None else load_algorithm_settings(snapshot),
+        execution=execution if execution is not None else load_execution_settings(snapshot),
+        diagnostics=(
+            diagnostics
+            if diagnostics is not None
+            else DiagnosticsPlan.from_environment(snapshot)
+        ),
     )
