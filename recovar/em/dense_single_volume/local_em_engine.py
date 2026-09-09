@@ -166,6 +166,7 @@ from recovar.em.dense_single_volume.local_timing import (  # noqa: F401
     _new_zero_timer,
     _prefixed_timer_profile,
 )
+from recovar.em.dense_single_volume.runtime_options import LocalCacheSettings
 from recovar.em.dense_single_volume.shape_buckets import pad_axis, pad_batch_data_ctf_and_valid_mask
 from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
@@ -1887,6 +1888,7 @@ def run_local_em_exact(
     image_batch_size: int,
     rotation_block_size: int,
     current_size: int | None,
+    cache_settings: LocalCacheSettings | None = None,
     reconstruction_current_size: int | None = None,
     accumulate_noise: bool = False,
     projection_padding_factor: int = 1,
@@ -2595,6 +2597,7 @@ def run_local_em_exact(
         n_half,
         np.complex64,
         store_recon_half=bool(score_with_masked_images),
+        settings=cache_settings,
     )
     use_big_jit_buckets = (
         ((not use_relion_projector) or relion_projector_big_jit_supported)
@@ -2715,6 +2718,7 @@ def run_local_em_exact(
             n_images,
             image_shape,
             getattr(experiment_dataset, "dtype", np.float32),
+            settings=cache_settings,
         )
         if raw_cache_enabled:
             raw_cache_t0 = time.time()
@@ -2823,6 +2827,7 @@ def run_local_em_exact(
                 rotation_count=int(bucket.bucket_rotation_count),
                 n_recon_windowed=window_spec.n_recon,
                 use_float64_scoring=use_float64_scoring,
+                settings=cache_settings,
             )
             sparse_big_jit_backprojection = (
                 sparse_big_jit_mstep_cap_gb > 0.0 and sparse_big_jit_mstep_estimated_gb <= sparse_big_jit_mstep_cap_gb
@@ -5213,6 +5218,7 @@ def run_local_em(request: LocalEMRequest, *, legacy_runner=None) -> LocalEMResul
         image_batch_size=execution.image_batch_size,
         rotation_block_size=execution.rotation_block_size,
         current_size=search.current_size,
+        cache_settings=execution.cache,
         reconstruction_current_size=search.reconstruction_current_size,
         accumulate_noise=outputs.accumulate_noise,
         projection_padding_factor=projection.projection_padding_factor,

@@ -111,6 +111,7 @@ from recovar.em.dense_single_volume.runtime_options import (
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
     DenseBatchPlanningSettings,
     FirstIterationBatchSettings,
+    LocalCacheSettings,
     RawImageCacheSettings,
 )
 from recovar.em.dense_single_volume.runtime_options import (
@@ -8520,7 +8521,7 @@ def test_run_local_em_exact_over_cap_significant_support_defaults_to_deferred_bi
     monkeypatch.delenv("RECOVAR_LOCAL_SCORE_DUMP_DIR", raising=False)
     monkeypatch.delenv("RECOVAR_LOCAL_SCORE_DUMP_GLOBAL_INDICES", raising=False)
     monkeypatch.delenv(EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV, raising=False)
-    monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "1000")
+    monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "invalid")
     sparse = run_local_em_exact(
         dataset,
         mean,
@@ -8528,10 +8529,10 @@ def test_run_local_em_exact_over_cap_significant_support_defaults_to_deferred_bi
         noise_variance,
         local_layout,
         "linear_interp",
+        cache_settings=LocalCacheSettings(sparse_big_jit_mstep_max_gb=1000.0),
         **kwargs,
     )
 
-    monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "0")
     deferred = run_local_em_exact(
         dataset,
         mean,
@@ -8539,6 +8540,7 @@ def test_run_local_em_exact_over_cap_significant_support_defaults_to_deferred_bi
         noise_variance,
         local_layout,
         "linear_interp",
+        cache_settings=LocalCacheSettings(sparse_big_jit_mstep_max_gb=0.0),
         **kwargs,
     )
 
@@ -8650,7 +8652,9 @@ def test_run_local_em_exact_processed_half_cache_matches_uncached_split(monkeypa
 
     monkeypatch.delenv("RECOVAR_LOCAL_SCORE_DUMP_DIR", raising=False)
     monkeypatch.delenv("RECOVAR_LOCAL_SCORE_DUMP_GLOBAL_INDICES", raising=False)
-    monkeypatch.setenv(EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV, "0")
+    monkeypatch.setenv(EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV, "invalid")
+    monkeypatch.setenv(EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV, "invalid")
+    monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "invalid")
     uncached = run_local_em_exact(
         dataset,
         mean,
@@ -8658,9 +8662,12 @@ def test_run_local_em_exact_processed_half_cache_matches_uncached_split(monkeypa
         noise_variance,
         local_layout,
         "linear_interp",
+        cache_settings=LocalCacheSettings(
+            raw_image_max_gb=1.0,
+            processed_half_max_gb=0.0,
+        ),
         **common_kwargs,
     )
-    monkeypatch.setenv(EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV, "1")
     cached = run_local_em_exact(
         dataset,
         mean,
@@ -8668,6 +8675,10 @@ def test_run_local_em_exact_processed_half_cache_matches_uncached_split(monkeypa
         noise_variance,
         local_layout,
         "linear_interp",
+        cache_settings=LocalCacheSettings(
+            raw_image_max_gb=0.0,
+            processed_half_max_gb=1.0,
+        ),
         **common_kwargs,
     )
 
@@ -8675,6 +8686,8 @@ def test_run_local_em_exact_processed_half_cache_matches_uncached_split(monkeypa
     Ft_y_cached, Ft_ctf_cached, hard_cached, stats_cached, noise_cached, profile_cached = cached
     assert bool(profile_uncached["processed_half_cache_enabled"]) is False
     assert bool(profile_cached["processed_half_cache_enabled"]) is True
+    assert bool(profile_uncached["raw_cache_enabled"]) is True
+    assert bool(profile_cached["raw_cache_enabled"]) is False
     np.testing.assert_array_equal(hard_uncached, hard_cached)
     np.testing.assert_allclose(np.asarray(Ft_y_uncached), np.asarray(Ft_y_cached), atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(np.asarray(Ft_ctf_uncached), np.asarray(Ft_ctf_cached), atol=1e-5, rtol=1e-5)

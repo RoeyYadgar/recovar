@@ -21,6 +21,7 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalScoringSettings,
     LocalSearchSettings,
 )
+from recovar.em.dense_single_volume.runtime_options import LocalCacheSettings
 
 
 @pytest.mark.unit
@@ -143,6 +144,11 @@ def test_local_em_adapters_round_trip_every_exact_engine_parameter():
             rotation_block_size=7,
             max_hypotheses_per_microbatch=23,
             unify_local_bucket_sizes=True,
+            cache=LocalCacheSettings(
+                raw_image_max_gb=2.0,
+                processed_half_max_gb=3.0,
+                sparse_big_jit_mstep_max_gb=4.0,
+            ),
         ),
         scoring=LocalScoringSettings(
             score_with_masked_images=False,
@@ -220,7 +226,6 @@ def test_local_em_adapters_round_trip_every_exact_engine_parameter():
     expected_kwargs = {}
     for group in (
         request.search,
-        request.execution,
         request.scoring,
         request.corrections,
         request.posterior,
@@ -229,6 +234,11 @@ def test_local_em_adapters_round_trip_every_exact_engine_parameter():
     ):
         expected_kwargs.update(vars(group))
     expected_kwargs.update(
+        image_batch_size=request.execution.image_batch_size,
+        rotation_block_size=request.execution.rotation_block_size,
+        max_hypotheses_per_microbatch=request.execution.max_hypotheses_per_microbatch,
+        unify_local_bucket_sizes=request.execution.unify_local_bucket_sizes,
+        cache_settings=request.execution.cache,
         projection_padding_factor=request.projection.projection_padding_factor,
         reconstruction_padding_factor=request.projection.reconstruction_padding_factor,
         use_float64_projections=request.projection.use_float64_projections,

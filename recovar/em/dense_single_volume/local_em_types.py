@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from recovar.em.dense_single_volume.runtime_options import LocalCacheSettings
+
 
 @dataclass(frozen=True)
 class LocalEMOutputSpec:
@@ -62,6 +64,7 @@ class LocalExecutionSettings:
     rotation_block_size: int
     max_hypotheses_per_microbatch: int | None = None
     unify_local_bucket_sizes: bool | None = None
+    cache: LocalCacheSettings | None = None
 
 
 # Compatibility alias for external callers written before the runtime-level

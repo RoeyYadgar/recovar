@@ -723,6 +723,7 @@ def _local_em_request_from_legacy_kwargs(
             rotation_block_size=values["rotation_block_size"],
             max_hypotheses_per_microbatch=values["max_hypotheses_per_microbatch"],
             unify_local_bucket_sizes=values["unify_local_bucket_sizes"],
+            cache=values["cache_settings"],
         ),
         scoring=LocalScoringSettings(
             score_with_masked_images=values["score_with_masked_images"],
