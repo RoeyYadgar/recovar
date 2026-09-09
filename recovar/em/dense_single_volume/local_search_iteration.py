@@ -30,12 +30,12 @@ from recovar.em.dense_single_volume.helpers.types import NoiseStats, RelionStats
 from recovar.em.dense_single_volume.k_class import run_local_k_class_em
 from recovar.em.dense_single_volume.local_em_engine import run_local_em
 from recovar.em.dense_single_volume.local_em_types import (
-    ExecutionSettings,
     LocalCorrectionInputs,
     LocalEMDiagnostics,
     LocalEMInputs,
     LocalEMRequest,
     LocalEMRequestedOutputs,
+    LocalExecutionSettings,
     LocalPosteriorInputs,
     LocalProjectionSettings,
     LocalReconstructionSettings,
@@ -502,7 +502,7 @@ def _run_local_search_iteration(
                     # adaptive support, not the pass-2 reconstruction threshold.
                     max_significants=max_significants if apply_max_significants_to_support else -1,
                 ),
-                execution=ExecutionSettings(
+                execution=LocalExecutionSettings(
                     image_batch_size=image_batch_size,
                     rotation_block_size=rotation_block_size,
                 ),

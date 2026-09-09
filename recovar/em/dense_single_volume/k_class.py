@@ -22,13 +22,13 @@ from .helpers.significance import ComplementSignificantSampleIndices, significan
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
 from .local_em_engine import run_local_em, run_local_em_exact
 from .local_em_types import (
-    ExecutionSettings,
     LocalCorrectionInputs,
     LocalEMDiagnostics,
     LocalEMInputs,
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalEMResult,
+    LocalExecutionSettings,
     LocalPosteriorInputs,
     LocalProjectionSettings,
     LocalReconstructionSettings,
@@ -718,7 +718,7 @@ def _local_em_request_from_legacy_kwargs(
             max_significants=values["max_significants"],
             reconstruction_probability_threshold=values["reconstruction_probability_threshold"],
         ),
-        execution=ExecutionSettings(
+        execution=LocalExecutionSettings(
             image_batch_size=values["image_batch_size"],
             rotation_block_size=values["rotation_block_size"],
             max_hypotheses_per_microbatch=values["max_hypotheses_per_microbatch"],

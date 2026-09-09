@@ -5,8 +5,8 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from recovar.em.dense_single_volume.local_em_engine import run_local_em, run_local_em_exact
+from recovar.em.dense_single_volume.local_em_types import ExecutionSettings as LegacyExecutionSettings
 from recovar.em.dense_single_volume.local_em_types import (
-    ExecutionSettings,
     LocalCorrectionInputs,
     LocalEMDiagnostics,
     LocalEMInputs,
@@ -14,6 +14,7 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalEMResult,
+    LocalExecutionSettings,
     LocalPosteriorInputs,
     LocalProjectionSettings,
     LocalReconstructionSettings,
@@ -82,7 +83,7 @@ def test_local_em_request_composes_immutable_default_groups():
     request = LocalEMRequest(
         inputs=LocalEMInputs("dataset", "mean", "mean_variance", "noise_variance", "layout", "disc_type"),
         search=LocalSearchSettings(current_size=40),
-        execution=ExecutionSettings(image_batch_size=5, rotation_block_size=7),
+        execution=LocalExecutionSettings(image_batch_size=5, rotation_block_size=7),
     )
 
     assert request.scoring == LocalScoringSettings()
@@ -94,6 +95,11 @@ def test_local_em_request_composes_immutable_default_groups():
     assert request.diagnostics == LocalEMDiagnostics()
     with pytest.raises(FrozenInstanceError):
         request.execution.image_batch_size = 9
+
+
+@pytest.mark.unit
+def test_legacy_execution_settings_name_aliases_local_type():
+    assert LegacyExecutionSettings is LocalExecutionSettings
 
 
 @pytest.mark.unit
@@ -132,7 +138,7 @@ def test_local_em_adapters_round_trip_every_exact_engine_parameter():
             max_significants=19,
             reconstruction_probability_threshold="reconstruction_probability_threshold",
         ),
-        execution=ExecutionSettings(
+        execution=LocalExecutionSettings(
             image_batch_size=5,
             rotation_block_size=7,
             max_hypotheses_per_microbatch=23,

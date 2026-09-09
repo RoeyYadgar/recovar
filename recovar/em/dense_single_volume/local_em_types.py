@@ -55,13 +55,18 @@ class LocalSearchSettings:
 
 
 @dataclass(frozen=True)
-class ExecutionSettings:
+class LocalExecutionSettings:
     """Host batching and bucket-shape controls for exact local execution."""
 
     image_batch_size: int
     rotation_block_size: int
     max_hypotheses_per_microbatch: int | None = None
     unify_local_bucket_sizes: bool | None = None
+
+
+# Compatibility alias for external callers written before the runtime-level
+# ExecutionSettings snapshot was introduced.
+ExecutionSettings = LocalExecutionSettings
 
 
 @dataclass(frozen=True)
@@ -171,7 +176,7 @@ class LocalEMRequest:
 
     inputs: LocalEMInputs
     search: LocalSearchSettings
-    execution: ExecutionSettings
+    execution: LocalExecutionSettings
     scoring: LocalScoringSettings = LocalScoringSettings()
     projection: LocalProjectionSettings = LocalProjectionSettings()
     corrections: LocalCorrectionInputs = LocalCorrectionInputs()
