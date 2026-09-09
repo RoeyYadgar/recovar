@@ -7,6 +7,13 @@ from recovar.em.dense_single_volume.batch_planning import (
     _estimate_relion_em_batch_sizes,
     _maybe_cache_raw_image_loaders,
 )
+from recovar.em.dense_single_volume.diagnostics.config import (
+    DiagnosticsPlan,
+    EnvironmentVariableClass,
+    classify_environment_name,
+    diagnostic_environment_overrides,
+    diagnostics_environment,
+)
 from recovar.em.dense_single_volume.firstiter_cc import _safe_firstiter_cc_image_batch_size
 from recovar.em.dense_single_volume.local_caches import (
     _local_processed_half_cache_enabled,
@@ -27,16 +34,64 @@ from recovar.em.dense_single_volume.runtime_options import (
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
     DenseBatchPlanningSettings,
+    EnvironmentSnapshot,
     ExecutionSettings,
     FirstIterationBatchSettings,
     LocalCacheSettings,
     RawImageCacheSettings,
+    capture_environment,
+    environment_scope,
     load_dense_batch_planning_settings,
     load_execution_settings,
     load_first_iteration_batch_settings,
     load_local_cache_settings,
     load_raw_image_cache_settings,
 )
+
+
+@pytest.mark.unit
+def test_environment_snapshot_is_immutable_during_host_scope(monkeypatch):
+    monkeypatch.setenv(RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV, "123")
+    snapshot = capture_environment()
+
+    monkeypatch.setenv(RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV, "456")
+    with environment_scope(snapshot):
+        assert load_first_iteration_batch_settings().reconstruction_complex_budget == 123
+
+    assert load_first_iteration_batch_settings().reconstruction_complex_budget == 456
+    with pytest.raises(TypeError):
+        snapshot._mapping[RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV] = "789"
+
+
+@pytest.mark.unit
+def test_diagnostics_plan_separates_passive_and_invasive_settings():
+    plan = DiagnosticsPlan.from_environment(
+        {
+            "RECOVAR_PASS2_DUMP_DIR": "/tmp/pass2",
+            "RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET": "1",
+            "RECOVAR_SPARSE_PASS2_MAX_HYPOTHESES": "1000",
+            "IGNORED": "value",
+        }
+    )
+
+    assert plan.passive["RECOVAR_PASS2_DUMP_DIR"] == "/tmp/pass2"
+    assert plan.invasive["RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET"] == "1"
+    assert "RECOVAR_SPARSE_PASS2_MAX_HYPOTHESES" not in plan.passive
+    assert classify_environment_name("RECOVAR_SPARSE_PASS2_MAX_HYPOTHESES") is EnvironmentVariableClass.TUNING
+    assert classify_environment_name("IGNORED") is None
+
+
+@pytest.mark.unit
+def test_diagnostic_overrides_do_not_mutate_process_environment(monkeypatch):
+    name = "RECOVAR_LOCAL_SCORE_DUMP_LABEL"
+    monkeypatch.setenv(name, "outer")
+    snapshot = EnvironmentSnapshot(((name, "captured"),))
+
+    with environment_scope(snapshot):
+        with diagnostic_environment_overrides(**{name: "inner"}):
+            assert diagnostics_environment()[name] == "inner"
+        assert diagnostics_environment()[name] == "captured"
+    assert diagnostics_environment()[name] == "outer"
 
 
 @pytest.mark.unit

@@ -5,7 +5,11 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Iterator
 
 # Historical defaults remain stable while environment variables are adapters.
 RELION_FIRSTITER_RECON_COMPLEX_BUDGET = 268_435_456
@@ -21,6 +25,75 @@ EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB = 0.0
 EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB"
 EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB = 12.0
 EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB"
+
+
+@dataclass(frozen=True)
+class EnvironmentSnapshot(Mapping[str, str]):
+    """Immutable process-environment view captured at a host boundary."""
+
+    values: tuple[tuple[str, str], ...]
+    _mapping: Mapping[str, str] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        normalized = tuple(sorted((str(name), str(value)) for name, value in self.values))
+        object.__setattr__(self, "values", normalized)
+        object.__setattr__(self, "_mapping", MappingProxyType(dict(normalized)))
+
+    def __getitem__(self, key: str) -> str:
+        return self._mapping[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._mapping)
+
+    def __len__(self) -> int:
+        return len(self._mapping)
+
+    def with_overrides(
+        self,
+        overrides: Mapping[str, str | None],
+    ) -> EnvironmentSnapshot:
+        """Return a snapshot with explicit replacements and removals."""
+
+        values = dict(self._mapping)
+        for name, value in overrides.items():
+            if value is None:
+                values.pop(name, None)
+            else:
+                values[name] = str(value)
+        return EnvironmentSnapshot(tuple(values.items()))
+
+
+_ACTIVE_ENVIRONMENT: ContextVar[EnvironmentSnapshot | None] = ContextVar(
+    "dense_single_volume_environment",
+    default=None,
+)
+
+
+def capture_environment(
+    environ: Mapping[str, str] | None = None,
+) -> EnvironmentSnapshot:
+    """Capture an immutable environment without retaining a mutable mapping."""
+
+    source = os.environ if environ is None else environ
+    return EnvironmentSnapshot(tuple(source.items()))
+
+
+def current_environment() -> Mapping[str, str]:
+    """Return the active snapshot or the live mapping for legacy direct calls."""
+
+    snapshot = _ACTIVE_ENVIRONMENT.get()
+    return os.environ if snapshot is None else snapshot
+
+
+@contextmanager
+def environment_scope(snapshot: EnvironmentSnapshot):
+    """Use one immutable environment snapshot for all nested host work."""
+
+    token = _ACTIVE_ENVIRONMENT.set(snapshot)
+    try:
+        yield snapshot
+    finally:
+        _ACTIVE_ENVIRONMENT.reset(token)
 
 
 @dataclass(frozen=True)
@@ -77,7 +150,7 @@ def load_first_iteration_batch_settings(
 ) -> FirstIterationBatchSettings:
     """Resolve first-iteration batch settings from compatibility variables."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     raw = env.get(RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV)
     if raw is None or raw.strip() == "":
         return FirstIterationBatchSettings()
@@ -104,14 +177,14 @@ def load_raw_image_cache_settings(
 def load_raw_image_cache_mode(environ: Mapping[str, str] | None = None) -> str:
     """Resolve only the cache mode for legacy lazy-validation paths."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     return env.get(EM_RAW_IMAGE_CACHE_ENV, "auto").strip().lower()
 
 
 def load_raw_image_cache_max_gb(environ: Mapping[str, str] | None = None) -> float:
     """Resolve only the cache ceiling for legacy lazy-validation paths."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     return float(env.get(EM_RAW_IMAGE_CACHE_MAX_GB_ENV, EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB))
 
 
@@ -120,7 +193,7 @@ def load_dense_batch_planning_settings(
 ) -> DenseBatchPlanningSettings:
     """Resolve dense batch-planning settings from compatibility variables."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     raw = env.get(RELION_EM_BATCH_PROJECTION_FRACTION_ENV)
     if raw is None or raw.strip() == "":
         return DenseBatchPlanningSettings()
@@ -138,14 +211,14 @@ def load_dense_batch_planning_settings(
 def load_local_raw_cache_max_gb(environ: Mapping[str, str] | None = None) -> float:
     """Resolve only the raw-image cache ceiling for lazy compatibility paths."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     return float(env.get(EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV, EXACT_LOCAL_RAW_CACHE_MAX_GB))
 
 
 def load_local_processed_half_cache_max_gb(environ: Mapping[str, str] | None = None) -> float:
     """Resolve only the processed-half cache ceiling for lazy compatibility paths."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     return float(
         env.get(
             EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
@@ -157,7 +230,7 @@ def load_local_processed_half_cache_max_gb(environ: Mapping[str, str] | None = N
 def load_local_sparse_big_jit_mstep_max_gb(environ: Mapping[str, str] | None = None) -> float:
     """Resolve only the sparse big-JIT M-step ceiling for compatibility paths."""
 
-    env = os.environ if environ is None else environ
+    env = current_environment() if environ is None else environ
     return float(
         env.get(
             EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
