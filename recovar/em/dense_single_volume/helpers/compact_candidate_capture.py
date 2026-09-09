@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
+
 SCHEMA = "recovar-k1-production-candidate-bucket-v2"
 CAPTURE_DIR_ENV = "RECOVAR_COMPACT_CANDIDATE_CAPTURE_DIR"
 CAPTURE_ITERATION_ENV = "RECOVAR_COMPACT_CANDIDATE_CAPTURE_ITERATION"
@@ -478,10 +480,10 @@ def finalize_raw_capture_directory(
 
 
 def _capture_requested(iteration: int) -> Path | None:
-    raw = os.environ.get(CAPTURE_DIR_ENV, "").strip()
+    raw = _runtime_environment().get(CAPTURE_DIR_ENV, "").strip()
     if not raw:
         return None
-    target = os.environ.get(CAPTURE_ITERATION_ENV, "").strip()
+    target = _runtime_environment().get(CAPTURE_ITERATION_ENV, "").strip()
     if target and int(target) != int(iteration):
         return None
     if int(iteration) < 0:
@@ -501,7 +503,7 @@ def _target_rows(original_indices: np.ndarray) -> np.ndarray:
     original = np.asarray(original_indices, dtype=np.int64)
     if original.ndim != 1 or np.unique(original).size != original.size:
         raise CompactCaptureError("compact capture original identities must be a unique vector")
-    raw = os.environ.get(CAPTURE_ORIGINAL_INDICES_ENV, "").strip()
+    raw = _runtime_environment().get(CAPTURE_ORIGINAL_INDICES_ENV, "").strip()
     if not raw:
         return np.arange(original.size, dtype=np.int64)
     try:
@@ -783,7 +785,7 @@ def maybe_capture_k1_production_bucket(
     global _capture_counter
     call_index = _capture_counter
     _capture_counter += 1
-    rank = int(os.environ.get("SLURM_PROCID", os.environ.get("OMPI_COMM_WORLD_RANK", "0")))
+    rank = int(_runtime_environment().get("SLURM_PROCID", _runtime_environment().get("OMPI_COMM_WORLD_RANK", "0")))
     metadata = {
         "schema": SCHEMA,
         "score_semantics": "higher-is-better combined log weight; all priors included",

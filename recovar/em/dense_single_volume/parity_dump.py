@@ -14,12 +14,13 @@ no-op so the dump has zero behavioral effect. Optional env vars:
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 _E_STEP: dict[int, dict[str, Any]] = {}
 
@@ -31,11 +32,11 @@ _ITER_TIMERS: dict[int, dict[str, Any]] = {}
 
 
 def is_active() -> bool:
-    return bool(os.environ.get("RECOVAR_PARITY_DUMP_DIR"))
+    return bool(_runtime_environment().get("RECOVAR_PARITY_DUMP_DIR"))
 
 
 def timing_is_active() -> bool:
-    return is_active() or bool(os.environ.get("RECOVAR_PARITY_TIMING_DIR"))
+    return is_active() or bool(_runtime_environment().get("RECOVAR_PARITY_TIMING_DIR"))
 
 
 def start_iteration(iteration: int) -> None:
@@ -81,7 +82,7 @@ def reset_iteration_timer(iteration: int) -> None:
 
 
 def dump_dir() -> Path | None:
-    raw = os.environ.get("RECOVAR_PARITY_DUMP_DIR")
+    raw = _runtime_environment().get("RECOVAR_PARITY_DUMP_DIR")
     if not raw:
         return None
     p = Path(raw)
@@ -90,7 +91,7 @@ def dump_dir() -> Path | None:
 
 
 def timing_dir() -> Path | None:
-    raw = os.environ.get("RECOVAR_PARITY_TIMING_DIR")
+    raw = _runtime_environment().get("RECOVAR_PARITY_TIMING_DIR")
     if not raw:
         return None
     p = Path(raw)
@@ -366,7 +367,7 @@ def dump_timing_iteration(
 
 def _downsample_volume_real(volume_ft_flat, volume_shape) -> np.ndarray:
     """Downsample by a stored env factor, returning a real-space crop."""
-    factor = int(os.environ.get("RECOVAR_PARITY_DUMP_VOLUME_DOWNSAMPLE", "2"))
+    factor = int(_runtime_environment().get("RECOVAR_PARITY_DUMP_VOLUME_DOWNSAMPLE", "2"))
     factor = max(1, factor)
     from recovar.core import fourier_transform_utils as ftu
 

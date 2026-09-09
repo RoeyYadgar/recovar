@@ -23,6 +23,7 @@ from recovar.em.dense_single_volume.helpers.half_spectrum import (
     make_shell_indices_half,
 )
 from recovar.em.dense_single_volume.relion_metadata import _relion_half_plane_shell_counts
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.em.sampling import rotation_grid_size
 
 logger = logging.getLogger(__name__)
@@ -146,10 +147,10 @@ def _maybe_dump_noise_update_debug(
 ):
     """Write raw noise M-step terms for RELION parity debugging when requested."""
 
-    dump_dir = os.environ.get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
     if not dump_dir:
         return
-    requested_iterations = parse_int_set(os.environ.get("RECOVAR_NOISE_DEBUG_DUMP_ITERATION"))
+    requested_iterations = parse_int_set(_runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_ITERATION"))
     if requested_iterations is not None and int(iteration) not in requested_iterations:
         return
 

@@ -8,7 +8,6 @@ at ``iteration_loop.<name>``; all dependencies are imported directly.
 from __future__ import annotations
 
 import logging
-import os
 import time
 
 import jax.numpy as jnp
@@ -20,6 +19,7 @@ from recovar.em.dense_single_volume.helpers.orientation_priors import (
     collapse_rotation_posterior_to_direction_prior,
 )
 from recovar.em.dense_single_volume.helpers.types import make_noise_stats
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 logger = logging.getLogger(__name__)
 
@@ -463,12 +463,12 @@ def _reconstruct_and_postprocess_means(
 
     for k in range(2):
         # Diagnostic: dump pre-mask Wiener output when env var set.
-        _premask_dump = os.environ.get("RECOVAR_PREMASK_DUMP_DIR")
+        _premask_dump = _runtime_environment().get("RECOVAR_PREMASK_DUMP_DIR")
         if _premask_dump:
             import pathlib
 
             pathlib.Path(_premask_dump).mkdir(parents=True, exist_ok=True)
-            _preserve_premask_dtype = os.environ.get(
+            _preserve_premask_dtype = _runtime_environment().get(
                 "RECOVAR_PREMASK_DUMP_PRESERVE_DTYPE", ""
             ).strip().lower() not in {"", "0", "false", "no", "off"}
             _premask_fourier = np.asarray(means[k])

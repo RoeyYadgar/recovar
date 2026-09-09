@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +11,7 @@ import numpy as np
 from recovar import utils
 from recovar.em.dense_single_volume.helpers.env_flags import parse_int_set
 from recovar.em.dense_single_volume.helpers.half_spectrum import bin_shell_values_np
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 
 @dataclass(frozen=True)
@@ -31,10 +31,10 @@ class DensePerPoseScoreDumpRequest:
 def parse_debug_score_dump_request():
     """Return the optional debug score-dump request from the environment."""
 
-    dump_dir = os.environ.get("RECOVAR_LOCAL_SCORE_DUMP_DIR")
-    dump_indices = os.environ.get("RECOVAR_LOCAL_SCORE_DUMP_GLOBAL_INDICES")
-    dump_current_size = os.environ.get("RECOVAR_LOCAL_SCORE_DUMP_CURRENT_SIZE")
-    dump_iterations = os.environ.get("RECOVAR_LOCAL_SCORE_DUMP_ITERATION")
+    dump_dir = _runtime_environment().get("RECOVAR_LOCAL_SCORE_DUMP_DIR")
+    dump_indices = _runtime_environment().get("RECOVAR_LOCAL_SCORE_DUMP_GLOBAL_INDICES")
+    dump_current_size = _runtime_environment().get("RECOVAR_LOCAL_SCORE_DUMP_CURRENT_SIZE")
+    dump_iterations = _runtime_environment().get("RECOVAR_LOCAL_SCORE_DUMP_ITERATION")
     if not dump_dir or not dump_indices:
         return None, set(), None, None
     targets = parse_int_set(dump_indices) or set()
@@ -55,10 +55,10 @@ def parse_debug_fused_posterior_dump_request():
     non-fused path, while this hook records the actual production fused path.
     """
 
-    dump_dir = os.environ.get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_DIR")
-    dump_indices = os.environ.get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_GLOBAL_INDICES")
-    dump_current_size = os.environ.get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_CURRENT_SIZE")
-    dump_iterations = os.environ.get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_ITERATION")
+    dump_dir = _runtime_environment().get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_DIR")
+    dump_indices = _runtime_environment().get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_GLOBAL_INDICES")
+    dump_current_size = _runtime_environment().get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_CURRENT_SIZE")
+    dump_iterations = _runtime_environment().get("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_ITERATION")
     if not dump_dir or not dump_indices:
         return None, set(), None, None
     targets = parse_int_set(dump_indices) or set()
@@ -74,10 +74,10 @@ def parse_debug_fused_posterior_dump_request():
 def parse_debug_noise_component_dump_request():
     """Return optional per-particle local noise component dump settings."""
 
-    dump_dir = os.environ.get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_DIR")
-    dump_indices = os.environ.get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_GLOBAL_INDICES")
-    dump_current_size = os.environ.get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_CURRENT_SIZE")
-    dump_iterations = os.environ.get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_ITERATION")
+    dump_dir = _runtime_environment().get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_DIR")
+    dump_indices = _runtime_environment().get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_GLOBAL_INDICES")
+    dump_current_size = _runtime_environment().get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_CURRENT_SIZE")
+    dump_iterations = _runtime_environment().get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_ITERATION")
     if not dump_dir or not dump_indices:
         return None, set(), None, None
     targets = parse_int_set(dump_indices) or set()
@@ -118,9 +118,9 @@ def iteration_matches_request(requested_iterations: set[int] | None, debug_itera
 def parse_dense_noise_component_dump_request():
     """Return optional per-particle dense noise component dump settings."""
 
-    dump_dir = os.environ.get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
-    dump_indices = os.environ.get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_GLOBAL_INDICES")
-    dump_current_size = os.environ.get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_CURRENT_SIZE")
+    dump_dir = _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
+    dump_indices = _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_GLOBAL_INDICES")
+    dump_current_size = _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_CURRENT_SIZE")
     if not dump_dir or not dump_indices:
         return None, set(), None
     targets = parse_int_set(dump_indices) or set()
@@ -135,8 +135,8 @@ def parse_dense_noise_component_dump_request():
 def parse_dense_per_pose_score_dump_request() -> DensePerPoseScoreDumpRequest:
     """Return optional dense/global per-pose score dump settings."""
 
-    dump_dir = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_DIR")
-    dump_target = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_TARGET")
+    dump_dir = _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_DIR")
+    dump_target = _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_TARGET")
     if not dump_dir or dump_target is None:
         return DensePerPoseScoreDumpRequest()
     try:
@@ -145,8 +145,8 @@ def parse_dense_per_pose_score_dump_request() -> DensePerPoseScoreDumpRequest:
         return DensePerPoseScoreDumpRequest()
     dump_path = Path(dump_dir)
     dump_path.mkdir(parents=True, exist_ok=True)
-    dump_preprior = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_PREPRIOR")
-    target_is_original = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_TARGET_IS_ORIGINAL")
+    dump_preprior = _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_PREPRIOR")
+    target_is_original = _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_TARGET_IS_ORIGINAL")
     return DensePerPoseScoreDumpRequest(
         dump_dir=dump_path,
         target=target,
@@ -158,7 +158,7 @@ def parse_dense_per_pose_score_dump_request() -> DensePerPoseScoreDumpRequest:
 def _local_debug_dump_label_suffix() -> str:
     """Return a sanitized optional label suffix for local score diagnostics."""
 
-    label = os.environ.get("RECOVAR_LOCAL_SCORE_DUMP_LABEL") or os.environ.get(
+    label = _runtime_environment().get("RECOVAR_LOCAL_SCORE_DUMP_LABEL") or _runtime_environment().get(
         "RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_LABEL",
     )
     if not label:
@@ -206,7 +206,7 @@ def _debug_capture_dtype(array, *, complex_values: bool = False):
 def _dense_score_dump_label_suffix() -> str:
     """Return a sanitized optional label suffix for dense score dumps."""
 
-    label = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL")
+    label = _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL")
     if not label:
         return ""
     label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label.strip())
@@ -255,8 +255,8 @@ def noise_split_diagnostics_requested() -> bool:
     """Return whether per-shell A2/XA noise split diagnostics are needed."""
 
     return bool(
-        os.environ.get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
-        or os.environ.get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_DIR")
+        _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
+        or _runtime_environment().get("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_DIR")
     )
 
 
@@ -728,7 +728,7 @@ def maybe_write_debug_score_dump(
     reconstruction_sample_mask_np = _target_rows_to_numpy(reconstruction_sample_mask, target_rows, bool)
     reconstruction_rotation_mask_np = _target_rows_to_numpy(reconstruction_rotation_mask, target_rows, bool)
     n_significant_samples_np = _target_rows_to_numpy(n_significant_samples, target_rows, np.int32)
-    dump_operands = os.environ.get("RECOVAR_LOCAL_SCORE_DUMP_OPERANDS", "").lower() in {
+    dump_operands = _runtime_environment().get("RECOVAR_LOCAL_SCORE_DUMP_OPERANDS", "").lower() in {
         "1",
         "true",
         "yes",

@@ -36,7 +36,6 @@ Fourier windowing:
 
 import inspect
 import logging
-import os
 import time
 from dataclasses import dataclass
 
@@ -46,6 +45,7 @@ import numpy as np
 from recovar.core.configs import ForwardModelConfig
 from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 from .dense_big_jit import run_dense_bucket_big_jit
 from .dense_em_types import (
@@ -156,7 +156,7 @@ def _relion_image_correction_factors(batch_corr, batch_scale, *, score_mode: str
 def _noise_split_diagnostics_requested() -> bool:
     """Return whether per-shell A2/XA noise split diagnostics are needed."""
     return bool(
-        os.environ.get("RECOVAR_NOISE_DEBUG_DUMP_DIR") or os.environ.get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
+        _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR") or _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
     )
 
 
@@ -1300,7 +1300,7 @@ def run_em(
 
         indices_np_for_debug = None
         original_indices_np_for_debug = None
-        if debug_options.per_pose_score_dump.enabled or os.environ.get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR"):
+        if debug_options.per_pose_score_dump.enabled or _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR"):
             indices_np_for_debug = np.asarray(indices, dtype=np.int64)
             original_indices_np_for_debug = np.asarray(
                 experiment_dataset.original_image_indices_from_local(indices_np_for_debug),
@@ -1580,14 +1580,14 @@ def run_em(
             # and norms outside the JIT block and dump alongside batch_norm
             # (Xi2_image) for the target image. Allows decomposing the recovar
             # vs RELION CC ratio into numerator vs Xi2 vs suma2 contributors.
-            _cc_comp_dir = os.environ.get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR")
-            _cc_comp_target = os.environ.get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET")
+            _cc_comp_dir = _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR")
+            _cc_comp_target = _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET")
             if _cc_comp_dir and _cc_comp_target is not None:
                 try:
                     _target_idx = int(_cc_comp_target)
                     _match_indices = (
                         original_indices_np_for_debug
-                        if os.environ.get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET_IS_ORIGINAL", "0") != "0"
+                        if _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET_IS_ORIGINAL", "0") != "0"
                         else indices_np_for_debug
                     )
                     _hits = np.where(np.asarray(_match_indices, dtype=np.int64) == _target_idx)[0]
