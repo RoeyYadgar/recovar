@@ -279,9 +279,7 @@ def runtime_configuration_scope(configuration: RuntimeConfiguration):
 
     token = _ACTIVE_RUNTIME_CONFIGURATION.set(configuration)
     try:
-        with environment_scope(configuration.environment), algorithm_settings_scope(
-            configuration.algorithm
-        ):
+        with environment_scope(configuration.environment), algorithm_settings_scope(configuration.algorithm):
             yield configuration
     finally:
         _ACTIVE_RUNTIME_CONFIGURATION.reset(token)
@@ -424,9 +422,5 @@ def load_runtime_configuration(
         environment=snapshot,
         algorithm=algorithm if algorithm is not None else load_algorithm_settings(snapshot),
         execution=execution if execution is not None else load_execution_settings(snapshot),
-        diagnostics=(
-            diagnostics
-            if diagnostics is not None
-            else DiagnosticsPlan.from_environment(snapshot)
-        ),
+        diagnostics=(diagnostics if diagnostics is not None else DiagnosticsPlan.from_environment(snapshot)),
     )

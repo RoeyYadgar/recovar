@@ -103,25 +103,15 @@ class RelionParityOptions:
             )
 
         if self.perturb_replay_max_iter is not None and self.perturb_replay_max_iter < 0:
-            raise ValueError(
-                "perturb_replay_max_iter must be non-negative, got "
-                f"{self.perturb_replay_max_iter!r}"
-            )
+            raise ValueError(f"perturb_replay_max_iter must be non-negative, got {self.perturb_replay_max_iter!r}")
 
-        iterations = tuple(
-            sorted({int(value) for value in self.perturb_replay_restart_state_iterations})
-        )
+        iterations = tuple(sorted({int(value) for value in self.perturb_replay_restart_state_iterations}))
 
         if any(value < 0 for value in iterations):
-            raise ValueError(
-                "perturbation replay restart-state iterations must be non-negative"
-            )
+            raise ValueError("perturbation replay restart-state iterations must be non-negative")
 
         if iterations and self.perturb_replay_relion_dir is None:
-            raise ValueError(
-                "perturbation replay restart-state iterations require "
-                "perturb_replay_relion_dir"
-            )
+            raise ValueError("perturbation replay restart-state iterations require perturb_replay_relion_dir")
 
         object.__setattr__(
             self,
@@ -139,15 +129,9 @@ class LocalSearchOptions:
     local_search_translation_prior_mode: str = "coarse"
 
     def __post_init__(self):
-        if self.local_search_profile_mode not in {
-            "auto",
-            "on",
-            "off"
-        }:
+        if self.local_search_profile_mode not in {"auto", "on", "off"}:
             raise ValueError(
-                "local_search_profile_mode must be "
-                "'auto', 'on', or 'off', "
-                f"got {self.local_search_profile_mode!r}"
+                f"local_search_profile_mode must be 'auto', 'on', or 'off', got {self.local_search_profile_mode!r}"
             )
 
 
