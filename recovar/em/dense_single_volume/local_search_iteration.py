@@ -42,6 +42,7 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalScoringSettings,
     LocalSearchSettings,
 )
+from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationRequest
 from recovar.em.sampling import build_local_search_grid_metadata
 
 logger = logging.getLogger(__name__)
@@ -588,4 +589,99 @@ def _run_local_search_iteration(
         return_best_pose_details=return_best_pose_details,
         return_significant_counts=return_significant_counts,
         return_class_details=return_class_details,
+    )
+
+
+def run_local_search_iteration(
+    request: LocalSearchIterationRequest,
+    *,
+    legacy_runner=None,
+):
+    """Run a typed local-search request through the compatibility engine."""
+
+    if legacy_runner is None:
+        legacy_runner = _run_local_search_iteration
+
+    inputs = request.inputs
+    grid = request.grid
+    execution = request.execution
+    scoring = request.scoring
+    projection = request.projection
+    corrections = request.corrections
+    posterior = request.posterior
+    reconstruction = request.reconstruction
+    outputs = request.outputs
+    diagnostics = request.diagnostics
+    return legacy_runner(
+        inputs.experiment_dataset,
+        inputs.mean,
+        inputs.mean_variance,
+        inputs.noise_variance,
+        grid.prior_rotations,
+        grid.rotation_grid_rotations,
+        grid.rotation_grid_eulers,
+        grid.healpix_order,
+        grid.sigma_rot,
+        grid.sigma_psi,
+        grid.translations,
+        grid.prior_translations,
+        grid.sigma_offset_angstrom,
+        grid.offset_range_pixels,
+        inputs.disc_type,
+        image_batch_size=execution.image_batch_size,
+        rotation_block_size=execution.rotation_block_size,
+        current_size=execution.current_size,
+        reconstruction_current_size=execution.reconstruction_current_size,
+        accumulate_noise=outputs.accumulate_noise,
+        projection_padding_factor=projection.projection_padding_factor,
+        reconstruction_padding_factor=projection.reconstruction_padding_factor,
+        use_float64_scoring=scoring.use_float64_scoring,
+        use_float64_projections=projection.use_float64_projections,
+        do_gridding_correction=projection.do_gridding_correction,
+        square_window=projection.square_window,
+        half_spectrum_scoring=scoring.half_spectrum_scoring,
+        relion_exact_score_translation=scoring.relion_exact_score_translation,
+        projection_relion_texture_interp=projection.relion_texture_interp,
+        projection_relion_acc_double_floorf_quirk=projection.relion_acc_double_floorf_quirk,
+        projection_force_jax=projection.force_jax,
+        relion_projector_half=projection.relion_projector_half,
+        relion_projector_r_max=projection.relion_projector_r_max,
+        image_corrections=corrections.image_corrections,
+        scale_corrections=corrections.scale_corrections,
+        group_ids=corrections.group_ids,
+        scale_correction_group_count=corrections.scale_correction_group_count,
+        scale_correction_data_vs_prior=corrections.scale_correction_data_vs_prior,
+        image_pre_shifts=corrections.image_pre_shifts,
+        mstep_subtract_ctf_projection=reconstruction.mstep_subtract_ctf_projection,
+        mstep_relion_x_half=reconstruction.mstep_relion_x_half,
+        return_half_volume_accumulators=outputs.return_half_volume_accumulators,
+        score_with_masked_images=scoring.score_with_masked_images,
+        return_profile=outputs.return_profile,
+        disable_adjoint_y=reconstruction.disable_adjoint_y,
+        disable_adjoint_ctf=reconstruction.disable_adjoint_ctf,
+        adaptive_fraction=scoring.adaptive_fraction,
+        max_significants=scoring.max_significants,
+        reconstruct_significant_only=scoring.reconstruct_significant_only,
+        translation_prior_reference_translations=grid.translation_prior_reference_translations,
+        debug_iteration=diagnostics.iteration,
+        debug_pass_label=diagnostics.pass_label,
+        pass2_layout=grid.pass2_layout,
+        return_best_pose_details=outputs.return_best_pose_details,
+        normalization_log_z=posterior.normalization_log_z,
+        normalization_log_evidence=posterior.normalization_log_evidence,
+        translation_prior_centers=grid.translation_prior_centers,
+        rotation_log_prior=grid.rotation_log_prior,
+        rotation_grid_random_perturbation=grid.rotation_grid_random_perturbation,
+        rotation_grid_angular_sampling_deg=grid.rotation_grid_angular_sampling_deg,
+        local_parent_oversampling_order=grid.local_parent_oversampling_order,
+        class_log_priors=posterior.class_log_priors,
+        return_class_details=outputs.return_class_details,
+        return_reconstruction_sample_indices=outputs.return_reconstruction_sample_indices,
+        return_significant_counts=outputs.return_significant_counts,
+        apply_max_significants_to_support=scoring.apply_max_significants_to_support,
+        stats_use_reconstruction_probs=scoring.stats_use_reconstruction_probs,
+        score_only=reconstruction.score_only,
+        source_faithful_spectrum_norm=scoring.source_faithful_spectrum_norm,
+        rotation_grid_mstep_rotations=grid.rotation_grid_mstep_rotations,
+        generate_relion_mstep_rotations=grid.generate_relion_mstep_rotations,
     )
