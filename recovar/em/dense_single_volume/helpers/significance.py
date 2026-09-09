@@ -21,7 +21,10 @@ from recovar.em.dense_single_volume.helpers.scoring import (
     _e_step_block_scores_windowed,
     _update_logsumexp,
 )
-from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
+from recovar.em.dense_single_volume.runtime_options import (
+    current_algorithm_settings,
+    current_environment as _runtime_environment,
+)
 from recovar.utils.nvtx_shim import nvtx
 
 _SIGNIFICANCE_SCORE_CACHE_ENV = "RECOVAR_SIGNIFICANCE_SCORE_CACHE"
@@ -29,7 +32,6 @@ _SIGNIFICANCE_SCORE_CACHE_MAX_GB_ENV = "RECOVAR_SIGNIFICANCE_SCORE_CACHE_MAX_GB"
 _SIGNIFICANCE_SCORE_CACHE_DEFAULT_MAX_GB = 2.0
 _SIGNIFICANCE_FUSED_PASS1_ENV = "RECOVAR_PASS1_FUSED"
 _GLOBAL_PASS1_RELION_PROJECTOR_TEXTURE_ENV = "RECOVAR_RELION_GLOBAL_PASS1_PROJECTOR_TEXTURE_INTERP"
-_RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV = "RECOVAR_RELION_ACC_DOUBLE_FLOORF_QUIRK"
 _FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV = (
     "RECOVAR_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN"
 )
@@ -69,13 +71,7 @@ def _compact_projection_window_positions(compact_indices, window_indices) -> np.
 
 def _relion_acc_double_floorf_quirk_enabled() -> bool:
     """Match RELION's texture-free ACC projector coordinate flooring."""
-
-    token = _runtime_environment().get(_RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV, "0").strip().lower()
-    if token in {"0", "false", "no", "off"}:
-        return False
-    if token in {"1", "true", "yes", "on"}:
-        return True
-    raise ValueError(f"Unsupported {_RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV}={token!r}")
+    return current_algorithm_settings().relion_acc_double_floorf_quirk
 
 
 class SignificanceDumpComplete(RuntimeError):

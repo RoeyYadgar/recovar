@@ -23,6 +23,7 @@ from recovar.em.dense_single_volume.local_caches import (
 from recovar.em.dense_single_volume.runtime_options import (
     EM_RAW_IMAGE_CACHE_ENV,
     EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
+    DISABLE_RELION_EXACT_FINE_GAUSSIAN_ENV,
     EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
     EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
     EXACT_LOCAL_RAW_CACHE_MAX_GB,
@@ -33,6 +34,12 @@ from recovar.em.dense_single_volume.runtime_options import (
     RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
+    FINAL_ALL_DATA_GRID_CORRECT_ENV,
+    K1_RELION_EXACT_TRANSLATION_GRID_ENV,
+    RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV,
+    USE_FLOAT64_PROJECTIONS_ENV,
+    USE_FLOAT64_SCORING_ENV,
+    AlgorithmSettings,
     DenseBatchPlanningSettings,
     EnvironmentSnapshot,
     ExecutionSettings,
@@ -40,13 +47,60 @@ from recovar.em.dense_single_volume.runtime_options import (
     LocalCacheSettings,
     RawImageCacheSettings,
     capture_environment,
+    algorithm_settings_scope,
+    current_algorithm_settings,
     environment_scope,
     load_dense_batch_planning_settings,
     load_execution_settings,
+    load_algorithm_settings,
     load_first_iteration_batch_settings,
     load_local_cache_settings,
     load_raw_image_cache_settings,
 )
+
+
+@pytest.mark.unit
+def test_algorithm_settings_preserve_major_policy_defaults_and_aliases():
+    assert load_algorithm_settings({}) == AlgorithmSettings()
+    assert load_algorithm_settings(
+        {
+            USE_FLOAT64_SCORING_ENV: "yes",
+            USE_FLOAT64_PROJECTIONS_ENV: "1",
+            DISABLE_RELION_EXACT_FINE_GAUSSIAN_ENV: "on",
+            RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV: "true",
+            K1_RELION_EXACT_TRANSLATION_GRID_ENV: "0",
+            FINAL_ALL_DATA_GRID_CORRECT_ENV: "1",
+        }
+    ) == AlgorithmSettings(
+        use_float64_scoring=True,
+        use_float64_projections=True,
+        relion_exact_fine_gaussian=False,
+        relion_acc_double_floorf_quirk=True,
+        k1_relion_exact_translation_grid=False,
+        final_all_data_grid_correct=True,
+    )
+
+
+@pytest.mark.unit
+def test_algorithm_settings_scope_is_immutable_and_ignores_later_environment(monkeypatch):
+    settings = AlgorithmSettings(use_float64_scoring=True)
+    monkeypatch.setenv(USE_FLOAT64_SCORING_ENV, "0")
+
+    with algorithm_settings_scope(settings):
+        monkeypatch.setenv(USE_FLOAT64_SCORING_ENV, "0")
+        assert current_algorithm_settings() is settings
+
+    assert current_algorithm_settings().use_float64_scoring is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "name",
+    [RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV, K1_RELION_EXACT_TRANSLATION_GRID_ENV],
+)
+def test_algorithm_settings_reject_strict_boolean_aliases(name):
+    with pytest.raises(ValueError, match="must be a boolean value"):
+        load_algorithm_settings({name: "sometimes"})
 
 
 @pytest.mark.unit

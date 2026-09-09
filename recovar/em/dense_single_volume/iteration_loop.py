@@ -162,8 +162,13 @@ from recovar.em.dense_single_volume.refinement_options import (
     RefinementOptions,
 )
 from recovar.em.dense_single_volume.runtime_options import (
+    FINAL_ALL_DATA_GRID_CORRECT_ENV as _FINAL_ALL_DATA_GRID_CORRECT_ENV,
+    K1_RELION_EXACT_TRANSLATION_GRID_ENV as _K1_RELION_EXACT_TRANSLATION_GRID_ENV,
+    AlgorithmSettings,
     FirstIterationBatchSettings,
+    current_algorithm_settings,
     current_environment as _runtime_environment,
+    load_algorithm_settings,
 )
 from recovar.em.dense_single_volume.relion_metadata import (
     _radial_profile_from_noise_variance,
@@ -234,22 +239,14 @@ from recovar.reconstruction.regularization import (  # noqa: F401
 _EM_RAW_IMAGE_CACHE_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE"
 _EM_RAW_IMAGE_CACHE_MAX_GB_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE_MAX_GB"
 _EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB = 16.0
-_K1_RELION_EXACT_TRANSLATION_GRID_ENV = "RECOVAR_K1_RELION_EXACT_TRANSLATION_GRID"
 _SIGNIFICANCE_DUMP_TARGET_HALF_ENV = "RECOVAR_SIGNIFICANCE_DUMP_TARGET_HALF"
 _PASS2_NORM_DUMP_TARGET_HALF_ENV = "RECOVAR_PASS2_DUMP_TARGET_HALF"
 
 
 def _k1_relion_exact_translation_grid_enabled(environ=None):
     """Return the production-on K=1 grid policy with a diagnostic opt-out."""
-    env = _runtime_environment() if environ is None else environ
-    raw = str(env.get(_K1_RELION_EXACT_TRANSLATION_GRID_ENV, "")).strip().lower()
-    if raw in {"", "1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(
-        f"{_K1_RELION_EXACT_TRANSLATION_GRID_ENV} must be a boolean value, got {raw!r}"
-    )
+    settings = current_algorithm_settings() if environ is None else load_algorithm_settings(environ)
+    return settings.k1_relion_exact_translation_grid
 
 
 def _translation_grid_for_class_count(max_pixel, pixel_offset, *, n_classes):
@@ -415,7 +412,6 @@ _APPROX_ACC_ROT_MIN_ITER_ENV = "RECOVAR_EM_APPROX_ACC_ROT_MIN_ITER"
 _FINAL_ALL_DATA_USE_MERGED_REFERENCE_ENV = "RECOVAR_FINAL_ALL_DATA_USE_MERGED_REFERENCE"
 _FINAL_ALL_DATA_REPLAY_LAST_NUMBERED_STATE_ENV = "RECOVAR_FINAL_ALL_DATA_REPLAY_LAST_NUMBERED_STATE"
 _FINAL_ALL_DATA_DISABLE_REPLAY_LAST_NUMBERED_STATE_ENV = "RECOVAR_FINAL_ALL_DATA_DISABLE_REPLAY_LAST_NUMBERED_STATE"
-_FINAL_ALL_DATA_GRID_CORRECT_ENV = "RECOVAR_FINAL_ALL_DATA_GRID_CORRECT"
 _FINAL_ALL_DATA_AFTER_MAX_ITER_ENV = "RECOVAR_FINAL_ALL_DATA_AFTER_MAX_ITER"
 _DEBUG_REPLAY_RELION_REFERENCES_ENV = "RECOVAR_DEBUG_REPLAY_RELION_REFERENCES"
 _DEBUG_REPLAY_RELION_REFERENCES_ITERATION_ENV = "RECOVAR_DEBUG_REPLAY_RELION_REFERENCES_ITERATION"
@@ -661,16 +657,7 @@ def _final_all_data_grid_correct_enabled() -> bool:
     ``RECOVAR_FINAL_ALL_DATA_GRID_CORRECT=1``.
     """
 
-    value = _runtime_environment().get(_FINAL_ALL_DATA_GRID_CORRECT_ENV)
-    if value is None or value.strip() == "":
-        return False
-    normalized = value.strip().lower()
-    if normalized in _FALSE_ENV_VALUES:
-        return False
-    if normalized in _TRUE_ENV_VALUES:
-        return True
-    logger.warning("Ignoring invalid %s=%r; using default false", _FINAL_ALL_DATA_GRID_CORRECT_ENV, value)
-    return False
+    return current_algorithm_settings().final_all_data_grid_correct
 
 
 def _final_all_data_after_max_iter_enabled() -> bool:
@@ -1549,56 +1536,24 @@ PADDING_FACTOR = 2
 PROJECTION_PADDING_FACTOR = 2
 
 
-# Dense ``run_em`` kwargs that are identical for every E-step in RELION mode.
-# Per-iter and per-half values are layered on top at each call site via
-# ``{**_DENSE_EM_STATIC_KWARGS, ...}``.
-_DENSE_EM_STATIC_KWARGS: dict = {
-    "score_with_masked_images": True,
-    "half_spectrum_scoring": True,
-    "projection_padding_factor": PROJECTION_PADDING_FACTOR,
-    "reconstruction_padding_factor": PADDING_FACTOR,
-    # Default float32. Set ``RECOVAR_USE_FLOAT64_SCORING=1`` /
-    # ``RECOVAR_USE_FLOAT64_PROJECTIONS=1`` to upgrade to double precision.
-    # Diagnostic: K=4 100k/256² shows growing per-iter drift (8e-4 at it4→it5
-    # rising to 19e-4 at it14→it15 vs RELION), pattern consistent with
-    # single-precision accumulating in the K-class M-step + projector at high
-    # ``current_size``. Flipping these to True for the dense K-class path
-    # should remove that precision floor at ~2× wall cost.
-    "use_float64_scoring": bool(
-        _runtime_environment().get("RECOVAR_USE_FLOAT64_SCORING", "0").strip().lower()
-        in {"1", "true", "yes", "on"}
-    ),
-    "use_float64_projections": bool(
-        _runtime_environment().get("RECOVAR_USE_FLOAT64_PROJECTIONS", "0").strip().lower()
-        in {"1", "true", "yes", "on"}
-    ),
-    # Default to RELION's float32 fine-search diff2/minimum ordering. This
-    # diagnostic bypass retains the historical algebraic sparse scorer for
-    # controlled full-trajectory A/B comparisons.
-    "relion_exact_fine_gaussian": not bool(
-        _runtime_environment().get(
-            "RECOVAR_DISABLE_RELION_EXACT_FINE_GAUSSIAN",
-            "0",
-        ).strip().lower()
-        in {"1", "true", "yes", "on"}
-    ),
-    "do_gridding_correction": True,
-    "square_window": RELION_FOURIER_WINDOW_SQUARE,
-    "sparse_pass2": False,
-}
+def _dense_em_static_kwargs(
+    settings: AlgorithmSettings | None = None,
+) -> dict:
+    """Build stable dense-engine kwargs from one resolved algorithm policy."""
 
-# Off by default: reproduces RELION's GPU-accelerated projector/backprojector
-# narrowing coordinates to float32 before flooring, unconditionally, even under
-# ``ACC_DOUBLE_PRECISION`` (see ``recovar.core.relion_project`` module
-# docstring). Set ``RECOVAR_RELION_ACC_DOUBLE_FLOORF_QUIRK=1`` to bit-match
-# that GPU-double quirk in the local-search fine-pass projector fallback (it
-# only has an effect when the texture path is unavailable, e.g. under
-# ``use_float64_scoring``/``use_float64_projections``, since CUDA textures
-# cannot hold complex128).
-RELION_ACC_DOUBLE_FLOORF_QUIRK = bool(
-    _runtime_environment().get("RECOVAR_RELION_ACC_DOUBLE_FLOORF_QUIRK", "0").strip().lower()
-    in {"1", "true", "yes", "on"}
-)
+    policy = current_algorithm_settings() if settings is None else settings
+    return {
+        "score_with_masked_images": True,
+        "half_spectrum_scoring": True,
+        "projection_padding_factor": PROJECTION_PADDING_FACTOR,
+        "reconstruction_padding_factor": PADDING_FACTOR,
+        "use_float64_scoring": policy.use_float64_scoring,
+        "use_float64_projections": policy.use_float64_projections,
+        "relion_exact_fine_gaussian": policy.relion_exact_fine_gaussian,
+        "do_gridding_correction": True,
+        "square_window": RELION_FOURIER_WINDOW_SQUARE,
+        "sparse_pass2": False,
+    }
 
 
 def _diagnostic_float64_pass2_matches(debug_iteration: int | None) -> bool:
@@ -1616,7 +1571,7 @@ def _diagnostic_float64_pass2_matches(debug_iteration: int | None) -> bool:
     return int(debug_iteration) in requested
 
 
-def _dense_global_scoring_dtype() -> np.dtype:
+def _dense_global_scoring_dtype(settings: AlgorithmSettings | None = None) -> np.dtype:
     """Dtype for the dense/global (``use_local=False``) scoring path's
     float64-sensitive operands: the pass-1 rotation grid built by
     ``_relion_rotation_grid_float32``, and the offset/orientation log-prior
@@ -1631,7 +1586,8 @@ def _dense_global_scoring_dtype() -> np.dtype:
     ``XFLOAT`` cast.
     """
 
-    if _DENSE_EM_STATIC_KWARGS["use_float64_scoring"] or _DENSE_EM_STATIC_KWARGS["use_float64_projections"]:
+    policy = current_algorithm_settings() if settings is None else settings
+    if policy.use_float64_scoring or policy.use_float64_projections:
         return np.float64
     return np.float32
 
@@ -1640,6 +1596,7 @@ def _local_search_precision_flags(
     debug_iteration: int | None,
     *,
     pass_index: int,
+    settings: AlgorithmSettings | None = None,
 ) -> tuple[bool, bool]:
     """Resolve local-search precision without changing production defaults.
 
@@ -1650,8 +1607,9 @@ def _local_search_precision_flags(
 
     if int(pass_index) not in (1, 2):
         raise ValueError(f"local-search pass_index must be 1 or 2, got {pass_index}")
-    use_float64_scoring = bool(_DENSE_EM_STATIC_KWARGS["use_float64_scoring"])
-    use_float64_projections = bool(_DENSE_EM_STATIC_KWARGS["use_float64_projections"])
+    policy = current_algorithm_settings() if settings is None else settings
+    use_float64_scoring = policy.use_float64_scoring
+    use_float64_projections = policy.use_float64_projections
     if int(pass_index) == 2 and _diagnostic_float64_pass2_matches(debug_iteration):
         use_float64_scoring = True
         use_float64_projections = True
@@ -2614,7 +2572,7 @@ def _score_half_dense(
         current_size_for_batch=cs_for_engine,
     )
     em_kwargs = {
-        **_DENSE_EM_STATIC_KWARGS,
+        **_dense_em_static_kwargs(),
         "image_batch_size": safe_ibs,
         "rotation_block_size": safe_rbs,
         "current_size": cs_for_engine,
@@ -3266,6 +3224,7 @@ def _score_half_local(
     Caller handles ``noise_stats_per_half[k]``, ``pose_rotations[k] = None``,
     and ``coarse_ha[k] = ha_k`` from the returned ``HalfScoreResult``.
     """
+    algorithm_settings = current_algorithm_settings()
 
     # RELION's convertAllSquaredDifferencesToWeights uses mymodel.pdf_direction
     # only when orientational_prior_mode == NOPRIOR. Local searches run through
@@ -3306,10 +3265,12 @@ def _score_half_local(
     parent_use_float64_scoring, parent_use_float64_projections = _local_search_precision_flags(
         local_debug_iteration,
         pass_index=1,
+        settings=algorithm_settings,
     )
     fine_use_float64_scoring, fine_use_float64_projections = _local_search_precision_flags(
         local_debug_iteration,
         pass_index=2,
+        settings=algorithm_settings,
     )
     # Adaptive pass-2 (fine, oversampled) hypothesis layout precision; see
     # ``parent_local_layout_dtype`` below for the matching pass-1 value.
@@ -3474,7 +3435,7 @@ def _score_half_local(
                 scoring=LocalSearchIterationScoring(
                     half_spectrum_scoring=True,
                     relion_exact_score_translation=bool(
-                        _DENSE_EM_STATIC_KWARGS["relion_exact_fine_gaussian"]
+                        algorithm_settings.relion_exact_fine_gaussian
                         and not parent_use_float64_scoring
                     ),
                     use_float64_scoring=parent_use_float64_scoring,
@@ -3491,7 +3452,7 @@ def _score_half_local(
                     do_gridding_correction=True,
                     square_window=RELION_FOURIER_WINDOW_SQUARE,
                     relion_texture_interp=False,
-                    relion_acc_double_floorf_quirk=RELION_ACC_DOUBLE_FLOORF_QUIRK,
+                    relion_acc_double_floorf_quirk=algorithm_settings.relion_acc_double_floorf_quirk,
                     relion_projector_half=relion_projector_half,
                     relion_projector_r_max=relion_projector_r_max,
                 ),
@@ -3714,7 +3675,7 @@ def _score_half_local(
                     scoring=LocalSearchIterationScoring(
                         half_spectrum_scoring=True,
                         relion_exact_score_translation=bool(
-                            _DENSE_EM_STATIC_KWARGS["relion_exact_fine_gaussian"]
+                            algorithm_settings.relion_exact_fine_gaussian
                             and not fine_use_float64_scoring
                         ),
                         use_float64_scoring=fine_use_float64_scoring,
@@ -3813,7 +3774,7 @@ def _score_half_local(
             scoring=LocalSearchIterationScoring(
                 half_spectrum_scoring=True,
                 relion_exact_score_translation=bool(
-                    _DENSE_EM_STATIC_KWARGS["relion_exact_fine_gaussian"]
+                    algorithm_settings.relion_exact_fine_gaussian
                     and not fine_use_float64_scoring
                 ),
                 use_float64_scoring=fine_use_float64_scoring,
@@ -3833,7 +3794,7 @@ def _score_half_local(
                 # parent uses manual PPref interpolation; the fine pass keeps
                 # the user-switchable texture default.
                 relion_texture_interp=None,
-                relion_acc_double_floorf_quirk=RELION_ACC_DOUBLE_FLOORF_QUIRK,
+                relion_acc_double_floorf_quirk=algorithm_settings.relion_acc_double_floorf_quirk,
                 relion_projector_half=relion_projector_half,
                 relion_projector_r_max=relion_projector_r_max,
             ),
@@ -6312,7 +6273,7 @@ def _run_relion_iteration_loop(
                 if _replay_meta is not None
                 else int(current_healpix_order)
             )
-            adaptive_pass1_use_float64 = bool(_DENSE_EM_STATIC_KWARGS["use_float64_scoring"])
+            adaptive_pass1_use_float64 = current_algorithm_settings().use_float64_scoring
             adaptive_pass1_rotations = _relion_adaptive_pass1_rotations(
                 adaptive_pass1_source_eulers,
                 random_perturbation if (_replay_meta is not None or parity.perturb_factor > 0) else 0.0,

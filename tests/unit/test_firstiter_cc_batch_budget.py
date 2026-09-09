@@ -321,8 +321,8 @@ def test_dense_half_direct_route_preserves_legacy_runner_hook(monkeypatch):
         "disable_adjoint_y": True,
         "disable_adjoint_ctf": False,
         "score_only": False,
-        "use_float64_scoring": iteration_loop._DENSE_EM_STATIC_KWARGS["use_float64_scoring"],
-        "use_float64_projections": iteration_loop._DENSE_EM_STATIC_KWARGS["use_float64_projections"],
+        "use_float64_scoring": iteration_loop._dense_em_static_kwargs()["use_float64_scoring"],
+        "use_float64_projections": iteration_loop._dense_em_static_kwargs()["use_float64_projections"],
         "do_gridding_correction": True,
         "square_window": iteration_loop.RELION_FOURIER_WINDOW_SQUARE,
         "relion_half_volume_mstep": False,
@@ -472,7 +472,9 @@ def test_k1_firstiter_cc_dispatch_uses_coarse_batch_for_significance(monkeypatch
     ]
     assert captured["image_batch_size"] == _safe_firstiter_cc_image_batch_size(116, (256, 256))
     assert captured["significance_image_batch_size"] == 187
-    assert captured["rotation_block_size"] == min(700, _safe_dense_k_class_rotation_block_size(116, captured["image_batch_size"]))
+    assert captured["rotation_block_size"] == min(
+        700, _safe_dense_k_class_rotation_block_size(116, captured["image_batch_size"])
+    )
     assert captured["significance_rotation_block_size"] == 700
     assert captured["bpref_device_signature_active"] is True
     assert captured["debug_iteration"] == 7

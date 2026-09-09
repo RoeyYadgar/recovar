@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import math
 import os
+import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Iterator
+
+logger = logging.getLogger(__name__)
 
 # Historical defaults remain stable while environment variables are adapters.
 RELION_FIRSTITER_RECON_COMPLEX_BUDGET = 268_435_456
@@ -25,6 +28,15 @@ EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB = 0.0
 EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB"
 EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB = 12.0
 EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB"
+USE_FLOAT64_SCORING_ENV = "RECOVAR_USE_FLOAT64_SCORING"
+USE_FLOAT64_PROJECTIONS_ENV = "RECOVAR_USE_FLOAT64_PROJECTIONS"
+DISABLE_RELION_EXACT_FINE_GAUSSIAN_ENV = "RECOVAR_DISABLE_RELION_EXACT_FINE_GAUSSIAN"
+RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV = "RECOVAR_RELION_ACC_DOUBLE_FLOORF_QUIRK"
+K1_RELION_EXACT_TRANSLATION_GRID_ENV = "RECOVAR_K1_RELION_EXACT_TRANSLATION_GRID"
+FINAL_ALL_DATA_GRID_CORRECT_ENV = "RECOVAR_FINAL_ALL_DATA_GRID_CORRECT"
+
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
 
 @dataclass(frozen=True)
@@ -67,6 +79,10 @@ _ACTIVE_ENVIRONMENT: ContextVar[EnvironmentSnapshot | None] = ContextVar(
     "dense_single_volume_environment",
     default=None,
 )
+_ACTIVE_ALGORITHM_SETTINGS: ContextVar[AlgorithmSettings | None] = ContextVar(
+    "dense_single_volume_algorithm_settings",
+    default=None,
+)
 
 
 def capture_environment(
@@ -94,6 +110,99 @@ def environment_scope(snapshot: EnvironmentSnapshot):
         yield snapshot
     finally:
         _ACTIVE_ENVIRONMENT.reset(token)
+
+
+@dataclass(frozen=True)
+class AlgorithmSettings:
+    """Resolved numerical and RELION-policy choices for one refinement run."""
+
+    use_float64_scoring: bool = False
+    use_float64_projections: bool = False
+    relion_exact_fine_gaussian: bool = True
+    relion_acc_double_floorf_quirk: bool = False
+    k1_relion_exact_translation_grid: bool = True
+    final_all_data_grid_correct: bool = False
+
+
+def _compatibility_bool(
+    environ: Mapping[str, str],
+    name: str,
+    *,
+    default: bool,
+    strict: bool = False,
+) -> bool:
+    raw = environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    normalized = raw.strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+    if strict:
+        raise ValueError(f"{name} must be a boolean value, got {normalized!r}")
+    logger.warning("Ignoring invalid %s=%r; using default %s", name, raw, str(default).lower())
+    return default
+
+
+def load_algorithm_settings(
+    environ: Mapping[str, str] | None = None,
+) -> AlgorithmSettings:
+    """Resolve major numerical policy from legacy environment aliases."""
+
+    env = current_environment() if environ is None else environ
+    return AlgorithmSettings(
+        use_float64_scoring=_compatibility_bool(
+            env,
+            USE_FLOAT64_SCORING_ENV,
+            default=False,
+        ),
+        use_float64_projections=_compatibility_bool(
+            env,
+            USE_FLOAT64_PROJECTIONS_ENV,
+            default=False,
+        ),
+        relion_exact_fine_gaussian=not _compatibility_bool(
+            env,
+            DISABLE_RELION_EXACT_FINE_GAUSSIAN_ENV,
+            default=False,
+        ),
+        relion_acc_double_floorf_quirk=_compatibility_bool(
+            env,
+            RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV,
+            default=False,
+            strict=True,
+        ),
+        k1_relion_exact_translation_grid=_compatibility_bool(
+            env,
+            K1_RELION_EXACT_TRANSLATION_GRID_ENV,
+            default=True,
+            strict=True,
+        ),
+        final_all_data_grid_correct=_compatibility_bool(
+            env,
+            FINAL_ALL_DATA_GRID_CORRECT_ENV,
+            default=False,
+        ),
+    )
+
+
+def current_algorithm_settings() -> AlgorithmSettings:
+    """Return run-scoped settings or resolve a legacy direct-call snapshot."""
+
+    settings = _ACTIVE_ALGORITHM_SETTINGS.get()
+    return load_algorithm_settings() if settings is None else settings
+
+
+@contextmanager
+def algorithm_settings_scope(settings: AlgorithmSettings):
+    """Make one resolved algorithm policy available to nested host helpers."""
+
+    token = _ACTIVE_ALGORITHM_SETTINGS.set(settings)
+    try:
+        yield settings
+    finally:
+        _ACTIVE_ALGORITHM_SETTINGS.reset(token)
 
 
 @dataclass(frozen=True)

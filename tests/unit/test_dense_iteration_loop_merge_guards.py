@@ -17,6 +17,7 @@ import pytest
 import recovar.em.dense_single_volume.iteration_loop as iteration_loop
 import recovar.em.dense_single_volume.local_search_iteration as local_search_iteration
 from recovar.em.initial_model.iteration_loop import run_vdam_iterations
+from recovar.em.dense_single_volume.runtime_options import AlgorithmSettings
 
 pytestmark = pytest.mark.unit
 
@@ -126,7 +127,11 @@ def test_per_half_update_preserves_double_posterior_state_in_double_mode(monkeyp
         max_posterior_per_image = np.array([0.123456789012345], dtype=np.float64)
         rotation_posterior_sums = np.array([0.987654321098765], dtype=np.float64)
 
-    monkeypatch.setitem(iteration_loop._DENSE_EM_STATIC_KWARGS, "use_float64_scoring", True)
+    monkeypatch.setattr(
+        iteration_loop,
+        "current_algorithm_settings",
+        lambda: AlgorithmSettings(use_float64_scoring=True),
+    )
     outs = iteration_loop.PerHalfOutputs.empty()
     outs.update_from(
         0,
@@ -164,9 +169,7 @@ def test_local_search_keeps_relion_x_half_mstep_contract():
     assert "mstep_full_half_axis=0 if local_relion_x_half_mstep else None" in source
     assert "mstep_accumulator_shape=(" in source
     assert "relion_backprojector_volume_shape(" in source
-    assert "current_size=reconstruction_current_size_for_engine" in source[
-        source.index("mstep_accumulator_shape=(") :
-    ]
+    assert "current_size=reconstruction_current_size_for_engine" in source[source.index("mstep_accumulator_shape=(") :]
 
 
 def test_empty_k1_local_or_adaptive_half_keeps_relion_x_half_shape_contract():
@@ -230,9 +233,7 @@ def test_fresh_k1_spectrum_norm_reaches_local_noise_update_only():
     assert "if source_faithful_spectrum_norm:" in wrapper_source
     assert "fresh K=1-only" in wrapper_source
     assert "source_faithful_spectrum_norm=source_faithful_spectrum_norm" in wrapper_source
-    local_dispatch = loop_source[
-        loop_source.index("if use_local:") : loop_source.index("elif use_adaptive:")
-    ]
+    local_dispatch = loop_source[loop_source.index("if use_local:") : loop_source.index("elif use_adaptive:")]
     assert "source_faithful_spectrum_norm=source_faithful_spectrum_norm" in local_dispatch
 
 
@@ -290,9 +291,7 @@ def test_k1_local_search_does_not_score_learned_global_direction_prior():
     assert "continue" in prior_loop
 
     final_prior_start = loop_source.index("final_rotation_log_prior_k = None")
-    final_prior_block = loop_source[
-        final_prior_start : loop_source.index("if final_use_local:", final_prior_start)
-    ]
+    final_prior_block = loop_source[final_prior_start : loop_source.index("if final_use_local:", final_prior_start)]
     assert "if not final_use_local:" in final_prior_block
     assert "use_local=False" in final_prior_block
 
@@ -733,12 +732,8 @@ def test_final_all_data_sampling_replay_prefers_final_sampling_star_before_last_
     start = source.index(marker)
     block = source[start : source.index("        for candidate_path", start)]
 
-    final_numbered = (
-        'f"{perturb_replay_relion_prefix}_it{final_sampling_relion_iteration:03d}_sampling.star"'
-    )
-    last_numbered = (
-        'f"{perturb_replay_relion_prefix}_it{final_numbered_sampling_relion_iteration:03d}_sampling.star"'
-    )
+    final_numbered = 'f"{perturb_replay_relion_prefix}_it{final_sampling_relion_iteration:03d}_sampling.star"'
+    last_numbered = 'f"{perturb_replay_relion_prefix}_it{final_numbered_sampling_relion_iteration:03d}_sampling.star"'
     run_sampling = 'f"{perturb_replay_relion_prefix}_sampling.star"'
 
     assert final_numbered in block
