@@ -1,7 +1,7 @@
 # Dense Single-Volume EM Refactor Progress
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
-Current phase: C1 — introduce data contracts behind compatibility APIs
+Current phase: C2 — centralize runtime policy and environment parsing
 Last updated: 2026-09-09
 
 ## Status board
@@ -9,8 +9,8 @@ Last updated: 2026-09-09
 | Component | Status | Current result / next action |
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
-| C1 Data contracts | IN PROGRESS — LOCAL COMPLETE, DENSE NEARLY COMPLETE | Stable local contracts are used by every in-package production caller. The dense typed seam, K-class family, and oversampling family are migrated; one direct call in the legacy iteration controller remains. Legacy engines remain the numerical implementations. |
-| C2 Policy/environment boundary | NOT STARTED | Classify and centralize 206 resolved `RECOVAR_*` reads. |
+| C1 Data contracts | IMPLEMENTATION COMPLETE — GPU CHECK PENDING | Stable local and dense contracts are used by every in-package production caller. Legacy engines remain the numerical implementations. Same-GPU K=1 job `60517345` is queued. |
+| C2 Policy/environment boundary | IN PROGRESS | First-iteration reconstruction-budget parsing is centralized behind immutable `FirstIterationBatchSettings`; callers retain environment-compatible defaults and can inject resolved settings. Continue one policy family at a time. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
@@ -101,6 +101,12 @@ GPU identity and paired timing context.
 | 2026-09-08 | Oversampling formatting prerequisite | `test_adaptive_oversampling.py -q` with FFTW module loaded | 42/42 passed in `66.99 s` before isolated mechanical commit `1ec307d4`. The initial run without FFTW reached 38 passes and failed four binding-dependent tests before the formatted logic. |
 | 2026-09-08 | Oversampling dense callers | Same focused suite with FFTW module loaded | 42/42 passed in `67.31 s`; both union-dense and per-image reference paths consume named dense results. |
 | 2026-09-08 | Oversampling CPU fast guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.71 s` on the complete oversampling caller patch. |
+| 2026-09-09 | Portable documentation paths | Refactor plan/progress path scan and `git diff --check` | User-specific home/workspace prefixes were replaced by `$HOME`; the plan now requires portable placeholders in future records. |
+| 2026-09-09 | Direct dense half-step seam | `test_dense_em_types.py`, `test_firstiter_cc_batch_budget.py`, and eight selected direct/final K=1 cases from `test_refine_relion_mode.py` | 12/12, 12/12, and 8/8 passed. The module-level legacy runner hook receives the same seven inputs and 32 resolved keyword parameters. |
+| 2026-09-09 | Direct dense half-step CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `50.00 s`. |
+| 2026-09-09 | Direct dense half-step GPU A/B | Slurm `60517345` | Queued on `gpu`; immutable control `14bbf00f` and candidate `204384c7` will run sequentially on the same allocated GPU. Initial A100-only request `60517301` was canceled while pending so a right-sized generic-GPU request could queue sooner. |
+| 2026-09-09 | First runtime-settings boundary | `test_dense_runtime_options.py` plus `test_firstiter_cc_batch_budget.py` | 18/18 passed; default, compatibility override, invalid input, and explicit settings injection retain the existing batch formula. |
+| 2026-09-09 | First-iteration caller compatibility | `test_run_k_class_parity.py` | 31/31 passed. |
 
 ## Decision log
 
@@ -413,6 +419,73 @@ strategy before migrating that call. No new GPU job was warranted because both
 oversampling paths reconstruct the unchanged legacy invocation and all device
 work remains inside `run_em`.
 
+### 2026-09-09 — direct dense half-step caller migration
+
+Hypothesis: the final direct `run_em` caller can construct the typed dense
+request and consume `DenseEMResult` while preserving the iteration-loop
+module's legacy runner hook, arguments, defaults, and numerical implementation.
+
+Files changed: `iteration_loop.py` and
+`tests/unit/test_firstiter_cc_batch_budget.py`.
+
+Algorithmic invariants protected:
+
+- `run_em` remains the only numerical implementation and is passed explicitly
+  as the adapter's legacy runner, so module-level monkeypatch and debug hooks
+  still intercept the call;
+- the same seven required inputs and all 32 defaulted/explicit keyword
+  parameters reach the legacy engine;
+- the same hard assignment, `Ft_y`, `Ft_ctf`, RELION statistics, and noise
+  statistics populate `HalfScoreResult`, now by stable names;
+- no kernel, candidate order, dtype, reduction, environment lookup, or
+  reconstruction route changed.
+
+Focused results: 12/12 dense contract tests, 12/12 first-iteration
+batch/caller tests, and 8/8 selected direct/final K=1 refinement tests passed.
+The CPU EM fast guard passed 16/16 in `50.00 s`. The unchanged 10,374-line
+controller has five pre-existing Ruff findings and is not formatter-clean; the
+source commit skipped the two Ruff hooks to avoid an unrelated whole-file
+rewrite, after confirming the candidate introduced no new lint finding.
+
+Commit: `204384c7` — `em: migrate dense half-step to typed result`.
+
+Decision: implementation accepted; end-to-end acceptance awaits Slurm job
+`60517345`. Its artifact root is
+`$HOME/palmer_scratch/tmp/dense_em_refactor_samegpu_final_204384c7_vs_14bbf00f`.
+The detached control and candidate worktrees pin `14bbf00f` and `204384c7`, so
+continued branch work cannot alter either arm. The earlier A100-only request
+`60517301` was canceled before allocation or science because its estimated
+start was the next day; it produced no quality or performance result.
+
+### 2026-09-09 — first runtime-settings boundary
+
+Hypothesis: first-iteration reconstruction-budget parsing can move out of the
+batch formula into a frozen host-side settings object without changing the
+default, environment override, validation behavior, or computed cap.
+
+Files changed: `runtime_options.py`, `firstiter_cc.py`, and
+`tests/unit/test_dense_runtime_options.py`.
+
+`FirstIterationBatchSettings` owns the resolved complex-element budget and
+`load_first_iteration_batch_settings` is the sole compatibility parser for
+that variable. `_safe_firstiter_cc_image_batch_size` still resolves the
+environment by default, preserving every current caller, and also accepts an
+explicit settings object for later parse-once controller migration. Its memory
+formula and constants are unchanged, and the historical constants remain
+importable from `firstiter_cc.py`.
+
+Focused results: the combined runtime-settings and batch suite passed 18/18;
+the K-class parity caller suite passed 31/31. No GPU run is needed for this
+parser-only slice; job `60517345` validates the preceding C1 checkpoint, not
+this subsequent commit.
+
+Commit: `88620683` — `em: centralize first-iteration batch settings`.
+
+Decision: accepted as the first C2 compatibility seam. Next action: classify
+and centralize another cohesive execution-policy family, then migrate
+top-level construction to parse resolved settings once without widening a
+numerical/JIT boundary.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -438,12 +511,11 @@ Open risks:
 
 ## Immediate next actions
 
-1. Establish a reviewable formatter/ownership seam for the direct dense
-   half-step in `iteration_loop.py`; do not mix a whole-file mechanical rewrite
-   into its typed caller migration.
-2. Migrate that final production `run_em` caller while preserving the
-   iteration-loop module's monkeypatch/debug interception surface.
-3. Keep the large JIT signatures and all numerical kernels unchanged until a
-   dedicated paired GPU benchmark is designed for that boundary.
+1. Monitor same-GPU K=1 job `60517345` and add its quality, trajectory,
+   runtime, and memory comparison before closing C1 validation.
+2. Classify and centralize the next cohesive C2 execution-policy family;
+   retain environment variables only as compatibility inputs.
+3. Introduce a parse-once host boundary incrementally without widening the
+   numerical/JIT signatures or mixing controller decomposition into C2.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
-   job `60511038` separately from structural-refactor equivalence.
+   jobs `60511038` and `60517345` separately from structural equivalence.
