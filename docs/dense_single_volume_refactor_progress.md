@@ -9,8 +9,8 @@ Last updated: 2026-09-09
 | Component | Status | Current result / next action |
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
-| C1 Data contracts | IMPLEMENTATION COMPLETE — GPU CHECK PENDING | Stable local and dense contracts are used by every in-package production caller. Legacy engines remain the numerical implementations. Same-GPU K=1 job `60517345` is queued. |
-| C2 Policy/environment boundary | IN PROGRESS | First-iteration reconstruction-budget parsing is centralized behind immutable `FirstIterationBatchSettings`; callers retain environment-compatible defaults and can inject resolved settings. Continue one policy family at a time. |
+| C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
+| C2 Policy/environment boundary | IN PROGRESS | First-iteration batching, raw-image caching, and dense batch planning now use immutable resolved settings with environment-compatible adapters. `batch_planning.py` has no direct environment reads. Continue one policy family at a time. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
@@ -104,9 +104,13 @@ GPU identity and paired timing context.
 | 2026-09-09 | Portable documentation paths | Refactor plan/progress path scan and `git diff --check` | User-specific home/workspace prefixes were replaced by `$HOME`; the plan now requires portable placeholders in future records. |
 | 2026-09-09 | Direct dense half-step seam | `test_dense_em_types.py`, `test_firstiter_cc_batch_budget.py`, and eight selected direct/final K=1 cases from `test_refine_relion_mode.py` | 12/12, 12/12, and 8/8 passed. The module-level legacy runner hook receives the same seven inputs and 32 resolved keyword parameters. |
 | 2026-09-09 | Direct dense half-step CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `50.00 s`. |
-| 2026-09-09 | Direct dense half-step GPU A/B | Slurm `60517345` | Queued on `gpu`; immutable control `14bbf00f` and candidate `204384c7` will run sequentially on the same allocated GPU. Initial A100-only request `60517301` was canceled while pending so a right-sized generic-GPU request could queue sooner. |
+| 2026-09-09 | Direct dense half-step GPU A/B | Slurm `60517729` | Completed `0:0` on one V100. Candidate/control direct map FSC-AUC was `0.9998763`; candidate-vs-RELION FSC-AUC improved by `+0.0001383`, ledger time improved `1.46%`, process wall improved `4.61%`, and peak RSS improved `0.12%`. Preliminary jobs were excluded before science. |
 | 2026-09-09 | First runtime-settings boundary | `test_dense_runtime_options.py` plus `test_firstiter_cc_batch_budget.py` | 18/18 passed; default, compatibility override, invalid input, and explicit settings injection retain the existing batch formula. |
 | 2026-09-09 | First-iteration caller compatibility | `test_run_k_class_parity.py` | 31/31 passed. |
+| 2026-09-09 | Raw-image cache settings | Runtime settings plus selected cache cases in `test_refine_relion_mode.py` | 12 passed, 371 deselected; explicit settings, compatibility parsing, and lazy disabled-mode validation retain the existing behavior. |
+| 2026-09-09 | Dense batch-planning settings | `test_dense_runtime_options.py` and `test_refine_relion_mode.py -k relion_em_batch_sizing` | 17/17 and 12/12 passed, respectively; the explicit settings path bypasses an invalid environment value and the compatibility path retains its errors. |
+| 2026-09-09 | Dense planner host timing | Seven 10,000-call samples at pre-C2 `14bbf00f` and current `bfb62693` | Best time per call was `86.3 us` before C2, `87.4 us` through the compatibility parser, and `82.8 us` with a pre-resolved settings object. The observed compatibility cost is `1.1 us/call`; the parse-once route is faster than control. |
+| 2026-09-09 | Cumulative C2 CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `50.05 s` after the raw-cache and dense-planner settings slices. |
 
 ## Decision log
 
@@ -449,13 +453,91 @@ rewrite, after confirming the candidate introduced no new lint finding.
 
 Commit: `204384c7` — `em: migrate dense half-step to typed result`.
 
-Decision: implementation accepted; end-to-end acceptance awaits Slurm job
-`60517345`. Its artifact root is
+Final same-GPU job `60517729` completed `0:0` in one allocation on node
+`r908u24n02`, GPU `GPU-b8a62512-c749-1707-8256-85b9e4509b6c`
+(Tesla V100-PCIE-16GB, driver 570.211.01). The detached worktrees pin control
+`14bbf00f1bce6d68c3be68a0095f09568a97cd06` and candidate
+`204384c78c4b622d952850d18dfc649c67773323`; both tracked diffs are empty.
+Both arms used CUDA library SHA-256
+`f2b8dbb0ca0b8bd1151e71652c1bbee2da93eb53a43033bb3bd3cd7f470b9c42`,
+and the control RELION binding SHA-256 is
+`0605b857b2c1f052911101fb4ce7ed179332f4bcae42ca89a1de6a6be281079c`.
+
+| Paired measure | Control `14bbf00f` | Candidate `204384c7` | Candidate delta |
+|---|---:|---:|---:|
+| Completed numbered iterations | 13 | 13 | same |
+| Final all-data path | ran | ran | same |
+| Current-size trajectory | `46,46,72,70,70,70,70,70,70,72,72,72,72` | same | same |
+| Final merged FSC-AUC vs RELION | `0.9943203100` | `0.9944586446` | `+0.0001383346` |
+| Merged FSC-AUC vs GT, alignment disabled | `-0.4635628688` | `-0.4635986733` | `-0.0000358045` (worse, unaligned) |
+| Final merged correlation vs RELION (diagnostic) | `0.9983093529` | `0.9983346379` | `+0.0000252850` |
+| Ledger elapsed | `930.976 s` | `917.351 s` | `-1.46%` |
+| Exact-local EM time | `303.554 s` | `289.315 s` | `-4.69%` |
+| External process wall time | `1018.16 s` | `971.26 s` | `-4.61%` |
+| Peak RSS | `10,658,172 KiB` | `10,644,892 KiB` | `-0.12%` |
+
+The 310-key result schemas have identical key order, shapes, and dtypes.
+Current-size, pixel-resolution, healpix-order, finalization, sampling, and
+gridding-policy fields match exactly. The two final maps directly match at
+FSC-AUC `0.9998763255`, minimum non-DC FSC `0.9995150370`, and diagnostic
+correlation `0.9999801517`. Iteration 0 state is exact; the first discrete
+difference appears at iteration 9. Across all 13 iterations, 24 of 13,000
+significant-count rows, 14 best-rotation rows, and 7 best-translation rows
+differ. The maximum saved FSC-state difference is `9.4599e-4`; the final
+all-data results differ in 9 rotation rows and 2 translation rows. These
+small late-trajectory differences did not regress the map, schedule,
+finalization, memory, or runtime, but they are not claimed as bitwise parity.
+The command left GT alignment disabled, and both unaligned GT FSC-AUC values
+are negative; their small mixed delta is recorded above but cannot establish
+an absolute GT-quality pass. Ledger compile counts are `null` for both arms,
+so compilation count was not measured by this run.
+
+Both V100 arms remain below the program's absolute `0.995` cross-RELION FSC
+gate, as did the earlier A100 control/candidate pair. The candidate improved
+over its immediate V100 control and reproduces the earlier candidate's
+approximately `0.99445` range, so this is not a refactor regression; the
+pre-existing absolute quality gap remains open and prevents promoting this
+fixture to a quality checkpoint.
+
+Artifact root:
 `$HOME/palmer_scratch/tmp/dense_em_refactor_samegpu_final_204384c7_vs_14bbf00f`.
-The detached control and candidate worktrees pin `14bbf00f` and `204384c7`, so
-continued branch work cannot alter either arm. The earlier A100-only request
-`60517301` was canceled before allocation or science because its estimated
-start was the next day; it produced no quality or performance result.
+It contains both ledgers, full trajectories, process resource records,
+provenance manifests, and logs. The launcher SHA-256 is
+`35e6c16b9eadbba4174adc1fb6f6bd48b07c2526b6b90734a8f04d18e3a219c5`,
+and the run root has a `SAFE_TO_DELETE` marker.
+Control and candidate ledger SHA-256 values are, respectively,
+`5c366b5a1a89b32ea6f0c7a1b3b5ca8e6c83c82d13f2a673dff8e1d4b9cecb20`
+and
+`648dd1e064c514dc9cd136f9ff37d7b5863793afe3878567e7293fcd000945bc`.
+Each arm ran this command from its pinned worktree, changing only `<arm>`:
+
+```bash
+python -m scripts.run_multi_iter_parity \
+  --relion_dir relion_em_test_double_seeded \
+  --data_star _full_refinement_data_double_seeded/particles.star \
+  --iter 0 --max_iter 20 \
+  --output_dir "$RUN_ROOT/<arm>_output" \
+  --gt_volume "$HOME/pi_data/igg_1d/init_mask/backproj_0.01.mrc" \
+  --replay-override-max-iter 0
+```
+
+The launcher cleared inherited RECOVAR/RELION and Python/conda overrides,
+set `PYTHONNOUSERSITE=1` and `XLA_PYTHON_CLIENT_PREALLOCATE=false`, pinned the
+CUDA library, and used separate per-arm temporary, JAX, and CUDA cache roots.
+
+Preliminary launcher attempts produced no scientific result: `60517301` was
+canceled unallocated; `60517345` rejected an incorrect SHA literal;
+`60517430` encountered the prescribed scratch path's permission boundary;
+and `60517467` rejected the otherwise SHA-correct pinned CUDA binary because
+fresh worktree source mtimes were newer. The last attempt spent six minutes
+preparing its environment before that import preflight, but neither arm
+entered the parity script. The final launcher retained the SHA check, refreshed
+only the pinned binary's mtime, and used an isolated fallback runtime root.
+
+Decision: accepted as C1 structural-equivalence and performance evidence.
+The unchanged numerical implementation, exact argument-forwarding tests, and
+paired GPU result jointly show no algorithm or performance regression. The
+absolute FSC gate remains a separate open issue.
 
 ### 2026-09-09 — first runtime-settings boundary
 
@@ -476,8 +558,8 @@ importable from `firstiter_cc.py`.
 
 Focused results: the combined runtime-settings and batch suite passed 18/18;
 the K-class parity caller suite passed 31/31. No GPU run is needed for this
-parser-only slice; job `60517345` validates the preceding C1 checkpoint, not
-this subsequent commit.
+parser-only slice; completed job `60517729` validates the preceding C1
+checkpoint, not this subsequent commit.
 
 Commit: `88620683` — `em: centralize first-iteration batch settings`.
 
@@ -485,6 +567,64 @@ Decision: accepted as the first C2 compatibility seam. Next action: classify
 and centralize another cohesive execution-policy family, then migrate
 top-level construction to parse resolved settings once without widening a
 numerical/JIT boundary.
+
+### 2026-09-09 — raw-image cache settings boundary
+
+Hypothesis: raw-image cache mode and memory-ceiling parsing can move out of
+`batch_planning.py` without changing cache eligibility, deduplication, size
+estimation, force behavior, or the historical lazy validation of the ceiling.
+
+Files changed: `runtime_options.py`, `batch_planning.py`, and
+`tests/unit/test_dense_runtime_options.py`.
+
+`RawImageCacheSettings` owns the resolved mode and ceiling. The cache helper
+accepts an explicit instance, while its compatibility route still resolves
+the mode first and does not parse an invalid ceiling when caching is disabled
+or no loader can be cached. No device arrays, JAX functions, or numerical
+engine calls changed.
+
+Focused runtime/cache coverage passed 12 selected tests with 371 unrelated
+`test_refine_relion_mode.py` cases deselected. Commit: `8622497a` —
+`em: centralize raw image cache settings`.
+
+Decision: accepted. The compatibility semantics, including lazy validation,
+are explicit and tested.
+
+### 2026-09-09 — dense batch-planning settings boundary
+
+Hypothesis: the projection-memory fraction can be resolved behind an
+immutable `DenseBatchPlanningSettings` object without changing any memory
+budget, cap, formula, dtype, or device query.
+
+Files changed: `runtime_options.py`, `batch_planning.py`, and
+`tests/unit/test_dense_runtime_options.py`.
+
+The planner now accepts resolved settings and otherwise calls the sole
+compatibility parser. Defaults remain `0.20`; positive finite overrides and
+the historical invalid-value error remain unchanged. The explicit path was
+tested while the corresponding environment value was deliberately invalid,
+proving the planner does not consult process state after settings are passed.
+This leaf type will compose into the planned top-level `ExecutionSettings`
+rather than creating a competing orchestration object.
+
+Focused results: `test_dense_runtime_options.py` passed 17/17 and the existing
+`relion_em_batch_sizing` cases in `test_refine_relion_mode.py` passed 12/12
+with 362 deselected. Ruff formatting and lint passed on all three changed
+files. The cumulative CPU EM fast guard passed 16/16 in `50.05 s`. No
+tolerance or baseline changed.
+
+A same-host microbenchmark of the complete planner used seven samples of
+10,000 calls. The pre-C2 control took `86.3 us/call`; the current compatibility
+route took `87.4 us/call` (`+1.1 us/call`), while passing a pre-resolved object
+took `82.8 us/call` (`-3.5 us/call` versus control). The compatibility overhead
+is immaterial at planner call frequency, and the intended parse-once route has
+no measured host regression. No device execution is involved in this helper.
+
+Commit: `bfb62693` — `em: centralize dense batch planning settings`.
+
+Decision: accepted. `batch_planning.py` now contains no direct environment
+read. The next C2 slice should resolve another host policy family without
+widening a numerical or JIT boundary.
 
 ## Per-slice update template
 
@@ -511,11 +651,12 @@ Open risks:
 
 ## Immediate next actions
 
-1. Monitor same-GPU K=1 job `60517345` and add its quality, trajectory,
-   runtime, and memory comparison before closing C1 validation.
+1. Treat C1 as structurally complete at the typed host boundaries; retain the
+   legacy engines as the sole numerical implementations until a separately
+   justified algorithm-preserving decomposition.
 2. Classify and centralize the next cohesive C2 execution-policy family;
    retain environment variables only as compatibility inputs.
 3. Introduce a parse-once host boundary incrementally without widening the
    numerical/JIT signatures or mixing controller decomposition into C2.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
-   jobs `60511038` and `60517345` separately from structural equivalence.
+   jobs `60511038` and `60517729` separately from structural equivalence.
