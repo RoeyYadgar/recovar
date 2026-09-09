@@ -10,7 +10,7 @@ Last updated: 2026-09-09
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
-| C2 Policy/environment boundary | IN PROGRESS | First-iteration batching, global raw-image caching, dense batch planning, and exact-local cache ceilings now use immutable resolved settings with environment-compatible adapters. `batch_planning.py` and `local_caches.py` have no direct environment reads. Continue one policy family at a time. |
+| C2 Policy/environment boundary | IN PROGRESS | `ExecutionSettings` now composes the first-iteration, global raw-image cache, dense batch-planning, and exact-local cache leaves. `RefinementOptions` can carry that snapshot, and the top-level raw-cache and global dense-planner consumers use its resolved values. Direct legacy callers retain lazy environment-compatible adapters. Migrate the remaining leaves through cohesive request seams rather than widening engine signatures. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
@@ -114,6 +114,9 @@ GPU identity and paired timing context.
 | 2026-09-09 | Exact-local cache settings | `test_dense_runtime_options.py` and selected exact-local cache cases in `test_refine_relion_mode.py` | 24/24 and 5/5 passed, respectively; defaults, overrides, invalid values, lazy field parsing, and explicit environment bypass retain existing behavior. |
 | 2026-09-09 | Exact-local cache host timing | Seven 200,000-call samples of the per-bucket sparse M-step memory helper | Best times were `0.48 us/call` for the former inline lookup, `0.82 us/call` through the compatibility adapter, and `0.32 us/call` with resolved settings. The transitional `0.34 us/bucket` cost is immaterial; the target parse-once path is faster. |
 | 2026-09-09 | Exact-local cache CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.60 s`. |
+| 2026-09-09 | Local execution-name prerequisite | `pixi run python -m pytest tests/unit/test_local_em_types.py -q` | 22/22 passed. The local request group is now `LocalExecutionSettings`; its former generic name remains an identity alias for compatibility. |
+| 2026-09-09 | Composed execution settings | `test_dense_runtime_options.py`; selected settings-forwarding and batch-sizing cases in `test_refine_relion_mode.py` with FFTW loaded | 25/25 and 14/14 passed, respectively. One explicit snapshot overrides incompatible process values at the refinement boundary and reaches both migrated top-level consumers by identity. An initial two-case run without FFTW failed before planning because the existing binding could not load `libfftw3.so.3`; the FFTW-loaded rerun passed 2/2. |
+| 2026-09-09 | Composed-settings CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `50.18 s`, within `0.58 s` (`1.2%`) of the recent `49.60`--`50.05 s` runs. |
 
 ## Decision log
 
@@ -671,6 +674,67 @@ settings into a host-level `ExecutionSettings` snapshot and inject it at one
 top-level call boundary, while retaining the compatibility loaders for direct
 legacy callers.
 
+### 2026-09-09 — composed execution settings and top-level injection
+
+Hypothesis: the four established C2 tuning leaves can compose into the planned
+host-level `ExecutionSettings`, and a caller-supplied snapshot can reach the
+top-level raw-image cache and global dense batch planner without re-reading
+process state or changing default execution.
+
+Prerequisite commit `73ee4f36` renamed the exact-local request group from the
+generic `ExecutionSettings` to `LocalExecutionSettings`. Its former name is an
+identity alias, so external imports and values remain compatible while the
+package-level name is available for the run-wide aggregate. The focused local
+contract suite passed 22/22.
+
+Files changed in the aggregate slice: `runtime_options.py`,
+`refinement_options.py`, `iteration_loop.py`, the package `__init__.py`, and
+the two focused unit-test files. `ExecutionSettings` is frozen and composes
+`FirstIterationBatchSettings`, `RawImageCacheSettings`,
+`DenseBatchPlanningSettings`, and `LocalCacheSettings` with independent
+default factories. `load_execution_settings` resolves all four from one
+explicit mapping or compatibility environment. `RefinementOptions.execution`
+is optional so existing direct callers retain their lazy field-by-field
+behavior during migration.
+
+Only the already-migrated top-level raw-image cache and global dense batch
+planner consume the aggregate in this slice. The first-iteration and
+exact-local leaves remain composed but are intentionally not threaded through
+the current large scorer/local-engine signatures; they will move with cohesive
+request-object boundaries. No numerical kernel, array operation, dtype,
+reduction order, batch formula, cache estimate, selected route, diagnostic
+policy, JIT signature, tolerance, or baseline changed.
+
+Focused results: `test_dense_runtime_options.py` passed 25/25. The selected
+settings-forwarding and complete existing `relion_em_batch_sizing` set in
+`test_refine_relion_mode.py` passed 14/14 with the FFTW module loaded. The new
+boundary test places invalid conflicting values in process state and proves
+that the exact supplied leaf objects reach both consumers. An initial two-case
+run without FFTW produced one pass and one pre-planning binding failure; after
+loading FFTW, both passed. The CPU EM fast guard passed 16/16 in `50.18 s`.
+Static checks found no whitespace or formatting spillover and no newly
+introduced lint; two legacy full-file lint findings remain outside the diff.
+
+The guard runtime is within `0.58 s` (`1.2%`) of the recent `49.60`--`50.05 s`
+runs and their ordinary startup/noise variation. The new work is a single host
+attribute lookup and object forwarding at refinement setup/planner frequency;
+it does not enter a particle, pixel, candidate, bucket, device, or JIT loop.
+The resolved dense planner path was already measured faster than its pre-C2
+control. Therefore no new GPU job was submitted for this non-numerical slice;
+Slurm job `60517729` remains the latest same-GPU structural A/B evidence.
+
+Tested dirty-tree provenance: HEAD `73ee4f36`, tracked diff SHA-256
+`b968f35bbfb13611aae3ddbff6dd22ce65bcedb9ac9003f39f4fcd5f24224aff`,
+and 1,427 pre-existing untracked paths with sorted manifest SHA-256
+`565752e3c6fcb6404f7a6da29289d1fd2b350ae1d88448d6bea850de2bcb1072`.
+All required parity ancestors were present.
+
+Commit: `c08d1ca7` — `em: add composed execution settings`.
+
+Decision: accepted. Next, migrate one remaining composed leaf through an
+existing cohesive request/configuration seam; do not add another scalar to a
+large numerical or JIT signature.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -699,11 +763,10 @@ Open risks:
 1. Treat C1 as structurally complete at the typed host boundaries; retain the
    legacy engines as the sole numerical implementations until a separately
    justified algorithm-preserving decomposition.
-2. Compose the established C2 leaf types into the host-level
-   `ExecutionSettings` snapshot without absorbing algorithm or diagnostic
-   policy.
-3. Inject that snapshot at one top-level boundary without widening numerical
-   or JIT signatures; retain leaf compatibility loaders for direct legacy
-   callers.
+2. Migrate one remaining `ExecutionSettings` leaf through a cohesive existing
+   request/configuration seam, preserving lazy compatibility for direct legacy
+   callers and avoiding any new scalar on a large engine/JIT signature.
+3. Ratchet direct environment reads toward host boundaries one independently
+   testable policy family at a time.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
    jobs `60511038` and `60517729` separately from structural equivalence.
