@@ -43,9 +43,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from recovar.core.configs import ForwardModelConfig
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
-from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 from .dense_big_jit import run_dense_bucket_big_jit
 from .dense_em_types import (
@@ -156,7 +156,8 @@ def _relion_image_correction_factors(batch_corr, batch_scale, *, score_mode: str
 def _noise_split_diagnostics_requested() -> bool:
     """Return whether per-shell A2/XA noise split diagnostics are needed."""
     return bool(
-        _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR") or _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
+        _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
+        or _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
     )
 
 
@@ -1300,7 +1301,9 @@ def run_em(
 
         indices_np_for_debug = None
         original_indices_np_for_debug = None
-        if debug_options.per_pose_score_dump.enabled or _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR"):
+        if debug_options.per_pose_score_dump.enabled or _runtime_environment().get(
+            "RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR"
+        ):
             indices_np_for_debug = np.asarray(indices, dtype=np.int64)
             original_indices_np_for_debug = np.asarray(
                 experiment_dataset.original_image_indices_from_local(indices_np_for_debug),

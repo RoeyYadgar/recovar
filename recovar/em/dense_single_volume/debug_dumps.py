@@ -17,13 +17,13 @@ import os
 
 import numpy as np
 
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.em.dense_single_volume.helpers.env_flags import parse_int_set
 from recovar.em.dense_single_volume.helpers.half_spectrum import (
     make_half_image_weights,
     make_shell_indices_half,
 )
 from recovar.em.dense_single_volume.relion_metadata import _relion_half_plane_shell_counts
-from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.em.sampling import rotation_grid_size
 
 logger = logging.getLogger(__name__)

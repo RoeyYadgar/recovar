@@ -89,18 +89,46 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
     try:
         with np.load(path, allow_pickle=False) as data:
             required = {
-                "schema", "metadata_json", "iteration", "half", "rank", "call_index",
-                "shard_index", "current_size", "local_indices", "original_indices",
-                "particle_candidate_start", "particle_candidate_count",
-                "particle_fragment_index", "particle_fragment_count",
-                "candidate_offset", "candidate_local_rotation", "candidate_translation",
-                "raw_combined_score", "posterior", "significant", "rotation_log_prior",
-                "translation_log_prior", "rotation_offset", "rotation_matrix",
-                "rotation_global_index", "rotation_parent_local", "rotation_parent_global",
-                "fine_translations", "fine_translation_parent", "score_center", "raw_log_z",
-                "pmax", "posterior_sum_float32_order", "posterior_sum_float64_exact",
-                "posterior_sum_float32_bound", "significant_count", "significant_threshold",
-                "winner_candidate_index", "winner_pose_matrix", "winner_translation",
+                "schema",
+                "metadata_json",
+                "iteration",
+                "half",
+                "rank",
+                "call_index",
+                "shard_index",
+                "current_size",
+                "local_indices",
+                "original_indices",
+                "particle_candidate_start",
+                "particle_candidate_count",
+                "particle_fragment_index",
+                "particle_fragment_count",
+                "candidate_offset",
+                "candidate_local_rotation",
+                "candidate_translation",
+                "raw_combined_score",
+                "posterior",
+                "significant",
+                "rotation_log_prior",
+                "translation_log_prior",
+                "rotation_offset",
+                "rotation_matrix",
+                "rotation_global_index",
+                "rotation_parent_local",
+                "rotation_parent_global",
+                "fine_translations",
+                "fine_translation_parent",
+                "score_center",
+                "raw_log_z",
+                "pmax",
+                "posterior_sum_float32_order",
+                "posterior_sum_float64_exact",
+                "posterior_sum_float32_bound",
+                "significant_count",
+                "significant_threshold",
+                "winner_candidate_index",
+                "winner_pose_matrix",
+                "winner_translation",
             }
             missing = sorted(required - set(data.files))
             if missing:
@@ -117,20 +145,35 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
         raise CompactCaptureError(f"invalid raw shard {path}: {exc}") from exc
 
     for name, dtype in (
-        ("iteration", np.int32), ("half", np.int8), ("rank", np.int32),
-        ("call_index", np.int64), ("shard_index", np.int32), ("current_size", np.int32),
-        ("local_indices", np.int64), ("original_indices", np.int64),
-        ("particle_candidate_start", np.int64), ("particle_candidate_count", np.int64),
-        ("particle_fragment_index", np.int32), ("particle_fragment_count", np.int32),
-        ("candidate_offset", np.int64), ("candidate_local_rotation", np.int32),
-        ("candidate_translation", np.int32), ("significant", np.uint8),
-        ("rotation_offset", np.int64), ("rotation_matrix", np.float32),
-        ("rotation_global_index", np.int64), ("rotation_parent_local", np.int32),
-        ("rotation_parent_global", np.int32), ("fine_translations", np.float32),
-        ("fine_translation_parent", np.int32), ("posterior_sum_float32_order", np.float32),
+        ("iteration", np.int32),
+        ("half", np.int8),
+        ("rank", np.int32),
+        ("call_index", np.int64),
+        ("shard_index", np.int32),
+        ("current_size", np.int32),
+        ("local_indices", np.int64),
+        ("original_indices", np.int64),
+        ("particle_candidate_start", np.int64),
+        ("particle_candidate_count", np.int64),
+        ("particle_fragment_index", np.int32),
+        ("particle_fragment_count", np.int32),
+        ("candidate_offset", np.int64),
+        ("candidate_local_rotation", np.int32),
+        ("candidate_translation", np.int32),
+        ("significant", np.uint8),
+        ("rotation_offset", np.int64),
+        ("rotation_matrix", np.float32),
+        ("rotation_global_index", np.int64),
+        ("rotation_parent_local", np.int32),
+        ("rotation_parent_global", np.int32),
+        ("fine_translations", np.float32),
+        ("fine_translation_parent", np.int32),
+        ("posterior_sum_float32_order", np.float32),
         ("posterior_sum_float64_exact", np.float64),
-        ("posterior_sum_float32_bound", np.float64), ("significant_count", np.int32),
-        ("winner_candidate_index", np.int32), ("winner_pose_matrix", np.float32),
+        ("posterior_sum_float32_bound", np.float64),
+        ("significant_count", np.int32),
+        ("winner_candidate_index", np.int32),
+        ("winner_pose_matrix", np.float32),
         ("winner_translation", np.float32),
     ):
         _require_dtype(arrays[name], dtype, name)
@@ -166,13 +209,20 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
     if candidate_count > MAX_CANDIDATES_PER_RAW_SHARD:
         raise CompactCaptureError("raw shard exceeds its candidate bound")
     for name in (
-        "candidate_local_rotation", "candidate_translation", "raw_combined_score", "posterior",
-        "significant", "rotation_log_prior", "translation_log_prior",
+        "candidate_local_rotation",
+        "candidate_translation",
+        "raw_combined_score",
+        "posterior",
+        "significant",
+        "rotation_log_prior",
+        "translation_log_prior",
     ):
         if arrays[name].shape != (candidate_count,):
             raise CompactCaptureError(f"{name} does not close over candidate_offset")
     for name in (
-        "rotation_global_index", "rotation_parent_local", "rotation_parent_global",
+        "rotation_global_index",
+        "rotation_parent_local",
+        "rotation_parent_global",
     ):
         if arrays[name].shape != (rotation_count,):
             raise CompactCaptureError(f"{name} does not close over rotation_offset")
@@ -190,11 +240,15 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
         "particle_candidate_count": (particle_count,),
         "particle_fragment_index": (particle_count,),
         "particle_fragment_count": (particle_count,),
-        "score_center": (particle_count,), "raw_log_z": (particle_count,),
-        "pmax": (particle_count,), "posterior_sum_float32_order": (particle_count,),
+        "score_center": (particle_count,),
+        "raw_log_z": (particle_count,),
+        "pmax": (particle_count,),
+        "posterior_sum_float32_order": (particle_count,),
         "posterior_sum_float64_exact": (particle_count,),
-        "posterior_sum_float32_bound": (particle_count,), "significant_count": (particle_count,),
-        "significant_threshold": (particle_count,), "winner_candidate_index": (particle_count,),
+        "posterior_sum_float32_bound": (particle_count,),
+        "significant_count": (particle_count,),
+        "significant_threshold": (particle_count,),
+        "winner_candidate_index": (particle_count,),
         "winner_pose_matrix": (particle_count, 3, 3),
         "winner_translation": (particle_count, 2),
     }
@@ -203,10 +257,20 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
             raise CompactCaptureError(f"{name} particle topology is invalid")
 
     finite_names = (
-        "raw_combined_score", "posterior", "rotation_log_prior", "translation_log_prior",
-        "rotation_matrix", "fine_translations", "score_center", "raw_log_z", "pmax",
-        "posterior_sum_float32_order", "posterior_sum_float64_exact",
-        "posterior_sum_float32_bound", "significant_threshold", "winner_pose_matrix",
+        "raw_combined_score",
+        "posterior",
+        "rotation_log_prior",
+        "translation_log_prior",
+        "rotation_matrix",
+        "fine_translations",
+        "score_center",
+        "raw_log_z",
+        "pmax",
+        "posterior_sum_float32_order",
+        "posterior_sum_float64_exact",
+        "posterior_sum_float32_bound",
+        "significant_threshold",
+        "winner_pose_matrix",
         "winner_translation",
     )
     if any(not np.isfinite(arrays[name]).all() for name in finite_names):
@@ -217,9 +281,7 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
         raise CompactCaptureError("raw shard significant flag is not binary")
 
     rotations = arrays["rotation_matrix"]
-    gram_error = np.max(
-        np.abs(rotations @ np.swapaxes(rotations, 1, 2) - np.eye(3, dtype=np.float32)), axis=(1, 2)
-    )
+    gram_error = np.max(np.abs(rotations @ np.swapaxes(rotations, 1, 2) - np.eye(3, dtype=np.float32)), axis=(1, 2))
     determinant_error = np.abs(np.linalg.det(rotations) - np.float32(1.0))
     if np.any(gram_error > 5e-4) or np.any(determinant_error > 5e-4):
         raise CompactCaptureError("raw shard contains invalid rotation geometry")
@@ -280,17 +342,22 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
             winner_trans = int(local_trans[fragment_winner])
             if not np.array_equal(arrays["winner_pose_matrix"][row], rotations[r0 + winner_rot]):
                 raise CompactCaptureError("raw shard winner pose does not reproduce candidate geometry")
-            if not np.array_equal(
-                arrays["winner_translation"][row], arrays["fine_translations"][winner_trans]
-            ):
+            if not np.array_equal(arrays["winner_translation"][row], arrays["fine_translations"][winner_trans]):
                 raise CompactCaptureError("raw shard winner translation does not reproduce candidate geometry")
 
         summary_digest = hashlib.sha256()
         for name in (
-            "score_center", "raw_log_z", "pmax", "posterior_sum_float32_order",
-            "posterior_sum_float64_exact", "posterior_sum_float32_bound",
-            "significant_count", "significant_threshold", "winner_candidate_index",
-            "winner_pose_matrix", "winner_translation",
+            "score_center",
+            "raw_log_z",
+            "pmax",
+            "posterior_sum_float32_order",
+            "posterior_sum_float64_exact",
+            "posterior_sum_float32_bound",
+            "significant_count",
+            "significant_threshold",
+            "winner_candidate_index",
+            "winner_pose_matrix",
+            "winner_translation",
         ):
             summary_digest.update(np.ascontiguousarray(arrays[name][row]).tobytes())
         fragments.append(
@@ -303,9 +370,7 @@ def validate_raw_capture_shard(path: Path) -> dict[str, object]:
                 "fragment_index": fragment_index,
                 "fragment_count": fragment_count,
                 "partial_posterior_sum_float64": float(partial_exact_sum),
-                "partial_posterior_abs_sum_float64": float(
-                    np.sum(np.abs(posterior), dtype=np.float64)
-                ),
+                "partial_posterior_abs_sum_float64": float(np.sum(np.abs(posterior), dtype=np.float64)),
                 "posterior_sum_float64_exact": full_exact_sum,
                 "partial_significant_count": partial_significant_count,
                 "significant_count": int(arrays["significant_count"][row]),
@@ -351,8 +416,7 @@ def finalize_raw_capture_directory(
         raise CompactCaptureError("expected original identities must be supplied per half")
     try:
         expected_by_half = {
-            int(half): np.asarray(values, dtype=np.int64)
-            for half, values in expected_original_indices_by_half.items()
+            int(half): np.asarray(values, dtype=np.int64) for half, values in expected_original_indices_by_half.items()
         }
     except Exception as exc:
         raise CompactCaptureError(f"invalid expected half identity mapping: {exc}") from exc
@@ -512,13 +576,9 @@ def _target_rows(original_indices: np.ndarray) -> np.ndarray:
             dtype=np.int64,
         )
     except ValueError as exc:
-        raise CompactCaptureError(
-            f"{CAPTURE_ORIGINAL_INDICES_ENV} must be comma-separated integers"
-        ) from exc
+        raise CompactCaptureError(f"{CAPTURE_ORIGINAL_INDICES_ENV} must be comma-separated integers") from exc
     if targets.size == 0 or np.any(targets < 0):
-        raise CompactCaptureError(
-            f"{CAPTURE_ORIGINAL_INDICES_ENV} must contain nonnegative integers"
-        )
+        raise CompactCaptureError(f"{CAPTURE_ORIGINAL_INDICES_ENV} must contain nonnegative integers")
     return np.flatnonzero(np.isin(original, targets)).astype(np.int64, copy=False)
 
 
@@ -593,12 +653,9 @@ def _build_particle_fragment_shards(candidate_offset: np.ndarray) -> list[list[t
                 stop = min(full_count, start + MAX_CANDIDATES_PER_RAW_SHARD)
                 shards.append([(row, start, stop, fragment_index, fragment_count)])
             continue
-        if (
-            pending
-            and (
-                len(pending) >= MAX_PARTICLES_PER_RAW_SHARD
-                or pending_candidates + full_count > MAX_CANDIDATES_PER_RAW_SHARD
-            )
+        if pending and (
+            len(pending) >= MAX_PARTICLES_PER_RAW_SHARD
+            or pending_candidates + full_count > MAX_CANDIDATES_PER_RAW_SHARD
         ):
             flush_pending()
         pending.append((row, 0, full_count, 0, 1))
@@ -768,10 +825,9 @@ def maybe_capture_k1_production_bucket(
         )
         unit_roundoff = np.finfo(np.float32).eps / 2.0
         gamma_n = count * unit_roundoff / (1.0 - count * unit_roundoff)
-        posterior_sum_float32_bound[row] = (
-            gamma_n * np.sum(np.abs(posterior[row][selected]), dtype=np.float64)
-            + 8.0 * unit_roundoff * max(1.0, abs(posterior_sum_float64_exact[row]))
-        )
+        posterior_sum_float32_bound[row] = gamma_n * np.sum(
+            np.abs(posterior[row][selected]), dtype=np.float64
+        ) + 8.0 * unit_roundoff * max(1.0, abs(posterior_sum_float64_exact[row]))
         if (
             abs(float(posterior_sum_float32_order[row]) - posterior_sum_float64_exact[row])
             > posterior_sum_float32_bound[row]
@@ -834,10 +890,7 @@ def maybe_capture_k1_production_bucket(
             slice(int(candidate_offset[row] + start), int(candidate_offset[row] + stop))
             for row, start, stop, _, _ in fragments
         ]
-        rotation_slices = [
-            slice(int(rotation_offset[row]), int(rotation_offset[row + 1]))
-            for row in row_indices
-        ]
+        rotation_slices = [slice(int(rotation_offset[row]), int(rotation_offset[row + 1])) for row in row_indices]
         shard_candidate_offset = np.concatenate(
             [np.zeros(1, dtype=np.int64), np.cumsum(particle_candidate_stop - particle_candidate_start)]
         )
@@ -850,10 +903,7 @@ def maybe_capture_k1_production_bucket(
         shard_original = original_indices[row_indices]
         fragment_suffix = ""
         if len(fragments) == 1 and int(particle_fragment_count[0]) > 1:
-            fragment_suffix = (
-                f"_frag{int(particle_fragment_index[0]):03d}"
-                f"of{int(particle_fragment_count[0]):03d}"
-            )
+            fragment_suffix = f"_frag{int(particle_fragment_index[0]):03d}" f"of{int(particle_fragment_count[0]):03d}"
         path = capture_dir / (
             f"raw_k1_it{int(iteration):03d}_h{int(half)}_rank{rank:03d}_"
             f"call{call_index:06d}_shard{shard_index:03d}_"
@@ -939,29 +989,19 @@ def maybe_capture_k1_production_bucket_chunked(
         return 0
     score_arrays = tuple(np.asarray(chunk[rows]) for chunk in score_chunks)
     prob_arrays = tuple(np.asarray(chunk[rows]) for chunk in prob_chunks)
-    reconstruction_arrays = tuple(
-        np.asarray(chunk[rows], dtype=bool) for chunk in reconstruction_mask_chunks
-    )
-    if not score_arrays or not (
-        len(score_arrays) == len(prob_arrays) == len(reconstruction_arrays)
-    ):
+    reconstruction_arrays = tuple(np.asarray(chunk[rows], dtype=bool) for chunk in reconstruction_mask_chunks)
+    if not score_arrays or not (len(score_arrays) == len(prob_arrays) == len(reconstruction_arrays)):
         raise CompactCaptureError("chunked capture requires matching nonempty chunk sequences")
     first_shape = score_arrays[0].shape
     if len(first_shape) != 3:
         raise CompactCaptureError("chunked capture expects rank-3 score chunks")
     batch, _, n_trans = first_shape
-    for scores, probs, reconstruction in zip(
-        score_arrays, prob_arrays, reconstruction_arrays, strict=True
-    ):
+    for scores, probs, reconstruction in zip(score_arrays, prob_arrays, reconstruction_arrays, strict=True):
         if scores.ndim != 3 or scores.shape[0] != batch or scores.shape[2] != n_trans:
             raise CompactCaptureError("chunked capture score topology mismatch")
         if probs.shape != scores.shape or reconstruction.shape != scores.shape:
             raise CompactCaptureError("chunked capture posterior/support topology mismatch")
-    input_bytes = sum(
-        array.nbytes
-        for arrays in (score_arrays, prob_arrays, reconstruction_arrays)
-        for array in arrays
-    )
+    input_bytes = sum(array.nbytes for arrays in (score_arrays, prob_arrays, reconstruction_arrays) for array in arrays)
     if input_bytes > MAX_CHUNKED_CAPTURE_INPUT_BYTES:
         raise CompactCaptureError(
             "chunked capture input exceeds bounded host assembly cap: "

@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 
 from recovar import utils
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.em.dense_single_volume.helpers.env_flags import parse_int_set
 from recovar.em.dense_single_volume.helpers.half_spectrum import bin_shell_values_np
-from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 
 @dataclass(frozen=True)
@@ -297,9 +297,7 @@ def maybe_write_debug_noise_component_dump(
         dtype=np.int64,
     )
     target_rows = [
-        row
-        for row, original_idx in enumerate(original_image_indices.tolist())
-        if int(original_idx) in pending_targets
+        row for row, original_idx in enumerate(original_image_indices.tolist()) if int(original_idx) in pending_targets
     ]
     if not target_rows:
         return pending_targets
@@ -308,9 +306,7 @@ def maybe_write_debug_noise_component_dump(
     processed_noise_power_np = np.asarray(processed_noise_power_half)
     proj_np = np.asarray(proj_for_noise)
     proj_abs2_np = (
-        np.abs(proj_np) ** 2
-        if proj_abs2_for_noise is None
-        else np.asarray(proj_abs2_for_noise, dtype=np.float64)
+        np.abs(proj_np) ** 2 if proj_abs2_for_noise is None else np.asarray(proj_abs2_for_noise, dtype=np.float64)
     )
     summed_np = np.asarray(summed_masked_noise)
     ctf_probs_np = np.asarray(ctf_probs, dtype=np.float64)
@@ -493,9 +489,7 @@ def maybe_write_debug_fused_posterior_dump(
         dtype=np.int64,
     )
     target_rows = [
-        row
-        for row, original_idx in enumerate(original_image_indices.tolist())
-        if int(original_idx) in pending_targets
+        row for row, original_idx in enumerate(original_image_indices.tolist()) if int(original_idx) in pending_targets
     ]
     if not target_rows:
         return pending_targets
@@ -525,11 +519,7 @@ def maybe_write_debug_fused_posterior_dump(
         best_rotation_index = best_flat // n_trans
         best_translation_index = best_flat % n_trans
         best_in_actual = 0 <= best_rotation_index < actual_count
-        best_global_id = (
-            int(metadata["local_rotation_ids"][best_rotation_index])
-            if best_in_actual
-            else -1
-        )
+        best_global_id = int(metadata["local_rotation_ids"][best_rotation_index]) if best_in_actual else -1
         best_translation = (
             metadata["translation_grid"][best_translation_index : best_translation_index + 1]
             if best_in_actual
@@ -550,10 +540,7 @@ def maybe_write_debug_fused_posterior_dump(
         )
         iteration_label = int(debug_iteration or -1)
         label_suffix = _local_debug_dump_label_suffix()
-        dump_path = (
-            dump_dir
-            / f"local_fused_posterior_it{iteration_label:03d}_image_{original_idx}{label_suffix}.npz"
-        )
+        dump_path = dump_dir / f"local_fused_posterior_it{iteration_label:03d}_image_{original_idx}{label_suffix}.npz"
         np.savez_compressed(
             dump_path,
             selected_global_image_indices=np.array([original_idx], dtype=np.int64),
@@ -561,12 +548,8 @@ def maybe_write_debug_fused_posterior_dump(
             local_rotation_indices=metadata["local_rotation_ids"],
             local_rotation_parent_indices=metadata["local_rotation_parent_ids"],
             local_rotation_child_indices=metadata["local_rotation_child_indices"],
-            local_rotation_pixel_indices=(
-                metadata["local_rotation_ids"] % int(local_layout.n_pixels)
-            ).astype(np.int64),
-            local_rotation_psi_indices=(
-                metadata["local_rotation_ids"] // int(local_layout.n_pixels)
-            ).astype(np.int64),
+            local_rotation_pixel_indices=(metadata["local_rotation_ids"] % int(local_layout.n_pixels)).astype(np.int64),
+            local_rotation_psi_indices=(metadata["local_rotation_ids"] // int(local_layout.n_pixels)).astype(np.int64),
             local_rotation_eulers=metadata["local_rotation_eulers"],
             local_rotation_matrices=metadata["local_rotation_matrices"],
             rotation_candidate_mask=metadata["rotation_mask"][None, :],
@@ -708,9 +691,7 @@ def maybe_write_debug_score_dump(
         dtype=np.int64,
     )
     target_rows = [
-        row
-        for row, original_idx in enumerate(original_image_indices.tolist())
-        if int(original_idx) in pending_targets
+        row for row, original_idx in enumerate(original_image_indices.tolist()) if int(original_idx) in pending_targets
     ]
     if not target_rows:
         return pending_targets

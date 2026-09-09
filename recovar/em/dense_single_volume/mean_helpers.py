@@ -14,12 +14,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from recovar.core import fourier_transform_utils, mask
+from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.em.dense_single_volume.helpers.orientation_priors import (
     class_weights_from_direction_prior,
     collapse_rotation_posterior_to_direction_prior,
 )
 from recovar.em.dense_single_volume.helpers.types import make_noise_stats
-from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,9 @@ def _normalize_class_log_priors(n_classes: int, class_log_priors=None) -> np.nda
     return log_priors - log_norm
 
 
-def _initialize_class_log_priors(n_classes: int, init_class_log_priors=None, init_direction_prior=None) -> tuple[np.ndarray, np.ndarray]:
+def _initialize_class_log_priors(
+    n_classes: int, init_class_log_priors=None, init_direction_prior=None
+) -> tuple[np.ndarray, np.ndarray]:
     """Return normalized log priors for the class axis and class weights, defaulting to uniform."""
     class_log_priors = _normalize_class_log_priors(n_classes, init_class_log_priors)
     class_weights = np.exp(class_log_priors)
@@ -239,9 +241,7 @@ def _combined_class_direction_prior_from_halves(
             combined = per_class if combined is None else combined + per_class
         if combined is None:
             return None
-        combined_priors.append(
-            collapse_rotation_posterior_to_direction_prior(combined, healpix_order, dtype=dtype)
-        )
+        combined_priors.append(collapse_rotation_posterior_to_direction_prior(combined, healpix_order, dtype=dtype))
     return np.stack(combined_priors, axis=0)
 
 
@@ -475,19 +475,13 @@ def _reconstruct_and_postprocess_means(
             if k_class_enabled:
                 _premask_real = np.stack(
                     [
-                        np.asarray(
-                            fourier_transform_utils.get_idft3(
-                                means[k][class_idx].reshape(volume_shape)
-                            )
-                        ).real
+                        np.asarray(fourier_transform_utils.get_idft3(means[k][class_idx].reshape(volume_shape))).real
                         for class_idx in range(n_classes)
                     ],
                     axis=0,
                 )
             else:
-                _premask_real = np.asarray(
-                    fourier_transform_utils.get_idft3(means[k].reshape(volume_shape))
-                ).real
+                _premask_real = np.asarray(fourier_transform_utils.get_idft3(means[k].reshape(volume_shape))).real
             np.savez(
                 pathlib.Path(_premask_dump) / f"recovar_premask_it{iteration + 1:03d}_half{k + 1}.npz",
                 iteration=np.int32(iteration + 1),
@@ -497,14 +491,10 @@ def _reconstruct_and_postprocess_means(
                 voxel_size=np.float32(cryo.voxel_size),
                 volume_shape=np.asarray(volume_shape, dtype=np.int32),
                 means_premask=(
-                    _premask_fourier
-                    if _preserve_premask_dtype
-                    else np.asarray(_premask_fourier, dtype=np.complex64)
+                    _premask_fourier if _preserve_premask_dtype else np.asarray(_premask_fourier, dtype=np.complex64)
                 ),
                 means_premask_real=(
-                    _premask_real
-                    if _preserve_premask_dtype
-                    else np.asarray(_premask_real, dtype=np.float32)
+                    _premask_real if _preserve_premask_dtype else np.asarray(_premask_real, dtype=np.float32)
                 ),
                 dump_preserve_dtype=np.int32(int(_preserve_premask_dtype)),
             )
@@ -1072,7 +1062,9 @@ def update_relion_norm_scale_corrections(
                 target_avg_norm = float(np.mean(normcorr_from_stats[valid_norm]))
             else:
                 target_avg_norm = avg_norm_old
-            avg_norm_new = float(scale_relaxation_mu) * avg_norm_old + (1.0 - float(scale_relaxation_mu)) * target_avg_norm
+            avg_norm_new = (
+                float(scale_relaxation_mu) * avg_norm_old + (1.0 - float(scale_relaxation_mu)) * target_avg_norm
+            )
             image_norm_factor_new = image_norm_factor.copy()
             image_norm_factor_new[valid_norm] = avg_norm_new / np.maximum(normcorr_from_stats[valid_norm], eps)
             image_norm_factor = image_norm_factor_new
@@ -1084,12 +1076,7 @@ def update_relion_norm_scale_corrections(
 
         scale_xa = getattr(stats, "wsum_scale_correction_xa", None)
         scale_aa = getattr(stats, "wsum_scale_correction_aa", None)
-        if (
-            do_scale_correction
-            and not relion_firstiter_cc_this_iter
-            and scale_xa is not None
-            and scale_aa is not None
-        ):
+        if do_scale_correction and not relion_firstiter_cc_this_iter and scale_xa is not None and scale_aa is not None:
             xa = np.asarray(scale_xa, dtype=np.float64).reshape(-1)
             aa = np.asarray(scale_aa, dtype=np.float64).reshape(-1)
             if xa.shape != (n_groups,) or aa.shape != (n_groups,):
