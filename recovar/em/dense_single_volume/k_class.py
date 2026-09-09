@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-import os
 import time
 from dataclasses import dataclass
 from typing import NamedTuple
@@ -14,6 +13,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from recovar.utils.nvtx_shim import nvtx
+from recovar.em.dense_single_volume.diagnostics.config import diagnostic_environment_overrides
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 
 from .dense_em_types import DenseEMInputs, DenseEMResult
 from .em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
@@ -96,7 +97,7 @@ def _logsumexp_np(values: np.ndarray, axis: int) -> np.ndarray:
 
 
 def _env_flag_enabled(name: str, *, default: bool = False) -> bool:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None:
         return bool(default)
     return value.strip().lower() not in {"0", "false", "no", "off"}
@@ -117,7 +118,7 @@ def _pass1_top2_debug_target_indices() -> tuple[int, ...]:
     specific particle, without changing production behavior.
     """
 
-    raw = os.environ.get(_PASS1_TOP2_DEBUG_INDICES_ENV, "").strip()
+    raw = _runtime_environment().get(_PASS1_TOP2_DEBUG_INDICES_ENV, "").strip()
     if not raw:
         return ()
     return tuple(int(token) for token in raw.split(",") if token.strip())
@@ -162,7 +163,7 @@ def _log_pass1_top2_debug(
             rotations_np = np.asarray(rotations)
             best_rot_matrix = rotations_np[best_id // int(n_translations)]
             second_rot_matrix = rotations_np[second_id // int(n_translations)]
-            dump_path = os.environ.get(_PASS1_TOP2_DEBUG_DUMP_PATH_ENV)
+            dump_path = _runtime_environment().get(_PASS1_TOP2_DEBUG_DUMP_PATH_ENV)
             if dump_path:
                 np.savez(
                     dump_path.format(dataset_tag=dataset_tag, idx=idx),
@@ -192,13 +193,13 @@ def _k_class_fused_relion_fine_mstep_prune_mode_override(*, relion_fine_mstep_pr
 
     if not bool(relion_fine_mstep_prune):
         return None
-    if _SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE_ENV in os.environ:
+    if _SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE_ENV in _runtime_environment():
         return None
     return "joint"
 
 
 def _env_value_or_none(name: str) -> str | None:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None:
         return None
     value = value.strip()
@@ -794,20 +795,20 @@ class _DenseScoreDumpClassLabel:
 
     def __init__(self, class_index: int):
         self._label = f"class{int(class_index):03d}"
-        self._old = None
+        self._scope = None
 
     def __enter__(self):
-        self._old = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL")
-        os.environ["RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"] = _append_dense_score_dump_label(
-            self._old,
+        label = _append_dense_score_dump_label(
+            _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"),
             self._label,
         )
+        self._scope = diagnostic_environment_overrides(
+            RECOVAR_DEBUG_PER_POSE_DUMP_LABEL=label,
+        )
+        return self._scope.__enter__()
 
     def __exit__(self, exc_type, exc, tb):
-        if self._old is None:
-            os.environ.pop("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL", None)
-        else:
-            os.environ["RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"] = self._old
+        return self._scope.__exit__(exc_type, exc, tb)
 
 
 class _DenseScoreDumpPhaseLabel:
@@ -815,20 +816,20 @@ class _DenseScoreDumpPhaseLabel:
 
     def __init__(self, label: str):
         self._label = label
-        self._old = None
+        self._scope = None
 
     def __enter__(self):
-        self._old = os.environ.get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL")
-        os.environ["RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"] = _append_dense_score_dump_label(
-            self._old,
+        label = _append_dense_score_dump_label(
+            _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"),
             self._label,
         )
+        self._scope = diagnostic_environment_overrides(
+            RECOVAR_DEBUG_PER_POSE_DUMP_LABEL=label,
+        )
+        return self._scope.__enter__()
 
     def __exit__(self, exc_type, exc, tb):
-        if self._old is None:
-            os.environ.pop("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL", None)
-        else:
-            os.environ["RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"] = self._old
+        return self._scope.__exit__(exc_type, exc, tb)
 
 
 class _LocalDebugDumpPhaseLabel:
@@ -841,23 +842,18 @@ class _LocalDebugDumpPhaseLabel:
 
     def __init__(self, label: str):
         self._label = label
-        self._old: dict[str, str | None] = {}
+        self._scope = None
 
     def __enter__(self):
+        overrides = {}
         for name in self._ENV_NAMES:
-            old = os.environ.get(name)
-            self._old[name] = old
-            if old:
-                os.environ[name] = f"{old}_{self._label}"
-            else:
-                os.environ[name] = self._label
+            old = _runtime_environment().get(name)
+            overrides[name] = f"{old}_{self._label}" if old else self._label
+        self._scope = diagnostic_environment_overrides(**overrides)
+        return self._scope.__enter__()
 
     def __exit__(self, exc_type, exc, tb):
-        for name, old in self._old.items():
-            if old is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = old
+        return self._scope.__exit__(exc_type, exc, tb)
 
 
 def _append_dense_score_dump_label(old_label: str | None, suffix: str) -> str:
@@ -1823,7 +1819,7 @@ def _run_dense_k_class_joint_firstiter_score_probe(
         ),
         return_class_best=True,
         return_class_second=(
-            bool(os.environ.get("RECOVAR_GLOBAL_WINNER_SUMMARY_PATH", "").strip())
+            bool(_runtime_environment().get("RECOVAR_GLOBAL_WINNER_SUMMARY_PATH", "").strip())
             or bool(_pass1_top2_debug_target_indices())
         ),
         debug_iteration=engine_kwargs.get("debug_iteration"),
@@ -3432,7 +3428,7 @@ def run_dense_k_class_em_adaptive(
     if "current_size" not in pass2_kwargs and fine_current_size is not None:
         pass2_kwargs["current_size"] = fine_current_size
 
-    device_signature_configured = bool(os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip())
+    device_signature_configured = bool(_runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip())
     fused_atomic_env_enabled = _env_flag_enabled(_RELION_X_HALF_BP_FUSED_ATOMICS_ENV)
     fused_atomic_diagnostic_requested = bool(
         fused_atomic_env_enabled and (bpref_device_signature_active or not device_signature_configured)

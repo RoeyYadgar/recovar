@@ -35,6 +35,7 @@ from recovar.em.dense_single_volume.batch_planning import (
     _maybe_cache_raw_image_loaders,
 )
 from recovar.em.dense_single_volume.dense_em_types import DenseEMInputs
+from recovar.em.dense_single_volume.diagnostics.config import diagnostic_environment_overrides
 from recovar.em.dense_single_volume.em_engine import (
     dense_em_request_from_legacy_kwargs,
     run_dense_em,
@@ -160,7 +161,10 @@ from recovar.em.dense_single_volume.mean_helpers import (
 from recovar.em.dense_single_volume.refinement_options import (
     RefinementOptions,
 )
-from recovar.em.dense_single_volume.runtime_options import FirstIterationBatchSettings
+from recovar.em.dense_single_volume.runtime_options import (
+    FirstIterationBatchSettings,
+    current_environment as _runtime_environment,
+)
 from recovar.em.dense_single_volume.relion_metadata import (
     _radial_profile_from_noise_variance,
     _relion_metadata_translations,
@@ -237,7 +241,7 @@ _PASS2_NORM_DUMP_TARGET_HALF_ENV = "RECOVAR_PASS2_DUMP_TARGET_HALF"
 
 def _k1_relion_exact_translation_grid_enabled(environ=None):
     """Return the production-on K=1 grid policy with a diagnostic opt-out."""
-    env = os.environ if environ is None else environ
+    env = _runtime_environment() if environ is None else environ
     raw = str(env.get(_K1_RELION_EXACT_TRANSLATION_GRID_ENV, "")).strip().lower()
     if raw in {"", "1", "true", "yes", "on"}:
         return True
@@ -264,7 +268,7 @@ def _significance_dump_half_indices(
 ) -> tuple[int, ...]:
     """Select one half only at an explicitly terminating diagnostic boundary."""
 
-    env = os.environ if environ is None else environ
+    env = _runtime_environment() if environ is None else environ
     raw_significance_half = str(env.get(_SIGNIFICANCE_DUMP_TARGET_HALF_ENV, "")).strip()
     raw_pass2_half = str(env.get(_PASS2_NORM_DUMP_TARGET_HALF_ENV, "")).strip()
     if raw_significance_half and raw_pass2_half:
@@ -356,7 +360,7 @@ def _bpref_device_signature_active_for_numbered_half(
 ) -> bool:
     """Resolve one explicit numbered half boundary for device capture."""
 
-    env = os.environ if environ is None else environ
+    env = _runtime_environment() if environ is None else environ
     if not str(env.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "")).strip():
         return False
     raw_iteration = str(env.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION", "")).strip()
@@ -434,16 +438,16 @@ _FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
 def _use_approx_acc_rot_for_convergence() -> bool:
     """Return whether the cheap support-width acc_rot is force-enabled."""
-    return os.environ.get(_APPROX_ACC_ROT_CONVERGENCE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
+    return _runtime_environment().get(_APPROX_ACC_ROT_CONVERGENCE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
 
 
 def _disable_approx_acc_rot_for_convergence() -> bool:
     """Return whether all native support-width convergence gating is disabled."""
-    return os.environ.get(_APPROX_ACC_ROT_CONVERGENCE_DISABLE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
+    return _runtime_environment().get(_APPROX_ACC_ROT_CONVERGENCE_DISABLE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
 
 
 def _float_env_or_default(name: str, default: float) -> float:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None or value.strip() == "":
         return default
     try:
@@ -454,7 +458,7 @@ def _float_env_or_default(name: str, default: float) -> float:
 
 
 def _int_env_or_default(name: str, default: int) -> int:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None or value.strip() == "":
         return default
     try:
@@ -557,9 +561,9 @@ def _perturbation_restart_state_iteration(
 def _debug_replay_relion_references_enabled(iteration_number: int) -> bool:
     """Return whether this scoring iteration should use RELION half-map references."""
 
-    if os.environ.get(_DEBUG_REPLAY_RELION_REFERENCES_ENV, "").strip().lower() not in _TRUE_ENV_VALUES:
+    if _runtime_environment().get(_DEBUG_REPLAY_RELION_REFERENCES_ENV, "").strip().lower() not in _TRUE_ENV_VALUES:
         return False
-    requested = os.environ.get(_DEBUG_REPLAY_RELION_REFERENCES_ITERATION_ENV)
+    requested = _runtime_environment().get(_DEBUG_REPLAY_RELION_REFERENCES_ITERATION_ENV)
     if requested is None or requested.strip() == "":
         return True
     try:
@@ -657,7 +661,7 @@ def _final_all_data_grid_correct_enabled() -> bool:
     ``RECOVAR_FINAL_ALL_DATA_GRID_CORRECT=1``.
     """
 
-    value = os.environ.get(_FINAL_ALL_DATA_GRID_CORRECT_ENV)
+    value = _runtime_environment().get(_FINAL_ALL_DATA_GRID_CORRECT_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -672,7 +676,7 @@ def _final_all_data_grid_correct_enabled() -> bool:
 def _final_all_data_after_max_iter_enabled() -> bool:
     """Return whether diagnostics force final all-data after iteration-cap exit."""
 
-    value = os.environ.get(_FINAL_ALL_DATA_AFTER_MAX_ITER_ENV)
+    value = _runtime_environment().get(_FINAL_ALL_DATA_AFTER_MAX_ITER_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -800,7 +804,7 @@ def _should_run_final_all_data_iteration(
 def _k_class_relion_half_volume_mstep_enabled() -> bool:
     """Return whether K-class should use the old native half-volume M-step."""
 
-    half_value = os.environ.get(_K_CLASS_HALF_VOLUME_MSTEP_ENV)
+    half_value = _runtime_environment().get(_K_CLASS_HALF_VOLUME_MSTEP_ENV)
     if half_value is not None and half_value.strip() != "":
         normalized = half_value.strip().lower()
         if normalized in _TRUE_ENV_VALUES:
@@ -812,7 +816,7 @@ def _k_class_relion_half_volume_mstep_enabled() -> bool:
                 half_value,
             )
 
-    full_value = os.environ.get(_K_CLASS_FULL_VOLUME_MSTEP_ENV)
+    full_value = _runtime_environment().get(_K_CLASS_FULL_VOLUME_MSTEP_ENV)
     if full_value is not None and full_value.strip() != "":
         normalized = full_value.strip().lower()
         if normalized in _FALSE_ENV_VALUES:
@@ -831,7 +835,7 @@ def _k_class_relion_half_volume_mstep_enabled() -> bool:
 def _k_class_relion_x_half_mstep_enabled() -> bool:
     """Return whether K-class should use RELION x-half BPref M-step accumulators."""
 
-    value = os.environ.get(_K_CLASS_RELION_X_HALF_MSTEP_ENV)
+    value = _runtime_environment().get(_K_CLASS_RELION_X_HALF_MSTEP_ENV)
     if value is not None and value.strip() != "":
         normalized = value.strip().lower()
         if normalized in _TRUE_ENV_VALUES:
@@ -848,7 +852,7 @@ def _k_class_relion_x_half_mstep_enabled() -> bool:
     # reproduce the old full-volume path; ``FULL=0`` or ``HALF=1`` mean use the
     # native half-volume path.  With neither set, default to the RELION x-half
     # BPref layout used by the K=1 parity path.
-    full_value = os.environ.get(_K_CLASS_FULL_VOLUME_MSTEP_ENV)
+    full_value = _runtime_environment().get(_K_CLASS_FULL_VOLUME_MSTEP_ENV)
     if full_value is not None and full_value.strip() != "":
         normalized = full_value.strip().lower()
         if normalized in _TRUE_ENV_VALUES or normalized in _FALSE_ENV_VALUES:
@@ -859,7 +863,7 @@ def _k_class_relion_x_half_mstep_enabled() -> bool:
             full_value,
         )
 
-    half_value = os.environ.get(_K_CLASS_HALF_VOLUME_MSTEP_ENV)
+    half_value = _runtime_environment().get(_K_CLASS_HALF_VOLUME_MSTEP_ENV)
     if half_value is not None and half_value.strip() != "":
         normalized = half_value.strip().lower()
         if normalized in _TRUE_ENV_VALUES:
@@ -877,10 +881,10 @@ def _k_class_relion_x_half_mstep_enabled() -> bool:
 def _jax_cpu_forced_from_env() -> bool:
     """Return whether JAX has been forced to CPU by environment."""
 
-    platform_name = os.environ.get("JAX_PLATFORM_NAME", "").strip().lower()
+    platform_name = _runtime_environment().get("JAX_PLATFORM_NAME", "").strip().lower()
     if platform_name == "cpu":
         return True
-    platforms = os.environ.get("JAX_PLATFORMS", "").strip().lower()
+    platforms = _runtime_environment().get("JAX_PLATFORMS", "").strip().lower()
     if not platforms:
         return False
     requested = [token.strip() for token in platforms.split(",") if token.strip()]
@@ -904,7 +908,7 @@ def _k1_relion_x_half_mstep_default_available() -> bool:
 def _k1_relion_x_half_mstep_enabled() -> bool:
     """Default-on K=1 RELION x-half BPref accumulation."""
 
-    value = os.environ.get(_K1_RELION_X_HALF_MSTEP_ENV)
+    value = _runtime_environment().get(_K1_RELION_X_HALF_MSTEP_ENV)
     if value is None or value.strip() == "":
         return _k1_relion_x_half_mstep_default_available()
     normalized = value.strip().lower()
@@ -923,7 +927,7 @@ def _k1_relion_x_half_mstep_enabled() -> bool:
 def _kclass_replay_tau2_enabled() -> bool:
     """Diagnostic switch: use RELION replayed Class3D tau2 spectra directly."""
 
-    value = os.environ.get(_KCLASS_REPLAY_TAU2_ENV)
+    value = _runtime_environment().get(_KCLASS_REPLAY_TAU2_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -943,7 +947,7 @@ def _kclass_replay_tau2_same_iter_enabled() -> bool:
     existing diagnostic scripts that also set the flag continue to work.
     """
 
-    value = os.environ.get(_KCLASS_REPLAY_TAU2_SAME_ITER_ENV)
+    value = _runtime_environment().get(_KCLASS_REPLAY_TAU2_SAME_ITER_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -1424,9 +1428,9 @@ def _direction_prior_healpix_order_for_scoring(
 def _local_adaptive_pass2_full_parent_enabled() -> bool:
     """Return whether K=1 adaptive local pass-2 expands all parent samples."""
 
-    if os.environ.get(_LOCAL_ADAPTIVE_PASS2_DISABLE_FULL_PARENT_ENV, "").strip().lower() in _TRUE_ENV_VALUES:
+    if _runtime_environment().get(_LOCAL_ADAPTIVE_PASS2_DISABLE_FULL_PARENT_ENV, "").strip().lower() in _TRUE_ENV_VALUES:
         return False
-    value = os.environ.get(_LOCAL_ADAPTIVE_PASS2_FULL_PARENT_ENV)
+    value = _runtime_environment().get(_LOCAL_ADAPTIVE_PASS2_FULL_PARENT_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -1445,7 +1449,7 @@ def _local_adaptive_pass2_full_parent_enabled() -> bool:
 def _local_adaptive_pass2_rotation_only_enabled() -> bool:
     """Diagnostic: expand significant parent rotations to all parent translations."""
 
-    value = os.environ.get(_LOCAL_ADAPTIVE_PASS2_ROTATION_ONLY_ENV)
+    value = _runtime_environment().get(_LOCAL_ADAPTIVE_PASS2_ROTATION_ONLY_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -1460,7 +1464,7 @@ def _local_adaptive_pass2_rotation_only_enabled() -> bool:
 def _local_adaptive_pass2_denominator_support_mode() -> str | None:
     """Diagnostic mode for broad-denominator local adaptive pass 2."""
 
-    value = os.environ.get(_LOCAL_ADAPTIVE_PASS2_DENOMINATOR_SUPPORT_ENV)
+    value = _runtime_environment().get(_LOCAL_ADAPTIVE_PASS2_DENOMINATOR_SUPPORT_ENV)
     if value is None or value.strip() == "":
         return None
     normalized = value.strip().lower().replace("-", "_")
@@ -1508,7 +1512,7 @@ def _expand_significant_samples_to_full_parent_translations(
 def _k1_skip_significance_pruning_enabled() -> bool:
     """Diagnostic switch: evaluate the full K=1 adaptive fine grid."""
 
-    value = os.environ.get(_K1_SKIP_SIGNIFICANCE_PRUNING_ENV)
+    value = _runtime_environment().get(_K1_SKIP_SIGNIFICANCE_PRUNING_ENV)
     if value is None or value.strip() == "":
         return False
     normalized = value.strip().lower()
@@ -1548,8 +1552,6 @@ PROJECTION_PADDING_FACTOR = 2
 # Dense ``run_em`` kwargs that are identical for every E-step in RELION mode.
 # Per-iter and per-half values are layered on top at each call site via
 # ``{**_DENSE_EM_STATIC_KWARGS, ...}``.
-import os as _os_for_f64
-
 _DENSE_EM_STATIC_KWARGS: dict = {
     "score_with_masked_images": True,
     "half_spectrum_scoring": True,
@@ -1563,18 +1565,18 @@ _DENSE_EM_STATIC_KWARGS: dict = {
     # ``current_size``. Flipping these to True for the dense K-class path
     # should remove that precision floor at ~2× wall cost.
     "use_float64_scoring": bool(
-        _os_for_f64.environ.get("RECOVAR_USE_FLOAT64_SCORING", "0").strip().lower()
+        _runtime_environment().get("RECOVAR_USE_FLOAT64_SCORING", "0").strip().lower()
         in {"1", "true", "yes", "on"}
     ),
     "use_float64_projections": bool(
-        _os_for_f64.environ.get("RECOVAR_USE_FLOAT64_PROJECTIONS", "0").strip().lower()
+        _runtime_environment().get("RECOVAR_USE_FLOAT64_PROJECTIONS", "0").strip().lower()
         in {"1", "true", "yes", "on"}
     ),
     # Default to RELION's float32 fine-search diff2/minimum ordering. This
     # diagnostic bypass retains the historical algebraic sparse scorer for
     # controlled full-trajectory A/B comparisons.
     "relion_exact_fine_gaussian": not bool(
-        _os_for_f64.environ.get(
+        _runtime_environment().get(
             "RECOVAR_DISABLE_RELION_EXACT_FINE_GAUSSIAN",
             "0",
         ).strip().lower()
@@ -1594,7 +1596,7 @@ _DENSE_EM_STATIC_KWARGS: dict = {
 # ``use_float64_scoring``/``use_float64_projections``, since CUDA textures
 # cannot hold complex128).
 RELION_ACC_DOUBLE_FLOORF_QUIRK = bool(
-    _os_for_f64.environ.get("RECOVAR_RELION_ACC_DOUBLE_FLOORF_QUIRK", "0").strip().lower()
+    _runtime_environment().get("RECOVAR_RELION_ACC_DOUBLE_FLOORF_QUIRK", "0").strip().lower()
     in {"1", "true", "yes", "on"}
 )
 
@@ -1602,7 +1604,7 @@ RELION_ACC_DOUBLE_FLOORF_QUIRK = bool(
 def _diagnostic_float64_pass2_matches(debug_iteration: int | None) -> bool:
     """Select genuine-f64 pass 2 without perturbing an earlier f32 boundary."""
 
-    raw = _os_for_f64.environ.get("RECOVAR_DIAGNOSTIC_FLOAT64_PASS2_ITERATIONS", "")
+    raw = _runtime_environment().get("RECOVAR_DIAGNOSTIC_FLOAT64_PASS2_ITERATIONS", "")
     if debug_iteration is None or not raw.strip():
         return False
     try:
@@ -2240,7 +2242,7 @@ def _score_kclass_firstiter_cc_pass2(
     firstiter_significance_image_batch_size = None
     firstiter_significance_rotation_block_size = None
     firstiter_sparse_pass2 = not bool(
-        _os_for_f64.environ.get("RECOVAR_K_CLASS_DENSE_PASS2", "0").strip().lower()
+        _runtime_environment().get("RECOVAR_K_CLASS_DENSE_PASS2", "0").strip().lower()
         in {"1", "true", "yes", "on"}
     )
     if safe_batch_sizes is not None:
@@ -2391,7 +2393,7 @@ def _relion_projector_half_maps_for_scoring(
                 f"got {refs_real_override.shape}, expected {expected_shape}",
             )
     resolved_current_size = int(current_size) if current_size is not None else int(volume_shape[0])
-    cache_dir = os.environ.get("RECOVAR_RELION_PROJECTOR_CACHE_DIR", "").strip()
+    cache_dir = _runtime_environment().get("RECOVAR_RELION_PROJECTOR_CACHE_DIR", "").strip()
     cache_path = None
     if cache_dir:
         refs_for_hash = np.ascontiguousarray(
@@ -2458,7 +2460,7 @@ def _relion_projector_half_maps_for_scoring(
             logger.info("RELION mode: saved Projector::data cache to %s", cache_path)
         except Exception as exc:
             logger.warning("Could not write RELION projector cache %s: %s", cache_path, exc)
-    dump_dir = os.environ.get("RECOVAR_RELION_PROJECTOR_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_RELION_PROJECTOR_DUMP_DIR")
     if dump_dir:
         label = dump_label or "projector"
         safe_label = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(label))
@@ -2776,7 +2778,7 @@ def _score_half_dense(
             # Diagnostic: tests whether the sparse-bucket reduction order
             # carries a structural bias vs the dense in-place reduction.
             kclass_sparse_pass2 = not bool(
-                _os_for_f64.environ.get("RECOVAR_K_CLASS_DENSE_PASS2", "0").strip().lower()
+                _runtime_environment().get("RECOVAR_K_CLASS_DENSE_PASS2", "0").strip().lower()
                 in {"1", "true", "yes", "on"}
             )
             adaptive_em_kwargs["sparse_pass2"] = kclass_sparse_pass2
@@ -2967,7 +2969,7 @@ def _score_half_dense(
             fine_rotations_for_pose = fine_rot
             adaptive_em_kwargs = dict(em_kwargs)
             k1_sparse_pass2 = not bool(
-                _os_for_f64.environ.get("RECOVAR_K1_DENSE_PASS2", "0").strip().lower()
+                _runtime_environment().get("RECOVAR_K1_DENSE_PASS2", "0").strip().lower()
                 in {"1", "true", "yes", "on"}
             )
             k1_skip_significance_pruning = _k1_skip_significance_pruning_enabled()
@@ -3665,13 +3667,14 @@ def _score_half_local(
         )
         local_debug_env_names = [
             name
-            for name in os.environ
+            for name in _runtime_environment()
             if name.startswith("RECOVAR_LOCAL_SCORE_DUMP_")
             or name.startswith("RECOVAR_LOCAL_FUSED_POSTERIOR_DUMP_")
             or name.startswith("RECOVAR_LOCAL_NOISE_COMPONENT_DUMP_")
         ]
-        saved_local_debug_env = {name: os.environ.pop(name) for name in local_debug_env_names}
-        try:
+        with diagnostic_environment_overrides(
+            **{name: None for name in local_debug_env_names},
+        ):
             denominator_outputs = run_local_search_iteration(
                 LocalSearchIterationRequest(
                     inputs=LocalSearchIterationInputs(
@@ -3745,8 +3748,6 @@ def _score_half_local(
                 ),
                 legacy_runner=_run_local_search_iteration,
             )
-        finally:
-            os.environ.update(saved_local_debug_env)
         denominator_stats = denominator_outputs[3]
         local_normalization_log_evidence = np.asarray(
             denominator_stats.log_evidence_per_image,
@@ -5703,7 +5704,7 @@ def _run_relion_iteration_loop(
                     incr_size=relion_incr_size,
                 )
                 computed_cs = quantize_current_size(raw_cs, ori_size=grid_size)
-                _kclass_dump_dir = os.environ.get("RECOVAR_KCLASS_DUMP_DIR")
+                _kclass_dump_dir = _runtime_environment().get("RECOVAR_KCLASS_DUMP_DIR")
                 if _kclass_dump_dir:
                     import pathlib
 
@@ -7243,16 +7244,16 @@ def _run_relion_iteration_loop(
             else:
                 Ft_y_1, Ft_ctf_1 = Ft_y_k, Ft_ctf_k
 
-            _device_signature_target_iteration = os.environ.get(
+            _device_signature_target_iteration = _runtime_environment().get(
                 "RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION"
             )
-            _device_signature_target_half = os.environ.get(
+            _device_signature_target_half = _runtime_environment().get(
                 "RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF"
             )
             if _device_signature_target_half and int(_device_signature_target_half) not in {1, 2}:
                 raise ValueError("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF must be 1 or 2")
             if (
-                os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR")
+                _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR")
                 and (
                     not _device_signature_target_iteration
                     or int(_device_signature_target_iteration) == iteration + 1
@@ -7372,8 +7373,8 @@ def _run_relion_iteration_loop(
             default_axis=-1,
         )
 
-        _bpref_prejoin_dir = os.environ.get("RECOVAR_BPREF_PREJOIN_DUMP_DIR")
-        _bpref_boundary_target_iteration = os.environ.get("RECOVAR_BPREF_BOUNDARY_DUMP_ITERATION")
+        _bpref_prejoin_dir = _runtime_environment().get("RECOVAR_BPREF_PREJOIN_DUMP_DIR")
+        _bpref_boundary_target_iteration = _runtime_environment().get("RECOVAR_BPREF_BOUNDARY_DUMP_ITERATION")
         _bpref_boundary_iteration_matches = (
             not _bpref_boundary_target_iteration
             or iteration + 1 == int(_bpref_boundary_target_iteration)
@@ -7386,7 +7387,7 @@ def _run_relion_iteration_loop(
                 pathlib.Path(_bpref_prejoin_dir)
                 / f"recovar_bpref_prejoin_it{iteration + 1:03d}.npz",
                 schema=np.asarray("recovar-bpref-prejoin-v2"),
-                run_id=np.asarray(os.environ.get("RECOVAR_BPREF_BOUNDARY_DUMP_RUN_ID", "unset")),
+                run_id=np.asarray(_runtime_environment().get("RECOVAR_BPREF_BOUNDARY_DUMP_RUN_ID", "unset")),
                 iteration=np.int32(iteration + 1),
                 current_size=np.int32(cs),
                 padding_factor=np.int32(PADDING_FACTOR),
@@ -7634,12 +7635,12 @@ def _run_relion_iteration_loop(
                         "ssnr_shells": np.asarray(data_vs_prior_k, dtype=np.float64),
                     }
                 )
-                _kclass_dump_dir = os.environ.get("RECOVAR_KCLASS_DUMP_DIR")
+                _kclass_dump_dir = _runtime_environment().get("RECOVAR_KCLASS_DUMP_DIR")
                 if _kclass_dump_dir:
                     import pathlib
 
                     pathlib.Path(_kclass_dump_dir).mkdir(parents=True, exist_ok=True)
-                    _preserve_kclass_dump_dtype = os.environ.get(
+                    _preserve_kclass_dump_dtype = _runtime_environment().get(
                         "RECOVAR_KCLASS_DUMP_PRESERVE_DTYPE", ""
                     ).strip().lower() not in {"", "0", "false", "no", "off"}
                     np.savez(
@@ -7750,7 +7751,7 @@ def _run_relion_iteration_loop(
             # Optional dump of post-join Ft_y, Ft_ctf for shell-by-shell parity
             # comparison against RELION's RECOVAR_MSTEP_DUMP_DIR. Activated by
             # RECOVAR_BPREF_ACCUM_DUMP_DIR. One npz per iteration.
-            _bpref_accum_dir = os.environ.get("RECOVAR_BPREF_ACCUM_DUMP_DIR")
+            _bpref_accum_dir = _runtime_environment().get("RECOVAR_BPREF_ACCUM_DUMP_DIR")
             if _bpref_accum_dir and _bpref_boundary_iteration_matches:
                 import pathlib
 
@@ -7758,7 +7759,7 @@ def _run_relion_iteration_loop(
                 np.savez(
                     pathlib.Path(_bpref_accum_dir) / f"recovar_bpref_accum_it{iteration + 1:03d}.npz",
                     schema=np.asarray("recovar-bpref-accum-v2"),
-                    run_id=np.asarray(os.environ.get("RECOVAR_BPREF_BOUNDARY_DUMP_RUN_ID", "unset")),
+                    run_id=np.asarray(_runtime_environment().get("RECOVAR_BPREF_BOUNDARY_DUMP_RUN_ID", "unset")),
                     iteration=np.int32(iteration + 1),
                     current_size=np.int32(cs),
                     padding_factor=np.int32(PADDING_FACTOR),
@@ -8263,7 +8264,7 @@ def _run_relion_iteration_loop(
                 int(pixel_res),
                 int(dvp_res_shell),
             )
-        _tau2_debug_dump_dir = os.environ.get("RECOVAR_RELION_TAU2_DEBUG_DUMP_DIR")
+        _tau2_debug_dump_dir = _runtime_environment().get("RECOVAR_RELION_TAU2_DEBUG_DUMP_DIR")
         if _tau2_debug_dump_dir:
             import pathlib
 
@@ -8921,7 +8922,7 @@ def _run_relion_iteration_loop(
         mean_signal_variance_per_half = tau2_update_details_per_half = None
         noise_stats_per_half = noise_stats_per_half_per_class = None
         gc.collect()
-        if os.environ.get("RECOVAR_RELION_CLEAR_JAX_CACHES_BETWEEN_ITERS", "").strip().lower() in {
+        if _runtime_environment().get("RECOVAR_RELION_CLEAR_JAX_CACHES_BETWEEN_ITERS", "").strip().lower() in {
             "1",
             "true",
             "yes",
@@ -9021,7 +9022,7 @@ def _run_relion_iteration_loop(
     final_join_means = [means[0], means[1]]
     if (
         not k_class_enabled
-        and os.environ.get(_FINAL_ALL_DATA_USE_MERGED_REFERENCE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
+        and _runtime_environment().get(_FINAL_ALL_DATA_USE_MERGED_REFERENCE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
     ):
         final_merged_reference, _ = _merged_mean_from_halves(means)
         final_join_means = [final_merged_reference, final_merged_reference]
@@ -9030,10 +9031,10 @@ def _run_relion_iteration_loop(
             _FINAL_ALL_DATA_USE_MERGED_REFERENCE_ENV,
         )
     final_replay_forced = (
-        os.environ.get(_FINAL_ALL_DATA_REPLAY_LAST_NUMBERED_STATE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
+        _runtime_environment().get(_FINAL_ALL_DATA_REPLAY_LAST_NUMBERED_STATE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
     )
     final_replay_disabled = (
-        os.environ.get(_FINAL_ALL_DATA_DISABLE_REPLAY_LAST_NUMBERED_STATE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
+        _runtime_environment().get(_FINAL_ALL_DATA_DISABLE_REPLAY_LAST_NUMBERED_STATE_ENV, "").strip().lower() in _TRUE_ENV_VALUES
     )
     final_replay_has_overrides = replay.replay_iteration_overrides is not None and len(replay.replay_iteration_overrides) > 0
     final_replay_has_numbered_overrides = _has_numbered_replay_iteration_overrides(
@@ -10250,7 +10251,7 @@ def _run_relion_iteration_loop(
             _FINAL_ALL_DATA_GRID_CORRECT_ENV,
         )
 
-    _final_bpref_accum_dir = os.environ.get("RECOVAR_FINAL_BPREF_ACCUM_DUMP_DIR")
+    _final_bpref_accum_dir = _runtime_environment().get("RECOVAR_FINAL_BPREF_ACCUM_DUMP_DIR")
     if _final_bpref_accum_dir:
         import pathlib
 
