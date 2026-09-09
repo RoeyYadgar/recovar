@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from functools import partial
 
 import jax
@@ -13,6 +12,7 @@ from recovar import core
 from recovar.cuda_backproject import cuda_available as _cuda_projection_available
 from recovar.cuda_backproject import project_indexed
 from recovar.em.dense_single_volume.helpers.half_spectrum import bin_shell_values_jax
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 
 DEFAULT_PROJECTION_MAX_R = object()
 _RELION_PROJECTOR_TEXTURE_ENV = "RECOVAR_RELION_PROJECTOR_TEXTURE_INTERP"
@@ -214,7 +214,7 @@ def _relion_projector_texture_enabled(
     enabled: bool | None = None,
 ) -> bool:
     if enabled is None:
-        token = os.environ.get(_RELION_PROJECTOR_TEXTURE_ENV, "1").strip().lower()
+        token = _runtime_environment().get(_RELION_PROJECTOR_TEXTURE_ENV, "1").strip().lower()
         if token in {"0", "false", "no", "off"}:
             return False
         if token not in {"1", "true", "yes", "on"}:
@@ -443,7 +443,7 @@ def compute_relion_projector_projections_block(
             relion_acc_double_floorf_quirk,
         )
     if dense_scale:
-        token = (os.environ.get("RECOVAR_DENSE_MEANS_SCALE") or "-N2").strip()
+        token = (_runtime_environment().get("RECOVAR_DENSE_MEANS_SCALE") or "-N2").strip()
         n = int(image_shape[0])
         scale = {"-N2": -(n**2), "N2": float(n**2)}.get(token)
         if scale is None:

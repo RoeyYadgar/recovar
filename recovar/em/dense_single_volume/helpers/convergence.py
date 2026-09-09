@@ -19,11 +19,12 @@ G (angular sampling), H (speed tricks).
 """
 
 import logging
-import os
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
 import numpy as np
+
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 
 logger = logging.getLogger(__name__)
 
@@ -858,11 +859,11 @@ def update_angular_sampling(state: RefinementState) -> RefinementState:
 
 
 def _env_flag_enabled(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in _TRUE_ENV_VALUES
+    return _runtime_environment().get(name, "").strip().lower() in _TRUE_ENV_VALUES
 
 
 def _env_float(name: str, default: float) -> float:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None or value.strip() == "":
         return default
     try:
@@ -873,7 +874,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_int(name: str, default: int) -> int:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None or value.strip() == "":
         return default
     try:
@@ -884,7 +885,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
+    value = _runtime_environment().get(name)
     if value is None or value.strip() == "":
         return default
     normalized = value.strip().lower()
