@@ -10,7 +10,7 @@ Last updated: 2026-09-09
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
-| C2 Policy/environment boundary | IN PROGRESS | First-iteration batching, raw-image caching, and dense batch planning now use immutable resolved settings with environment-compatible adapters. `batch_planning.py` has no direct environment reads. Continue one policy family at a time. |
+| C2 Policy/environment boundary | IN PROGRESS | First-iteration batching, global raw-image caching, dense batch planning, and exact-local cache ceilings now use immutable resolved settings with environment-compatible adapters. `batch_planning.py` and `local_caches.py` have no direct environment reads. Continue one policy family at a time. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
@@ -111,6 +111,9 @@ GPU identity and paired timing context.
 | 2026-09-09 | Dense batch-planning settings | `test_dense_runtime_options.py` and `test_refine_relion_mode.py -k relion_em_batch_sizing` | 17/17 and 12/12 passed, respectively; the explicit settings path bypasses an invalid environment value and the compatibility path retains its errors. |
 | 2026-09-09 | Dense planner host timing | Seven 10,000-call samples at pre-C2 `14bbf00f` and current `bfb62693` | Best time per call was `86.3 us` before C2, `87.4 us` through the compatibility parser, and `82.8 us` with a pre-resolved settings object. The observed compatibility cost is `1.1 us/call`; the parse-once route is faster than control. |
 | 2026-09-09 | Cumulative C2 CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `50.05 s` after the raw-cache and dense-planner settings slices. |
+| 2026-09-09 | Exact-local cache settings | `test_dense_runtime_options.py` and selected exact-local cache cases in `test_refine_relion_mode.py` | 24/24 and 5/5 passed, respectively; defaults, overrides, invalid values, lazy field parsing, and explicit environment bypass retain existing behavior. |
+| 2026-09-09 | Exact-local cache host timing | Seven 200,000-call samples of the per-bucket sparse M-step memory helper | Best times were `0.48 us/call` for the former inline lookup, `0.82 us/call` through the compatibility adapter, and `0.32 us/call` with resolved settings. The transitional `0.34 us/bucket` cost is immaterial; the target parse-once path is faster. |
+| 2026-09-09 | Exact-local cache CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.60 s`. |
 
 ## Decision log
 
@@ -626,6 +629,48 @@ Decision: accepted. `batch_planning.py` now contains no direct environment
 read. The next C2 slice should resolve another host policy family without
 widening a numerical or JIT boundary.
 
+### 2026-09-09 — exact-local cache settings boundary
+
+Hypothesis: the raw-image cache, processed-half cache, and sparse big-JIT
+M-step memory ceilings can move behind one immutable `LocalCacheSettings`
+object without changing their estimates, defaults, eligibility comparisons,
+or lazy compatibility behavior.
+
+Files changed: `runtime_options.py`, `local_caches.py`, and
+`tests/unit/test_dense_runtime_options.py`.
+
+The three historical constants and their environment names now live with the
+other runtime compatibility settings and remain re-exported from
+`local_caches.py`. Each cache helper accepts an optional resolved settings
+object. Its compatibility path still parses only the field used by that
+helper, so an invalid unrelated cache variable remains dormant exactly as
+before. No array operation, dtype, cache-size estimate, comparison, engine
+route, or JIT signature changed. `local_caches.py` now contains no direct
+environment read.
+
+Focused results: `test_dense_runtime_options.py` passed 24/24, and the five
+existing exact-local raw/processed cache cases in `test_refine_relion_mode.py`
+passed with 369 unrelated cases deselected. The explicit path was exercised
+while all three compatibility variables contained invalid values; the lazy
+compatibility test also proves the raw-cache helper ignores invalid sibling
+fields. Ruff formatting and lint passed on all three changed files. The CPU
+EM fast guard passed 16/16 in `49.60 s`. No tolerance or baseline changed.
+
+A same-host microbenchmark used seven samples of 200,000 calls to the sparse
+big-JIT M-step memory helper. The former inline environment lookup took
+`0.48 us/call`; the compatibility adapter took `0.82 us/call`; and an injected
+settings object took `0.32 us/call`. The transitional adapter therefore adds
+`0.34 us` per local bucket, which is immaterial beside bucket execution, while
+the intended parse-once route is `0.16 us/call` faster than the old lookup.
+This helper performs no device work.
+
+Commit: `f3935d9b` — `em: centralize exact-local cache settings`.
+
+Decision: accepted. The next C2 step should compose the established leaf
+settings into a host-level `ExecutionSettings` snapshot and inject it at one
+top-level call boundary, while retaining the compatibility loaders for direct
+legacy callers.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -654,9 +699,11 @@ Open risks:
 1. Treat C1 as structurally complete at the typed host boundaries; retain the
    legacy engines as the sole numerical implementations until a separately
    justified algorithm-preserving decomposition.
-2. Classify and centralize the next cohesive C2 execution-policy family;
-   retain environment variables only as compatibility inputs.
-3. Introduce a parse-once host boundary incrementally without widening the
-   numerical/JIT signatures or mixing controller decomposition into C2.
+2. Compose the established C2 leaf types into the host-level
+   `ExecutionSettings` snapshot without absorbing algorithm or diagnostic
+   policy.
+3. Inject that snapshot at one top-level boundary without widening numerical
+   or JIT signatures; retain leaf compatibility loaders for direct legacy
+   callers.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
    jobs `60511038` and `60517729` separately from structural equivalence.
