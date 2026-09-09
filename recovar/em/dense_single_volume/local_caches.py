@@ -8,7 +8,6 @@ only resorts cached arrays. Extracted from ``local_em_engine.py``.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,16 +16,19 @@ from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_bat
 from recovar.em.dense_single_volume.helpers.image_shifts import apply_relion_integer_pre_shifts
 from recovar.em.dense_single_volume.helpers.preprocessing import process_half_image
 
-# Mirror local_em_engine's environment-tunable caps. Re-exporting the
-# constants from local_em_engine keeps test imports stable.
-EXACT_LOCAL_RAW_CACHE_MAX_GB = 16.0
-EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_RAW_CACHE_MAX_GB"
-
-EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB = 0.0
-EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB"
-
-EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB = 12.0
-EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB"
+# The constants remain re-exported here for local_em_engine and test compatibility.
+from recovar.em.dense_single_volume.runtime_options import (  # noqa: F401
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+    LocalCacheSettings,
+    load_local_processed_half_cache_max_gb,
+    load_local_raw_cache_max_gb,
+    load_local_sparse_big_jit_mstep_max_gb,
+)
 
 
 @dataclass(frozen=True)
@@ -37,23 +39,31 @@ class _LocalProcessedHalfCache:
     integer_pre_shifts_applied: bool
 
 
-def _local_raw_cache_enabled(n_images: int, image_shape, dtype) -> bool:
+def _local_raw_cache_enabled(
+    n_images: int,
+    image_shape,
+    dtype,
+    *,
+    settings: LocalCacheSettings | None = None,
+) -> bool:
     bytes_per_pixel = np.dtype(dtype).itemsize if dtype is not None else np.dtype(np.float32).itemsize
     estimated_gb = int(n_images) * int(np.prod(image_shape)) * bytes_per_pixel / 1e9
-    max_gb = float(os.environ.get(EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV, EXACT_LOCAL_RAW_CACHE_MAX_GB))
+    max_gb = load_local_raw_cache_max_gb() if settings is None else float(settings.raw_image_max_gb)
     return estimated_gb <= max_gb
 
 
-def _local_processed_half_cache_enabled(n_images: int, n_half: int, dtype, *, store_recon_half: bool) -> bool:
+def _local_processed_half_cache_enabled(
+    n_images: int,
+    n_half: int,
+    dtype,
+    *,
+    store_recon_half: bool,
+    settings: LocalCacheSettings | None = None,
+) -> bool:
     bytes_per_value = np.dtype(dtype).itemsize
     n_arrays = 2 if store_recon_half else 1
     estimated_gb = int(n_images) * int(n_half) * bytes_per_value * n_arrays / 1e9
-    max_gb = float(
-        os.environ.get(
-            EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
-            EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
-        )
-    )
+    max_gb = load_local_processed_half_cache_max_gb() if settings is None else float(settings.processed_half_max_gb)
     return estimated_gb <= max_gb
 
 
@@ -63,12 +73,14 @@ def _sparse_big_jit_mstep_tensors_within_memory(
     rotation_count: int,
     n_recon_windowed: int,
     use_float64_scoring: bool,
+    settings: LocalCacheSettings | None = None,
 ) -> bool:
     estimated_gb, max_gb = _sparse_big_jit_mstep_tensors_memory_gb(
         image_count=image_count,
         rotation_count=rotation_count,
         n_recon_windowed=n_recon_windowed,
         use_float64_scoring=use_float64_scoring,
+        settings=settings,
     )
     return max_gb > 0.0 and estimated_gb <= max_gb
 
@@ -79,16 +91,14 @@ def _sparse_big_jit_mstep_tensors_memory_gb(
     rotation_count: int,
     n_recon_windowed: int,
     use_float64_scoring: bool,
+    settings: LocalCacheSettings | None = None,
 ) -> tuple[float, float]:
     summed_bytes = 16 if use_float64_scoring else 8
     ctf_bytes = 8 if use_float64_scoring else 4
     # Keep margin for XLA output buffers and the following packed tensors.
     estimated_gb = int(image_count) * int(rotation_count) * int(n_recon_windowed) * (summed_bytes + ctf_bytes) / 1e9
-    max_gb = float(
-        os.environ.get(
-            EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
-            EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
-        )
+    max_gb = (
+        load_local_sparse_big_jit_mstep_max_gb() if settings is None else float(settings.sparse_big_jit_mstep_max_gb)
     )
     return estimated_gb, max_gb
 

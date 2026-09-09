@@ -8,18 +8,31 @@ from recovar.em.dense_single_volume.batch_planning import (
     _maybe_cache_raw_image_loaders,
 )
 from recovar.em.dense_single_volume.firstiter_cc import _safe_firstiter_cc_image_batch_size
+from recovar.em.dense_single_volume.local_caches import (
+    _local_processed_half_cache_enabled,
+    _local_raw_cache_enabled,
+    _sparse_big_jit_mstep_tensors_memory_gb,
+)
 from recovar.em.dense_single_volume.runtime_options import (
     EM_RAW_IMAGE_CACHE_ENV,
     EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
     RELION_EM_BATCH_PROJECTION_FRACTION,
     RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
     DenseBatchPlanningSettings,
     FirstIterationBatchSettings,
+    LocalCacheSettings,
     RawImageCacheSettings,
     load_dense_batch_planning_settings,
     load_first_iteration_batch_settings,
+    load_local_cache_settings,
     load_raw_image_cache_settings,
 )
 
@@ -142,3 +155,82 @@ def test_dense_batch_planner_accepts_resolved_settings_without_reading_environme
 
     assert plan.rotation_block_size == 4339
     assert plan.projection_budget_gb == 10.0
+
+
+@pytest.mark.unit
+def test_local_cache_settings_use_existing_defaults():
+    assert load_local_cache_settings({}) == LocalCacheSettings(
+        raw_image_max_gb=EXACT_LOCAL_RAW_CACHE_MAX_GB,
+        processed_half_max_gb=EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
+        sparse_big_jit_mstep_max_gb=EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
+    )
+
+
+@pytest.mark.unit
+def test_local_cache_settings_parse_compatibility_environment():
+    settings = load_local_cache_settings(
+        {
+            EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV: "20.0",
+            EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV: "3.5",
+            EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV: "8.25",
+        }
+    )
+
+    assert settings == LocalCacheSettings(
+        raw_image_max_gb=20.0,
+        processed_half_max_gb=3.5,
+        sparse_big_jit_mstep_max_gb=8.25,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
+        EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
+        EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+    ],
+)
+def test_local_cache_settings_preserve_invalid_float_errors(env_name):
+    with pytest.raises(ValueError):
+        load_local_cache_settings({env_name: "invalid"})
+
+
+@pytest.mark.unit
+def test_local_cache_helpers_accept_resolved_settings_without_reading_environment(monkeypatch):
+    monkeypatch.setenv(EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV, "invalid")
+    monkeypatch.setenv(EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV, "invalid")
+    monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "invalid")
+    settings = LocalCacheSettings(
+        raw_image_max_gb=20.0,
+        processed_half_max_gb=1.0,
+        sparse_big_jit_mstep_max_gb=7.5,
+    )
+
+    assert _local_raw_cache_enabled(50_000, (256, 256), np.float32, settings=settings)
+    assert _local_processed_half_cache_enabled(
+        50_000,
+        100,
+        np.complex64,
+        store_recon_half=False,
+        settings=settings,
+    )
+    estimated_gb, max_gb = _sparse_big_jit_mstep_tensors_memory_gb(
+        image_count=10,
+        rotation_count=20,
+        n_recon_windowed=30,
+        use_float64_scoring=False,
+        settings=settings,
+    )
+    assert estimated_gb == 72_000 / 1e9
+    assert max_gb == 7.5
+
+
+@pytest.mark.unit
+def test_local_cache_compatibility_helpers_preserve_lazy_field_parsing(monkeypatch):
+    monkeypatch.setenv(EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV, "20.0")
+    monkeypatch.setenv(EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV, "invalid")
+    monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "invalid")
+
+    assert _local_raw_cache_enabled(50_000, (256, 256), np.float32)

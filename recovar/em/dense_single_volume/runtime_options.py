@@ -15,6 +15,12 @@ EM_RAW_IMAGE_CACHE_MAX_GB_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE_MAX_GB"
 EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB = 16.0
 RELION_EM_BATCH_PROJECTION_FRACTION = 0.20
 RELION_EM_BATCH_PROJECTION_FRACTION_ENV = "RECOVAR_RELION_EM_BATCH_PROJECTION_FRACTION"
+EXACT_LOCAL_RAW_CACHE_MAX_GB = 16.0
+EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_RAW_CACHE_MAX_GB"
+EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB = 0.0
+EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB"
+EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB = 12.0
+EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB"
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,15 @@ class DenseBatchPlanningSettings:
     def __post_init__(self) -> None:
         if not math.isfinite(float(self.projection_fraction)) or float(self.projection_fraction) <= 0:
             raise ValueError("projection_fraction must be a positive finite float")
+
+
+@dataclass(frozen=True)
+class LocalCacheSettings:
+    """Resolved host-memory ceilings for exact-local execution caches."""
+
+    raw_image_max_gb: float = EXACT_LOCAL_RAW_CACHE_MAX_GB
+    processed_half_max_gb: float = EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB
+    sparse_big_jit_mstep_max_gb: float = EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB
 
 
 def load_first_iteration_batch_settings(
@@ -108,3 +123,44 @@ def load_dense_batch_planning_settings(
     if not math.isfinite(value) or value <= 0:
         raise ValueError(f"{RELION_EM_BATCH_PROJECTION_FRACTION_ENV} must be a positive finite float, got {raw!r}")
     return DenseBatchPlanningSettings(projection_fraction=value)
+
+
+def load_local_raw_cache_max_gb(environ: Mapping[str, str] | None = None) -> float:
+    """Resolve only the raw-image cache ceiling for lazy compatibility paths."""
+
+    env = os.environ if environ is None else environ
+    return float(env.get(EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV, EXACT_LOCAL_RAW_CACHE_MAX_GB))
+
+
+def load_local_processed_half_cache_max_gb(environ: Mapping[str, str] | None = None) -> float:
+    """Resolve only the processed-half cache ceiling for lazy compatibility paths."""
+
+    env = os.environ if environ is None else environ
+    return float(
+        env.get(
+            EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
+            EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
+        )
+    )
+
+
+def load_local_sparse_big_jit_mstep_max_gb(environ: Mapping[str, str] | None = None) -> float:
+    """Resolve only the sparse big-JIT M-step ceiling for compatibility paths."""
+
+    env = os.environ if environ is None else environ
+    return float(
+        env.get(
+            EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+            EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
+        )
+    )
+
+
+def load_local_cache_settings(environ: Mapping[str, str] | None = None) -> LocalCacheSettings:
+    """Resolve all exact-local cache ceilings for explicit settings injection."""
+
+    return LocalCacheSettings(
+        raw_image_max_gb=load_local_raw_cache_max_gb(environ),
+        processed_half_max_gb=load_local_processed_half_cache_max_gb(environ),
+        sparse_big_jit_mstep_max_gb=load_local_sparse_big_jit_mstep_max_gb(environ),
+    )
