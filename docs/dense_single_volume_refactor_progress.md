@@ -10,7 +10,7 @@ Last updated: 2026-09-09
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
-| C2 Policy/environment boundary | IN PROGRESS | `ExecutionSettings` now composes the first-iteration, global raw-image cache, dense batch-planning, and exact-local cache leaves. `RefinementOptions` can carry that snapshot, and the top-level raw-cache and global dense-planner consumers use its resolved values. Direct legacy callers retain lazy environment-compatible adapters. Migrate the remaining leaves through cohesive request seams rather than widening engine signatures. |
+| C2 Policy/environment boundary | IN PROGRESS | `ExecutionSettings` composes the first-iteration, global raw-image cache, dense batch-planning, and exact-local cache leaves. `RefinementOptions` carries the snapshot; the top-level raw cache, global dense planner, and all first-iteration clamps consume its resolved values. Direct legacy callers retain lazy environment-compatible adapters. Migrate the exact-local cache leaf through its typed request seam. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
@@ -117,6 +117,9 @@ GPU identity and paired timing context.
 | 2026-09-09 | Local execution-name prerequisite | `pixi run python -m pytest tests/unit/test_local_em_types.py -q` | 22/22 passed. The local request group is now `LocalExecutionSettings`; its former generic name remains an identity alias for compatibility. |
 | 2026-09-09 | Composed execution settings | `test_dense_runtime_options.py`; selected settings-forwarding and batch-sizing cases in `test_refine_relion_mode.py` with FFTW loaded | 25/25 and 14/14 passed, respectively. One explicit snapshot overrides incompatible process values at the refinement boundary and reaches both migrated top-level consumers by identity. An initial two-case run without FFTW failed before planning because the existing binding could not load `libfftw3.so.3`; the FFTW-loaded rerun passed 2/2. |
 | 2026-09-09 | Composed-settings CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `50.18 s`, within `0.58 s` (`1.2%`) of the recent `49.60`--`50.05 s` runs. |
+| 2026-09-09 | First-iteration planner settings | Complete `test_firstiter_cc_batch_budget.py` plus the top-level settings-boundary case in `test_refine_relion_mode.py` | 14/14 passed with two pre-existing SciPy gimbal-lock warnings. Invalid process state was bypassed by the explicit typed budget for both coarse and fine clamps. |
+| 2026-09-09 | Batch-planner façade host timing | Seven 500,000-call samples of a bare stub and the callable façade | Best direct/façade times were `0.262` / `0.535 us/call`, a `0.274 us` dispatch cost (about `0.3%` of the previously measured real planner call). |
+| 2026-09-09 | First-iteration settings CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.72 s`. |
 
 ## Decision log
 
@@ -735,6 +738,59 @@ Decision: accepted. Next, migrate one remaining composed leaf through an
 existing cohesive request/configuration seam; do not add another scalar to a
 large numerical or JIT signature.
 
+### 2026-09-09 — first-iteration settings through the batch planner
+
+Hypothesis: the run-resolved `FirstIterationBatchSettings` leaf can reach all
+six first-iteration image-batch clamps through the callable batch-planning seam
+already passed among host orchestration helpers, without adding an argument to
+any scorer, local-search, numerical-engine, or JIT signature.
+
+Files changed: `iteration_loop.py`, `test_firstiter_cc_batch_budget.py`, and the
+top-level settings-boundary case in `test_refine_relion_mode.py`.
+
+The former nested dense-planning closure is now wrapped by a frozen
+`_RefinementBatchPlanner`. It remains callable with the same arguments and
+return values, while its named `first_iteration_image_batch_size` method owns
+the resolved first-iteration leaf. The same planner object follows every
+existing `safe_batch_sizes` path, including adaptive dense planning, K-class
+coarse/fine planning, local-search host sizing, single-pass sizing, and final
+all-data sizing. Plain callable test/compatibility inputs still fall back to
+the historical lazy environment parser.
+
+No batch formula, default, comparison, selected route, numerical kernel,
+array, dtype, reduction, JIT signature, tolerance, or baseline changed. With
+`RefinementOptions.execution=None`, each first-iteration clamp still resolves
+the compatibility environment lazily as before. With an explicit snapshot,
+all clamps reuse its immutable typed value and ignore later process mutation.
+
+The complete first-iteration budget file plus the top-level boundary case
+passed 14/14 with two pre-existing SciPy gimbal-lock warnings. The added test
+sets the compatibility budget to an invalid value and verifies that both fine
+and coarse K-class plans use the supplied typed budget. Static checks found no
+new lint or whitespace defect; the same two legacy full-file lint findings and
+one pre-existing formatter finding remain outside this diff. The CPU EM fast
+guard passed 16/16 in `49.72 s`.
+
+A seven-sample, 500,000-call host microbenchmark measured the bare planning
+stub at `0.262 us/call` and the callable façade at `0.535 us/call`, adding
+`0.274 us` per dispatch. That is about `0.3%` of the previously measured
+`82.8`--`87.4 us` real dense-planner cost, and the planner runs only a handful
+of times per half/iteration. The façade is absent from particle, pixel,
+candidate, bucket, device, and JIT loops. No new GPU job was submitted; Slurm
+job `60517729` remains the latest same-GPU structural A/B evidence.
+
+Tested dirty-tree provenance: HEAD `8db0c7ff`, tracked diff SHA-256
+`8ba54fe573f2760e4f43efb22fe692b8423dbd239fc22361da0395869a462dc4`,
+and 1,427 pre-existing untracked paths with sorted manifest SHA-256
+`565752e3c6fcb6404f7a6da29289d1fd2b350ae1d88448d6bea850de2bcb1072`.
+
+Commit: `3f6a328b` — `em: route first-iteration settings through planner`.
+
+Decision: accepted. The remaining composed-but-not-top-level-consumed leaf is
+`LocalCacheSettings`; first make it part of the existing typed exact-local
+request/compatibility boundary, then migrate its host caller without adding
+individual cache-limit scalars.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -763,9 +819,9 @@ Open risks:
 1. Treat C1 as structurally complete at the typed host boundaries; retain the
    legacy engines as the sole numerical implementations until a separately
    justified algorithm-preserving decomposition.
-2. Migrate one remaining `ExecutionSettings` leaf through a cohesive existing
-   request/configuration seam, preserving lazy compatibility for direct legacy
-   callers and avoiding any new scalar on a large engine/JIT signature.
+2. Add the remaining `LocalCacheSettings` leaf to the typed exact-local
+   request/compatibility boundary, preserving lazy compatibility for direct
+   legacy callers and avoiding individual cache-limit scalars.
 3. Ratchet direct environment reads toward host boundaries one independently
    testable policy family at a time.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
