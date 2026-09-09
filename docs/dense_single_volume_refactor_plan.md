@@ -42,7 +42,7 @@ The inventory in this document was made from:
   `git status`. These are not refactor inputs and must not be modified.
 
 An existing run of the user-specified full K=1 command is available at
-`/home/ry295/palmer_scratch/tmp/recovar_em_test_regenerated`. Its
+`$HOME/palmer_scratch/tmp/recovar_em_test_regenerated`. Its
 `benchmark_ledger.json` records the same HEAD and provides the initial quality
 reference:
 
@@ -652,8 +652,8 @@ python scripts/run_multi_iter_parity.py \
   --data_star _full_refinement_data_double_seeded/particles.star \
   --iter 0 \
   --max_iter 20 \
-  --output_dir /home/ry295/palmer_scratch/tmp/<unique-output> \
-  --gt_volume /home/ry295/pi_data/igg_1d/init_mask/backproj_0.01.mrc \
+  --output_dir "$HOME/palmer_scratch/tmp/<unique-output>" \
+  --gt_volume "$HOME/pi_data/igg_1d/init_mask/backproj_0.01.mrc" \
   --replay-override-max-iter 0
 ```
 
@@ -722,6 +722,11 @@ without reconstructing several independent changes. Each commit should:
 - be independently testable and safe to revert;
 - avoid mixing module moves, interface migrations, diagnostic cleanup, and
   numerical changes in one diff.
+
+Refactor documentation and progress records must not embed user-specific home
+or workspace prefixes. Use portable placeholders such as `$HOME`,
+`$REPO_ROOT`, or a named run-root variable while retaining enough of the
+relative path to locate and reproduce an artifact.
 
 When a necessary file move would obscure the review, use a move-only commit,
 then a separate commit for imports or interfaces. When a caller migration is

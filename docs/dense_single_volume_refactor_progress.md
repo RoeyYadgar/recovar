@@ -2,7 +2,7 @@
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
 Current phase: C1 — introduce data contracts behind compatibility APIs
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 ## Status board
 
@@ -51,7 +51,7 @@ Largest boundaries:
 ## Quality reference
 
 Existing artifact:
-`/home/ry295/palmer_scratch/tmp/recovar_em_test_regenerated`
+`$HOME/palmer_scratch/tmp/recovar_em_test_regenerated`
 
 Its `benchmark_ledger.json` records:
 
@@ -73,7 +73,7 @@ GPU identity and paired timing context.
 |---|---|---|---|
 | 2026-09-08 | Provenance | `git rev-parse HEAD`, branch/status/diff checks | HEAD and branch recorded; tracked tree clean; parity ancestors present. |
 | 2026-09-08 | Static inventory | AST scan of `recovar/em/dense_single_volume/**/*.py` | Hotspots, argument/call counts, environment surface, and import cycle recorded in plan. |
-| 2026-09-08 | Existing full K=1 reference | `/home/ry295/palmer_scratch/tmp/recovar_em_test_regenerated/benchmark_ledger.json` | Same-HEAD correlation/FSC-AUC/trajectory/runtime baseline recorded; no new GPU job submitted. |
+| 2026-09-08 | Existing full K=1 reference | `$HOME/palmer_scratch/tmp/recovar_em_test_regenerated/benchmark_ledger.json` | Same-HEAD correlation/FSC-AUC/trajectory/runtime baseline recorded; no new GPU job submitted. |
 | 2026-09-08 | Plan review | Naming and commit-discipline review | Adopted `ExecutionSettings` and `RefinementInputs`; added small, descriptive, independently revertible commit requirements. |
 | 2026-09-08 | Local result contract | `pixi run python -m pytest tests/unit/test_local_em_types.py -q` | 17/17 passed; all legacy optional tuple shapes round-trip and malformed shapes fail closed. |
 | 2026-09-08 | Composed request types | Same focused test file | 20/20 passed; request groups are immutable and capture-driven profile shape is preserved. |
@@ -180,17 +180,17 @@ untracked manifest contains the original 1,427 files; the control's two
 untracked entries are input-fixture symlinks.
 
 Artifact root:
-`/home/ry295/palmer_scratch/tmp/dense_em_refactor_samegpu_final_e47a128a_vs_df425b0c`.
+`$HOME/palmer_scratch/tmp/dense_em_refactor_samegpu_final_e47a128a_vs_df425b0c`.
 It contains both output ledgers, complete intermediate trajectories, process
 resource records, environment/provenance manifests, and logs under `logs/`.
 The launcher SHA-256 is
 `a7c40272bdf5956adb50ef5e4a895a2b14f8e69dc58f66257e1e30c34bedec64`.
 The run root and all earlier refactor run roots have `SAFE_TO_DELETE` markers.
 Earlier attempt artifacts and logs are retained under
-`/home/ry295/palmer_scratch/tmp/dense_em_refactor_e47a128a`,
-`/home/ry295/palmer_scratch/tmp/dense_em_refactor_samegpu_e47a128a_vs_df425b0c`,
+`$HOME/palmer_scratch/tmp/dense_em_refactor_e47a128a`,
+`$HOME/palmer_scratch/tmp/dense_em_refactor_samegpu_e47a128a_vs_df425b0c`,
 and
-`/home/ry295/palmer_scratch/tmp/dense_em_refactor_samegpu_retry_e47a128a_vs_df425b0c`.
+`$HOME/palmer_scratch/tmp/dense_em_refactor_samegpu_retry_e47a128a_vs_df425b0c`.
 
 | Paired measure | Control `df425b0c` | Candidate `e47a128a` | Candidate delta |
 |---|---:|---:|---:|
