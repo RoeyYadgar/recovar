@@ -4853,6 +4853,7 @@ def _run_relion_iteration_loop(
     replay = options.replay
     debug = options.debug
     batching = options.batching
+    execution = options.execution
     expected_accuracy = debug.expected_accuracy
 
     particle_diameter_ang = schedule.particle_diameter_ang
@@ -4955,7 +4956,10 @@ def _run_relion_iteration_loop(
                 RELION_WIDTH_MASK_EDGE,
             )
 
-    _maybe_cache_raw_image_loaders(experiment_datasets)
+    _maybe_cache_raw_image_loaders(
+        experiment_datasets,
+        settings=None if execution is None else execution.raw_image_cache,
+    )
     _mark_setup_phase("mask_and_image_cache")
 
     # --- Initialize RefinementState ---
@@ -5073,6 +5077,7 @@ def _run_relion_iteration_loop(
             padding_factor=PADDING_FACTOR,
             n_classes=n_classes if classes is None else classes,
             current_size=current_size_for_batch,
+            settings=None if execution is None else execution.dense_batch_planning,
         )
         if plan.image_batch_size != batching.image_batch_size or plan.rotation_block_size != batching.rotation_block_size:
             logger.info(

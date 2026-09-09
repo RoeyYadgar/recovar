@@ -44,3 +44,4 @@ from .refinement_options import RefinementOptions as RefinementOptions
 from .refinement_options import RefinementSchedule as RefinementSchedule
 from .refinement_options import RelionParityOptions as RelionParityOptions
 from .refinement_options import ReplayState as ReplayState
+from .runtime_options import ExecutionSettings as ExecutionSettings

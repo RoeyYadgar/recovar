@@ -104,6 +104,16 @@ from recovar.em.dense_single_volume.refinement_options import (
     RelionParityOptions,
     ReplayState,
 )
+from recovar.em.dense_single_volume.runtime_options import (
+    EM_RAW_IMAGE_CACHE_ENV,
+    EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
+    RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
+    DenseBatchPlanningSettings,
+    RawImageCacheSettings,
+)
+from recovar.em.dense_single_volume.runtime_options import (
+    ExecutionSettings as HostExecutionSettings,
+)
 from recovar.em.dense_single_volume.k_class import (
     KClassEMResult,
     _resolve_class_mstep_posterior_sums,
@@ -13948,6 +13958,10 @@ class TestRelionDefault:
             fake_relion_loop,
         )
 
+        execution = HostExecutionSettings(
+            raw_image_cache=RawImageCacheSettings(mode="off", max_gb=2.5),
+            dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4),
+        )
         opts = RefinementOptions(
             schedule=RefinementSchedule(max_iter=7, init_healpix_order=3, max_healpix_order=4),
             parity=RelionParityOptions(
@@ -13959,6 +13973,7 @@ class TestRelionDefault:
             ),
             k_class=KClassOptions(n_classes=4),
             replay=ReplayState(init_group_count=[7, 8]),
+            execution=execution,
         )
         result = refine_single_volume(
             half_datasets,
@@ -13978,10 +13993,74 @@ class TestRelionDefault:
         assert forwarded.parity.tau2_fudge == 4.0
         assert forwarded.parity.perturb_replay_relion_prefix == "custom"
         assert forwarded.parity.emulate_relion_firstiter_cc is True
+        assert forwarded.execution is execution
         assert forwarded.parity.do_solvent_fsc_correction is True
         assert forwarded.parity.image_fourier_backend == "jax_gpu"
         assert forwarded.k_class.n_classes == 4
         assert forwarded.replay.init_group_count == [7, 8]
+
+    def test_execution_settings_reach_top_level_cache_and_batch_planners(
+        self,
+        half_datasets,
+        init_volume,
+        rotations,
+        translations,
+        monkeypatch,
+    ):
+        """Resolved host settings bypass process state at the iteration boundary."""
+
+        class PlanningReached(RuntimeError):
+            pass
+
+        execution = HostExecutionSettings(
+            raw_image_cache=RawImageCacheSettings(mode="off", max_gb=2.5),
+            dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4),
+        )
+        captured = {}
+        original_cache = iteration_loop_module._maybe_cache_raw_image_loaders
+        original_planner = iteration_loop_module._estimate_relion_em_batch_sizes
+
+        def capture_cache(experiment_datasets, *, settings=None):
+            captured["raw_image_cache"] = settings
+            return original_cache(experiment_datasets, settings=settings)
+
+        def capture_planner(**kwargs):
+            captured["dense_batch_planning"] = kwargs["settings"]
+            captured["plan"] = original_planner(**kwargs)
+            raise PlanningReached
+
+        monkeypatch.setattr(iteration_loop_module, "_maybe_cache_raw_image_loaders", capture_cache)
+        monkeypatch.setattr(iteration_loop_module, "_estimate_relion_em_batch_sizes", capture_planner)
+        monkeypatch.setenv(EM_RAW_IMAGE_CACHE_ENV, "force")
+        monkeypatch.setenv(EM_RAW_IMAGE_CACHE_MAX_GB_ENV, "invalid")
+        monkeypatch.setenv(RELION_EM_BATCH_PROJECTION_FRACTION_ENV, "invalid")
+
+        with pytest.raises(PlanningReached):
+            refine_single_volume(
+                half_datasets,
+                init_volume,
+                jnp.ones(IMAGE_SIZE, dtype=jnp.float32),
+                jnp.ones(VOLUME_SIZE, dtype=jnp.float32) * 100.0,
+                rotations,
+                translations,
+                options=RefinementOptions(
+                    schedule=RefinementSchedule(
+                        max_iter=1,
+                        init_current_size=16,
+                        init_healpix_order=2,
+                        max_healpix_order=3,
+                    ),
+                    batching=RefinementBatching(
+                        image_batch_size=N_IMAGES,
+                        rotation_block_size=N_ROTATIONS,
+                    ),
+                    execution=execution,
+                ),
+            )
+
+        assert captured["raw_image_cache"] is execution.raw_image_cache
+        assert captured["dense_batch_planning"] is execution.dense_batch_planning
+        assert captured["plan"].projection_budget_gb == 10.0
 
     def test_canonical_rotation_grid_reuses_relion_euler_table(self, monkeypatch):
         """The auto-refine setup path must not convert canonical grids via SciPy."""

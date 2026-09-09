@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Historical defaults remain stable while environment variables are adapters.
 RELION_FIRSTITER_RECON_COMPLEX_BUDGET = 268_435_456
@@ -60,6 +60,16 @@ class LocalCacheSettings:
     raw_image_max_gb: float = EXACT_LOCAL_RAW_CACHE_MAX_GB
     processed_half_max_gb: float = EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB
     sparse_big_jit_mstep_max_gb: float = EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB
+
+
+@dataclass(frozen=True)
+class ExecutionSettings:
+    """Resolved host-only performance settings for one refinement run."""
+
+    first_iteration: FirstIterationBatchSettings = field(default_factory=FirstIterationBatchSettings)
+    raw_image_cache: RawImageCacheSettings = field(default_factory=RawImageCacheSettings)
+    dense_batch_planning: DenseBatchPlanningSettings = field(default_factory=DenseBatchPlanningSettings)
+    local_cache: LocalCacheSettings = field(default_factory=LocalCacheSettings)
 
 
 def load_first_iteration_batch_settings(
@@ -163,4 +173,15 @@ def load_local_cache_settings(environ: Mapping[str, str] | None = None) -> Local
         raw_image_max_gb=load_local_raw_cache_max_gb(environ),
         processed_half_max_gb=load_local_processed_half_cache_max_gb(environ),
         sparse_big_jit_mstep_max_gb=load_local_sparse_big_jit_mstep_max_gb(environ),
+    )
+
+
+def load_execution_settings(environ: Mapping[str, str] | None = None) -> ExecutionSettings:
+    """Resolve a complete host execution snapshot from compatibility variables."""
+
+    return ExecutionSettings(
+        first_iteration=load_first_iteration_batch_settings(environ),
+        raw_image_cache=load_raw_image_cache_settings(environ),
+        dense_batch_planning=load_dense_batch_planning_settings(environ),
+        local_cache=load_local_cache_settings(environ),
     )

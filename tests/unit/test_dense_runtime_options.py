@@ -27,10 +27,12 @@ from recovar.em.dense_single_volume.runtime_options import (
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
     DenseBatchPlanningSettings,
+    ExecutionSettings,
     FirstIterationBatchSettings,
     LocalCacheSettings,
     RawImageCacheSettings,
     load_dense_batch_planning_settings,
+    load_execution_settings,
     load_first_iteration_batch_settings,
     load_local_cache_settings,
     load_raw_image_cache_settings,
@@ -234,3 +236,29 @@ def test_local_cache_compatibility_helpers_preserve_lazy_field_parsing(monkeypat
     monkeypatch.setenv(EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV, "invalid")
 
     assert _local_raw_cache_enabled(50_000, (256, 256), np.float32)
+
+
+@pytest.mark.unit
+def test_execution_settings_compose_all_resolved_leaf_settings():
+    settings = load_execution_settings(
+        {
+            RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV: "805306368",
+            EM_RAW_IMAGE_CACHE_ENV: "off",
+            EM_RAW_IMAGE_CACHE_MAX_GB_ENV: "2.5",
+            RELION_EM_BATCH_PROJECTION_FRACTION_ENV: "0.4",
+            EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV: "20",
+            EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV: "3.5",
+            EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV: "8.25",
+        }
+    )
+
+    assert settings == ExecutionSettings(
+        first_iteration=FirstIterationBatchSettings(reconstruction_complex_budget=805_306_368),
+        raw_image_cache=RawImageCacheSettings(mode="off", max_gb=2.5),
+        dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4),
+        local_cache=LocalCacheSettings(
+            raw_image_max_gb=20.0,
+            processed_half_max_gb=3.5,
+            sparse_big_jit_mstep_max_gb=8.25,
+        ),
+    )

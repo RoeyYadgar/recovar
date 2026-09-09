@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from recovar.em.dense_single_volume.helpers.convergence import LOCAL_SEARCH_HEALPIX_ORDER
+from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
 
 
 @dataclass(frozen=True)
@@ -240,6 +241,9 @@ class RefinementOptions:
     replay: ReplayState = field(default_factory=ReplayState)
     debug: EngineDebugOptions = field(default_factory=EngineDebugOptions)
     batching: RefinementBatching = field(default_factory=RefinementBatching)
+    # None preserves direct environment compatibility while callers migrate to
+    # an explicitly resolved, parse-once host snapshot.
+    execution: ExecutionSettings | None = None
     disc_type: str = "linear_interp"
 
 
