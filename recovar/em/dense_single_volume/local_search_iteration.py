@@ -17,7 +17,6 @@ calls in the existing test suite remain effective.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from dataclasses import dataclass
 
@@ -43,7 +42,10 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalSearchSettings,
 )
 from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationRequest
-from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
+from recovar.em.dense_single_volume.runtime_options import (
+    ExecutionSettings,
+    current_environment as _runtime_environment,
+)
 from recovar.em.sampling import build_local_search_grid_metadata
 
 logger = logging.getLogger(__name__)
@@ -347,7 +349,7 @@ def _run_local_search_iteration(
     # triage on smaller GPUs.
     local_batch_planning_current_size = current_size
     if relion_projector_half is not None and mstep_relion_x_half and not score_only:
-        xhalf_guard_mode = os.environ.get(EXACT_LOCAL_XHALF_BATCH_GUARD_ENV, "windowed").strip().lower()
+        xhalf_guard_mode = _runtime_environment().get(EXACT_LOCAL_XHALF_BATCH_GUARD_ENV, "windowed").strip().lower()
         if xhalf_guard_mode in {"", "full", "full_spectrum", "full-spectrum", "conservative"}:
             local_batch_planning_current_size = None
         elif xhalf_guard_mode in {"window", "windowed", "compact", "current_size", "current-size"}:

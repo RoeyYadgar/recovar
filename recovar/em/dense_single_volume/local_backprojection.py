@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 import recovar.core.fourier_transform_utils as fourier_transform_utils
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 
 _RELION_X_HALF_SEQUENTIAL_TRANSLATION_REDUCTION_ENV = (
     "RECOVAR_RELION_X_HALF_SEQUENTIAL_TRANSLATION_REDUCTION"
@@ -18,7 +18,7 @@ _RELION_X_HALF_SEQUENTIAL_TRANSLATION_REDUCTION_ENV = (
 def relion_x_half_sequential_translation_reduction_enabled() -> bool:
     """Return whether the diagnostic RELION-order translation reduction is enabled."""
 
-    raw = os.environ.get(_RELION_X_HALF_SEQUENTIAL_TRANSLATION_REDUCTION_ENV)
+    raw = _runtime_environment().get(_RELION_X_HALF_SEQUENTIAL_TRANSLATION_REDUCTION_ENV)
     return raw is not None and raw.strip().lower() not in {"", "0", "false", "no", "off"}
 
 

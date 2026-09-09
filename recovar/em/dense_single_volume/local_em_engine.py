@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import gc
 import logging
-import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -166,7 +165,10 @@ from recovar.em.dense_single_volume.local_timing import (  # noqa: F401
     _new_zero_timer,
     _prefixed_timer_profile,
 )
-from recovar.em.dense_single_volume.runtime_options import LocalCacheSettings
+from recovar.em.dense_single_volume.runtime_options import (
+    LocalCacheSettings,
+    current_environment as _runtime_environment,
+)
 from recovar.em.dense_single_volume.shape_buckets import pad_axis, pad_batch_data_ctf_and_valid_mask
 from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
@@ -185,9 +187,9 @@ def _maybe_dump_exact_local_bpref_contribution_rows(**kwargs) -> None:
     before execution rather than silently emitting an incomplete capture.
     """
 
-    if not os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip():
+    if not _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip():
         return
-    if os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip():
+    if _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip():
         raise RuntimeError("Exact-local BPref contribution capture does not yet support device signatures")
     _sparse_pass2_diagnostics._maybe_dump_bpref_contribution_rows(**kwargs)
 
@@ -195,14 +197,14 @@ def _maybe_dump_exact_local_bpref_contribution_rows(**kwargs) -> None:
 def _exact_local_bpref_contribution_capture_active(*, current_size: int | None, debug_iteration: int | None) -> bool:
     """Return whether this exact-local half is the explicitly targeted boundary."""
 
-    if not os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip():
+    if not _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip():
         return False
     context = _sparse_pass2_diagnostics._bpref_contribution_context
     context_iteration = int(context["iteration"])
     context_half = int(context["half"])
-    target_iteration = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION", "").strip()
-    target_half = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF", "").strip()
-    target_current_size = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_CURRENT_SIZE", "").strip()
+    target_iteration = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION", "").strip()
+    target_half = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF", "").strip()
+    target_current_size = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_CURRENT_SIZE", "").strip()
     if not (target_iteration and target_half and target_current_size):
         return False
     if context_iteration != int(target_iteration):
@@ -413,7 +415,7 @@ def _packed_noise_projection_chunk_rows(n_recon_pixels: int, *, batch_size: int 
     """Return packed local noise-projection rows per chunk."""
 
     target = int(EXACT_LOCAL_PACKED_NOISE_TARGET_ROW_PIXELS)
-    raw = os.environ.get(EXACT_LOCAL_PACKED_NOISE_TARGET_ROW_PIXELS_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_PACKED_NOISE_TARGET_ROW_PIXELS_ENV, "").strip()
     if raw:
         try:
             target = max(1, int(raw))
@@ -430,7 +432,7 @@ def _packed_noise_projection_chunk_rows(n_recon_pixels: int, *, batch_size: int 
 
 
 def _reconstruction_pack_large_bucket_quantum() -> int:
-    raw = os.environ.get(EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM_ENV, "").strip()
     if raw:
         try:
             return max(1, int(raw))
@@ -445,7 +447,7 @@ def _reconstruction_pack_large_bucket_quantum() -> int:
 
 
 def _optional_nonnegative_int_env(name: str) -> int | None:
-    raw = os.environ.get(name)
+    raw = _runtime_environment().get(name)
     if raw is None or raw == "":
         return None
     try:
@@ -458,11 +460,11 @@ def _optional_nonnegative_int_env(name: str) -> int | None:
 
 
 def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in _TRUE_ENV_VALUES
+    return _runtime_environment().get(name, "").strip().lower() in _TRUE_ENV_VALUES
 
 
 def _optional_nonnegative_float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name, "").strip()
+    raw = _runtime_environment().get(name, "").strip()
     if not raw:
         return float(default)
     try:
@@ -536,7 +538,7 @@ def _exact_local_runtime_free_memory_bytes() -> int | None:
 
 
 def _exact_local_default_target_row_pixels(*, allow_high_memory_default: bool = True) -> int:
-    raw = os.environ.get(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, "").strip()
     if raw:
         return int(raw)
     memory_bytes = _visible_gpu_memory_bytes()
@@ -550,7 +552,7 @@ def _exact_local_default_target_row_pixels(*, allow_high_memory_default: bool = 
 
 
 def _exact_local_default_big_jit_matmul_max_gb(*, allow_high_memory_default: bool = True) -> float:
-    raw = os.environ.get(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, "").strip()
     if raw:
         return float(raw)
     memory_bytes = _visible_gpu_memory_bytes()
@@ -565,7 +567,7 @@ def _exact_local_default_big_jit_matmul_max_gb(*, allow_high_memory_default: boo
 
 def _exact_local_relion_projection_cache_chunk_rows(n_projection_pixels: int) -> int:
     target = int(
-        os.environ.get(
+        _runtime_environment().get(
             EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV,
             EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS,
         )
@@ -621,7 +623,7 @@ def _sort_buckets_for_relion_projection_cache(bucket_specs: list[LocalBucketSpec
 
 
 def _exact_local_relion_projection_cache_max_groups() -> int:
-    raw = os.environ.get(
+    raw = _runtime_environment().get(
         EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV,
         str(EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS),
     )
@@ -1393,13 +1395,13 @@ def _exact_local_max_hypotheses_per_microbatch(
 
 def _exact_local_microbatch_env_overridden() -> bool:
     return bool(
-        os.environ.get(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, "").strip()
-        or os.environ.get(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, "").strip()
+        _runtime_environment().get(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, "").strip()
+        or _runtime_environment().get(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, "").strip()
     )
 
 
 def _exact_local_auto_microbatch_boost() -> float:
-    raw = os.environ.get(EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV, "").strip()
     if raw:
         try:
             value = float(raw)
@@ -1418,7 +1420,7 @@ def _exact_local_auto_microbatch_boost() -> float:
 
 
 def _exact_local_xhalf_auto_microbatch_boost() -> float:
-    raw = os.environ.get(EXACT_LOCAL_XHALF_AUTO_MICROBATCH_BOOST_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_XHALF_AUTO_MICROBATCH_BOOST_ENV, "").strip()
     if raw:
         try:
             value = float(raw)
@@ -1546,7 +1548,7 @@ def _exact_local_xhalf_projection_target_row_pixels() -> int:
     """Resolve the x-half projection row-pixel budget."""
 
     target_row_pixels = int(EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS)
-    raw = os.environ.get(EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV, "").strip()
+    raw = _runtime_environment().get(EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV, "").strip()
     if raw:
         try:
             target_row_pixels = max(1, int(raw))
@@ -2584,7 +2586,7 @@ def run_local_em_exact(
     relion_projector_big_jit_supported = bool(
         use_relion_projector and (not use_window or compact_relion_projector_big_jit)
     )
-    disable_big_jit_buckets = os.environ.get("RECOVAR_DISABLE_LOCAL_BIG_JIT", "").lower() in {
+    disable_big_jit_buckets = _runtime_environment().get("RECOVAR_DISABLE_LOCAL_BIG_JIT", "").lower() in {
         "1",
         "true",
         "yes",

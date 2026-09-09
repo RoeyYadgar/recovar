@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -11,6 +10,7 @@ from recovar import utils
 from recovar.em.dense_single_volume.helpers.local_search import _local_search_engine_rotation_block_size
 from recovar.em.dense_single_volume.helpers.orientation_priors import make_relion_translation_log_prior
 from recovar.em.dense_single_volume.shape_buckets import coarse_bucket
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 from recovar.em.sampling import (
     _normalized_log_weights,
     _wrapped_abs_diff_deg,
@@ -61,7 +61,7 @@ def _exact_bucket_rotation_size(
     # engine cap: outlier-heavy/local-search tails otherwise generate hundreds
     # of near-duplicate XLA shapes. Hypothesis/tile caps still chunk each
     # bucket, so this changes padding/shape reuse rather than the candidate set.
-    env_quantum = os.environ.get("RECOVAR_LOCAL_BUCKET_QUANTUM", "")
+    env_quantum = _runtime_environment().get("RECOVAR_LOCAL_BUCKET_QUANTUM", "")
     if env_quantum:
         large_bucket_quantum = max(1, int(env_quantum))
     elif large_bucket_quantum is None:
@@ -83,7 +83,7 @@ def _exact_local_large_bucket_quantum(rotation_block_size: int, explicit: int | 
 
     if explicit is not None:
         return max(1, int(explicit))
-    env_quantum = os.environ.get(EXACT_LOCAL_BUCKET_QUANTUM_ENV, "")
+    env_quantum = _runtime_environment().get(EXACT_LOCAL_BUCKET_QUANTUM_ENV, "")
     if env_quantum:
         return max(1, int(env_quantum))
     engine_cap = int(_local_search_engine_rotation_block_size(rotation_block_size))
@@ -159,11 +159,11 @@ def _resolve_prior_rotations(prior_rotations: np.ndarray, healpix_order: int, gr
 
 
 def _local_selector_chunk_size(n_images: int, n_pixels: int, n_psi: int, use_direction: bool, use_psi: bool) -> int:
-    explicit = os.environ.get("RECOVAR_LOCAL_SELECTOR_CHUNK_SIZE", "")
+    explicit = _runtime_environment().get("RECOVAR_LOCAL_SELECTOR_CHUNK_SIZE", "")
     if explicit:
         return max(1, min(int(n_images), int(explicit)))
 
-    max_elements = int(os.environ.get("RECOVAR_LOCAL_SELECTOR_MAX_ELEMENTS", "16000000"))
+    max_elements = int(_runtime_environment().get("RECOVAR_LOCAL_SELECTOR_MAX_ELEMENTS", "16000000"))
     per_image_elements = 0
     if use_direction:
         per_image_elements += int(n_pixels)
@@ -1217,7 +1217,7 @@ def bucket_local_hypothesis_layout(
     # per-bucket JIT compilation overhead. Memory cost: smaller-significance
     # images carry extra rotation padding.
     if unify_bucket_sizes is None:
-        unify_bucket_sizes = os.environ.get("RECOVAR_LOCAL_BUCKET_UNIFY", "").lower() in {"1", "true", "yes", "on"}
+        unify_bucket_sizes = _runtime_environment().get("RECOVAR_LOCAL_BUCKET_UNIFY", "").lower() in {"1", "true", "yes", "on"}
     if bucket_sizes.size and bool(unify_bucket_sizes):
         bucket_sizes = np.full_like(bucket_sizes, int(bucket_sizes.max()))
     processing_order = np.lexsort((layout.rotation_counts, bucket_sizes)).astype(np.int32)
