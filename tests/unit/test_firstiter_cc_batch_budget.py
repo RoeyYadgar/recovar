@@ -11,6 +11,7 @@ from recovar.em.dense_single_volume.firstiter_cc import (
 )
 from recovar.em.dense_single_volume.helpers.types import NoiseStats, make_relion_stats
 from recovar.em.dense_single_volume.k_class import KClassEMResult
+from recovar.em.dense_single_volume.runtime_options import FirstIterationBatchSettings
 
 
 def test_firstiter_winner_take_all_assembly_reports_unit_pmax_across_score_normalizations():
@@ -100,6 +101,55 @@ def test_kclass_adaptive_grid_batch_plan_uses_fine_grid_for_pass2():
     assert plan.pass2_rotation_block_size == 275
     assert plan.significance_image_batch_size == 50
     assert plan.significance_rotation_block_size == 576
+
+
+def test_refinement_batch_planner_uses_resolved_first_iteration_settings(monkeypatch):
+    monkeypatch.setenv("RECOVAR_RELION_FIRSTITER_RECON_COMPLEX_BUDGET", "invalid")
+    calls = []
+
+    def fake_dense_batch_sizes(
+        n_rot,
+        n_trans,
+        *,
+        classes=None,
+        image_shape_for_batch=None,
+        current_size_for_batch=None,
+    ):
+        calls.append((int(n_rot), int(n_trans), classes, image_shape_for_batch, current_size_for_batch))
+        return (44, 275) if int(n_rot) == 4608 else (50, 576)
+
+    first_iteration = FirstIterationBatchSettings(reconstruction_complex_budget=10_000_000)
+    planner = iteration_loop._RefinementBatchPlanner(
+        dense_batch_sizes=fake_dense_batch_sizes,
+        first_iteration_settings=first_iteration,
+    )
+
+    plan = iteration_loop._plan_kclass_adaptive_grid_batch_sizes(
+        coarse_rotations=np.zeros((576, 3, 3), dtype=np.float32),
+        coarse_translations=np.zeros((29, 2), dtype=np.float32),
+        fine_rotations=np.zeros((4608, 3, 3), dtype=np.float32),
+        fine_translations=np.zeros((116, 2), dtype=np.float32),
+        n_classes=4,
+        image_shape=(256, 256),
+        coarse_current_size=40,
+        fine_current_size=90,
+        safe_batch_sizes=planner,
+    )
+
+    assert calls == [
+        (4608, 116, 4, (256, 256), 90),
+        (576, 29, 4, (256, 256), 40),
+    ]
+    assert plan.pass2_image_batch_size == _safe_firstiter_cc_image_batch_size(
+        116,
+        (256, 256),
+        settings=first_iteration,
+    )
+    assert plan.significance_image_batch_size == _safe_firstiter_cc_image_batch_size(
+        29,
+        (256, 256),
+        settings=first_iteration,
+    )
 
 
 def test_firstiter_cc_adaptive_dispatch_clamps_against_fine_translation_grid(monkeypatch):

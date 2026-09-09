@@ -108,7 +108,9 @@ from recovar.em.dense_single_volume.runtime_options import (
     EM_RAW_IMAGE_CACHE_ENV,
     EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
     RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
+    RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
     DenseBatchPlanningSettings,
+    FirstIterationBatchSettings,
     RawImageCacheSettings,
 )
 from recovar.em.dense_single_volume.runtime_options import (
@@ -14013,12 +14015,14 @@ class TestRelionDefault:
             pass
 
         execution = HostExecutionSettings(
+            first_iteration=FirstIterationBatchSettings(reconstruction_complex_budget=10_000_000),
             raw_image_cache=RawImageCacheSettings(mode="off", max_gb=2.5),
             dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4),
         )
         captured = {}
         original_cache = iteration_loop_module._maybe_cache_raw_image_loaders
         original_planner = iteration_loop_module._estimate_relion_em_batch_sizes
+        original_batch_planner = iteration_loop_module._RefinementBatchPlanner
 
         def capture_cache(experiment_datasets, *, settings=None):
             captured["raw_image_cache"] = settings
@@ -14029,11 +14033,17 @@ class TestRelionDefault:
             captured["plan"] = original_planner(**kwargs)
             raise PlanningReached
 
+        def capture_batch_planner(*args, **kwargs):
+            captured["first_iteration"] = kwargs["first_iteration_settings"]
+            return original_batch_planner(*args, **kwargs)
+
         monkeypatch.setattr(iteration_loop_module, "_maybe_cache_raw_image_loaders", capture_cache)
         monkeypatch.setattr(iteration_loop_module, "_estimate_relion_em_batch_sizes", capture_planner)
+        monkeypatch.setattr(iteration_loop_module, "_RefinementBatchPlanner", capture_batch_planner)
         monkeypatch.setenv(EM_RAW_IMAGE_CACHE_ENV, "force")
         monkeypatch.setenv(EM_RAW_IMAGE_CACHE_MAX_GB_ENV, "invalid")
         monkeypatch.setenv(RELION_EM_BATCH_PROJECTION_FRACTION_ENV, "invalid")
+        monkeypatch.setenv(RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV, "invalid")
 
         with pytest.raises(PlanningReached):
             refine_single_volume(
@@ -14060,6 +14070,7 @@ class TestRelionDefault:
 
         assert captured["raw_image_cache"] is execution.raw_image_cache
         assert captured["dense_batch_planning"] is execution.dense_batch_planning
+        assert captured["first_iteration"] is execution.first_iteration
         assert captured["plan"].projection_budget_gb == 10.0
 
     def test_canonical_rotation_grid_reuses_relion_euler_table(self, monkeypatch):

@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import jax
@@ -145,6 +146,7 @@ from recovar.em.dense_single_volume.mean_helpers import (
 from recovar.em.dense_single_volume.refinement_options import (
     RefinementOptions,
 )
+from recovar.em.dense_single_volume.runtime_options import FirstIterationBatchSettings
 from recovar.em.dense_single_volume.relion_metadata import (
     _radial_profile_from_noise_variance,
     _relion_metadata_translations,
@@ -1834,6 +1836,33 @@ class _AdaptiveDenseBatchSizes:
     significance_rotation_block_size: int
 
 
+@dataclass(frozen=True)
+class _RefinementBatchPlanner:
+    """Keep run-resolved host batch settings behind one callable seam."""
+
+    dense_batch_sizes: Callable[..., tuple[int, int]]
+    first_iteration_settings: FirstIterationBatchSettings | None = None
+
+    def __call__(self, *args, **kwargs):
+        return self.dense_batch_sizes(*args, **kwargs)
+
+    def first_iteration_image_batch_size(self, n_trans: int, image_shape) -> int:
+        return _safe_firstiter_cc_image_batch_size(
+            n_trans,
+            image_shape,
+            settings=self.first_iteration_settings,
+        )
+
+
+def _safe_first_iteration_image_batch_size(batch_planner, n_trans: int, image_shape) -> int:
+    """Use resolved run settings while retaining plain-callable test compatibility."""
+
+    resolved_sizer = getattr(batch_planner, "first_iteration_image_batch_size", None)
+    if resolved_sizer is not None:
+        return resolved_sizer(n_trans, image_shape)
+    return _safe_firstiter_cc_image_batch_size(n_trans, image_shape)
+
+
 def _plan_adaptive_dense_batch_sizes(
     *,
     n_rot: int,
@@ -1857,7 +1886,8 @@ def _plan_adaptive_dense_batch_sizes(
     if k_class_enabled:
         pass2_image_batch_size = min(
             pass2_image_batch_size,
-            _safe_firstiter_cc_image_batch_size(
+            _safe_first_iteration_image_batch_size(
+                safe_batch_sizes,
                 n_trans,
                 image_shape,
             ),
@@ -1908,7 +1938,8 @@ def _plan_kclass_adaptive_grid_batch_sizes(
     )
     pass2_image_batch_size = min(
         pass2_image_batch_size,
-        _safe_firstiter_cc_image_batch_size(
+        _safe_first_iteration_image_batch_size(
+            safe_batch_sizes,
             int(np.asarray(fine_translations).shape[0]),
             image_shape,
         ),
@@ -1931,7 +1962,8 @@ def _plan_kclass_adaptive_grid_batch_sizes(
     )
     significance_image_batch_size = min(
         significance_image_batch_size,
-        _safe_firstiter_cc_image_batch_size(
+        _safe_first_iteration_image_batch_size(
+            safe_batch_sizes,
             int(np.asarray(coarse_translations).shape[0]),
             image_shape,
         ),
@@ -2213,7 +2245,8 @@ def _score_kclass_firstiter_cc_pass2(
             requested_firstiter_image_batch_size = int(em_kwargs.get("image_batch_size", image_batch_size))
             firstiter_image_batch_size = min(
                 requested_firstiter_image_batch_size,
-                _safe_firstiter_cc_image_batch_size(
+                _safe_first_iteration_image_batch_size(
+                    safe_batch_sizes,
                     fine_trans.shape[0],
                     image_shape_k,
                 ),
@@ -2244,7 +2277,8 @@ def _score_kclass_firstiter_cc_pass2(
         requested_firstiter_image_batch_size = int(em_kwargs.get("image_batch_size", image_batch_size))
         firstiter_image_batch_size = min(
             requested_firstiter_image_batch_size,
-            _safe_firstiter_cc_image_batch_size(
+            _safe_first_iteration_image_batch_size(
+                safe_batch_sizes,
                 fine_trans.shape[0],
                 image_shape_k,
             ),
@@ -5065,7 +5099,7 @@ def _run_relion_iteration_loop(
 
     padded_volume_shape = tuple(d * PADDING_FACTOR for d in volume_shape)
 
-    def _safe_batch_sizes(n_rot, n_trans, *, classes=None, image_shape_for_batch=None, current_size_for_batch=None):
+    def _plan_dense_batch_sizes(n_rot, n_trans, *, classes=None, image_shape_for_batch=None, current_size_for_batch=None):
         """Reduce batch sizes for large pose grids to avoid GPU OOM."""
         plan = _estimate_relion_em_batch_sizes(
             requested_image_batch_size=batching.image_batch_size,
@@ -5108,6 +5142,11 @@ def _run_relion_iteration_loop(
                 plan.gpu_used_estimate_gb,
             )
         return plan.image_batch_size, plan.rotation_block_size
+
+    batch_planner = _RefinementBatchPlanner(
+        dense_batch_sizes=_plan_dense_batch_sizes,
+        first_iteration_settings=None if execution is None else execution.first_iteration,
+    )
 
     # State: two half-set references.  For K-class refinement each half stores
     # an explicit leading class axis; single-class callers keep the historical
@@ -6628,14 +6667,14 @@ def _run_relion_iteration_loop(
                     cs_for_engine=cs_for_engine,
                     coarse_cs=coarse_cs,
                     k_class_enabled=k_class_enabled,
-                    safe_batch_sizes=_safe_batch_sizes,
+                    safe_batch_sizes=batch_planner,
                 )
                 k_class_image_batch_size = adaptive_batch_plan.pass2_image_batch_size
                 dense_k_class_rotation_block_size = adaptive_batch_plan.pass2_rotation_block_size
                 significance_image_batch_size = adaptive_batch_plan.significance_image_batch_size
                 significance_rotation_block_size = adaptive_batch_plan.significance_rotation_block_size
             elif k_class_enabled:
-                k_class_image_batch_size, dense_k_class_rotation_block_size = _safe_batch_sizes(
+                k_class_image_batch_size, dense_k_class_rotation_block_size = batch_planner(
                     effective_rotations.shape[0],
                     current_translations.shape[0],
                     classes=n_classes,
@@ -6644,7 +6683,8 @@ def _run_relion_iteration_loop(
                 )
                 k_class_image_batch_size = min(
                     k_class_image_batch_size,
-                    _safe_firstiter_cc_image_batch_size(
+                    _safe_first_iteration_image_batch_size(
+                        batch_planner,
                         current_translations.shape[0],
                         experiment_datasets[k].image_shape,
                     ),
@@ -6886,7 +6926,7 @@ def _run_relion_iteration_loop(
                     k_class_enabled=k_class_enabled,
                     collect_local_search_profile=collect_local_search_profile,
                     diagnostic_score_only=bool(debug.stop_after_local_search_score_only),
-                    safe_batch_sizes=_safe_batch_sizes,
+                    safe_batch_sizes=batch_planner,
                     class_assignments=class_assignments,
                     class_posterior_per_half=class_posterior_per_half,
                     class_full_posterior_per_half=class_full_posterior_per_half,
@@ -6947,7 +6987,7 @@ def _run_relion_iteration_loop(
                     relion_firstiter_cc_this_iter=relion_firstiter_cc_this_iter,
                     disable_adjoint_y=debug.disable_adjoint_y,
                     disable_adjoint_ctf=debug.disable_adjoint_ctf,
-                    safe_batch_sizes=_safe_batch_sizes,
+                    safe_batch_sizes=batch_planner,
                     max_significants=adaptive.max_significants,
                     noise_stats_per_half_per_class=noise_stats_per_half_per_class,
                     class_assignments=class_assignments,
@@ -7024,7 +7064,7 @@ def _run_relion_iteration_loop(
                     relion_firstiter_cc_this_iter=relion_firstiter_cc_this_iter,
                     disable_adjoint_y=debug.disable_adjoint_y,
                     disable_adjoint_ctf=debug.disable_adjoint_ctf,
-                    safe_batch_sizes=_safe_batch_sizes,
+                    safe_batch_sizes=batch_planner,
                     max_significants=adaptive.max_significants,
                     noise_stats_per_half_per_class=noise_stats_per_half_per_class,
                     class_assignments=class_assignments,
@@ -9782,7 +9822,7 @@ def _run_relion_iteration_loop(
                 k_class_enabled=False,
                 collect_local_search_profile=collect_local_search_profile,
                 diagnostic_score_only=False,
-                safe_batch_sizes=_safe_batch_sizes,
+                safe_batch_sizes=batch_planner,
                 class_assignments=final_outs.class_assignments,
                 class_posterior_per_half=final_outs.class_posterior,
                 class_full_posterior_per_half=final_outs.class_full_posterior,
@@ -9827,7 +9867,7 @@ def _run_relion_iteration_loop(
                 relion_firstiter_cc_this_iter=False,
                 disable_adjoint_y=debug.disable_adjoint_y,
                 disable_adjoint_ctf=debug.disable_adjoint_ctf,
-                safe_batch_sizes=_safe_batch_sizes,
+                safe_batch_sizes=batch_planner,
                 max_significants=adaptive.max_significants,
                 noise_stats_per_half_per_class=final_outs.noise_stats_per_class,
                 class_assignments=final_outs.class_assignments,
