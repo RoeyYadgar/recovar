@@ -246,7 +246,7 @@ def test_k1_local_full_parent_diagnostic_counts_unmasked_parent_layout():
 def test_k1_local_parent_probe_applies_relion_max_significants_cap():
     score_source = inspect.getsource(iteration_loop._score_half_local)
     parent_call = score_source[
-        score_source.index("parent_outputs = _run_local_search_iteration") : score_source.index(
+        score_source.index("parent_outputs = run_local_search_iteration") : score_source.index(
             "parent_profile = parent_outputs[-1]"
         )
     ]

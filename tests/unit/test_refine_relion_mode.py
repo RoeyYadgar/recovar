@@ -5263,7 +5263,7 @@ def test_run_local_search_iteration_plumbs_score_only_to_exact_engine(monkeypatc
 
 def test_local_adaptive_parent_support_probe_is_score_only():
     source = Path(iteration_loop_module.__file__).read_text()
-    start = source.index("parent_outputs = _run_local_search_iteration(")
+    start = source.index("parent_outputs = run_local_search_iteration(")
     end = source.index("parent_profile = parent_outputs[-1]", start)
     parent_call = source[start:end]
 
