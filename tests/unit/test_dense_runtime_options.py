@@ -21,22 +21,22 @@ from recovar.em.dense_single_volume.local_caches import (
     _sparse_big_jit_mstep_tensors_memory_gb,
 )
 from recovar.em.dense_single_volume.runtime_options import (
+    DISABLE_RELION_EXACT_FINE_GAUSSIAN_ENV,
     EM_RAW_IMAGE_CACHE_ENV,
     EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
-    DISABLE_RELION_EXACT_FINE_GAUSSIAN_ENV,
     EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
     EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
     EXACT_LOCAL_RAW_CACHE_MAX_GB,
     EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
     EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
     EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+    FINAL_ALL_DATA_GRID_CORRECT_ENV,
+    K1_RELION_EXACT_TRANSLATION_GRID_ENV,
+    RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV,
     RELION_EM_BATCH_PROJECTION_FRACTION,
     RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET,
     RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV,
-    FINAL_ALL_DATA_GRID_CORRECT_ENV,
-    K1_RELION_EXACT_TRANSLATION_GRID_ENV,
-    RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV,
     USE_FLOAT64_PROJECTIONS_ENV,
     USE_FLOAT64_SCORING_ENV,
     AlgorithmSettings,
@@ -122,9 +122,7 @@ def test_runtime_configuration_resolves_every_host_group_from_one_snapshot(monke
     assert runtime.algorithm.use_float64_scoring is True
     assert runtime.execution.dense_batch_planning.projection_fraction == 0.4
     assert tuple(runtime.diagnostics.passive) == ("RECOVAR_PASS2_DUMP_DIR",)
-    assert tuple(runtime.diagnostics.invasive) == (
-        "RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET",
-    )
+    assert tuple(runtime.diagnostics.invasive) == ("RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET",)
 
     with runtime_configuration_scope(runtime):
         monkeypatch.setenv(USE_FLOAT64_SCORING_ENV, "0")
@@ -165,6 +163,17 @@ def test_diagnostics_plan_separates_passive_and_invasive_settings():
     assert "RECOVAR_SPARSE_PASS2_MAX_HYPOTHESES" not in plan.passive
     assert classify_environment_name("RECOVAR_SPARSE_PASS2_MAX_HYPOTHESES") is EnvironmentVariableClass.TUNING
     assert classify_environment_name("IGNORED") is None
+
+
+@pytest.mark.unit
+def test_runtime_configuration_rejects_conflicting_diagnostic_targets():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        load_runtime_configuration(
+            {
+                "RECOVAR_SIGNIFICANCE_DUMP_TARGET_HALF": "1",
+                "RECOVAR_PASS2_DUMP_TARGET_HALF": "2",
+            }
+        )
 
 
 @pytest.mark.unit

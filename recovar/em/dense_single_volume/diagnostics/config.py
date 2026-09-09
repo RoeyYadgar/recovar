@@ -24,14 +24,14 @@ class EnvironmentVariableClass(str, Enum):
 
 
 _PASSIVE_TOKENS = (
-    "_DUMP_DIR",
-    "_DUMP_PATH",
-    "_TIMING_DIR",
-    "_PROGRESS_",
-    "_SUMMARY_PATH",
-    "_RUN_ID",
-    "_PRESERVE_DTYPE",
+    "_CAPTURE",
+    "_DEBUG",
+    "_DUMP",
     "_DTYPE_DEBUG",
+    "_PROGRESS",
+    "_SIGNATURE",
+    "_SUMMARY",
+    "_TIMING",
 )
 _INVASIVE_TOKENS = (
     "_STOP_AFTER_",
@@ -56,6 +56,7 @@ _TUNING_TOKENS = (
     "_CHUNK",
     "_TILE",
     "_MEMORY_GB",
+    "_BUDGET",
     "_FRACTION",
     "_QUANTUM",
     "_FUSED",
@@ -105,6 +106,15 @@ class DiagnosticsPlan:
 
     passive: EnvironmentSnapshot
     invasive: EnvironmentSnapshot
+
+    def __post_init__(self) -> None:
+        values = {**dict(self.passive), **dict(self.invasive)}
+        mutually_exclusive = (
+            "RECOVAR_SIGNIFICANCE_DUMP_TARGET_HALF",
+            "RECOVAR_PASS2_DUMP_TARGET_HALF",
+        )
+        if all(str(values.get(name, "")).strip() for name in mutually_exclusive):
+            raise ValueError(f"{mutually_exclusive[0]} and {mutually_exclusive[1]} are mutually exclusive")
 
     @classmethod
     def from_environment(
