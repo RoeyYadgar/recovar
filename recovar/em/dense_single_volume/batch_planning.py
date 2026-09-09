@@ -19,6 +19,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from recovar.em.dense_single_volume.runtime_options import (
+    EM_RAW_IMAGE_CACHE_ENV as _EM_RAW_IMAGE_CACHE_ENV,
+)
+from recovar.em.dense_single_volume.runtime_options import (
+    EM_RAW_IMAGE_CACHE_MAX_GB_ENV as _EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
+)
+from recovar.em.dense_single_volume.runtime_options import (
+    RawImageCacheSettings,
+    load_raw_image_cache_max_gb,
+    load_raw_image_cache_mode,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,10 +56,6 @@ _RELION_EM_BATCH_MAX_TRANSLATION_TILE_GB = 14.0
 _RELION_EM_BATCH_MIN_TRANSLATION_TILE_GB = 0.5
 _RELION_EM_BATCH_RUNTIME_FREE_FRACTION = 0.80
 _RELION_EM_BATCH_PROJECTION_FRACTION_ENV = "RECOVAR_RELION_EM_BATCH_PROJECTION_FRACTION"
-
-_EM_RAW_IMAGE_CACHE_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE"
-_EM_RAW_IMAGE_CACHE_MAX_GB_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE_MAX_GB"
-_EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB = 16.0
 
 
 @dataclass(frozen=True)
@@ -328,13 +336,17 @@ def _estimate_raw_image_cache_bytes(loader) -> int:
     return int(n_images * image_size * image_size * dtype.itemsize)
 
 
-def _em_raw_image_cache_mode() -> str:
-    return os.environ.get(_EM_RAW_IMAGE_CACHE_ENV, "auto").strip().lower()
+def _em_raw_image_cache_mode(settings: RawImageCacheSettings | None = None) -> str:
+    return load_raw_image_cache_mode() if settings is None else settings.mode
 
 
-def _maybe_cache_raw_image_loaders(experiment_datasets) -> None:
+def _maybe_cache_raw_image_loaders(
+    experiment_datasets,
+    *,
+    settings: RawImageCacheSettings | None = None,
+) -> None:
     """Keep file-backed raw particles in host memory across RELION EM passes."""
-    mode = _em_raw_image_cache_mode()
+    mode = _em_raw_image_cache_mode(settings)
     if mode in {"0", "false", "no", "off", "disable", "disabled"}:
         logger.info("RELION mode raw image cache disabled by %s=%s", _EM_RAW_IMAGE_CACHE_ENV, mode)
         return
@@ -362,7 +374,7 @@ def _maybe_cache_raw_image_loaders(experiment_datasets) -> None:
     if not planned:
         return
 
-    max_gb = float(os.environ.get(_EM_RAW_IMAGE_CACHE_MAX_GB_ENV, _EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB))
+    max_gb = load_raw_image_cache_max_gb() if settings is None else float(settings.max_gb)
     max_bytes = int(max_gb * (1024**3))
     if not force and total_bytes > max_bytes:
         logger.info(
