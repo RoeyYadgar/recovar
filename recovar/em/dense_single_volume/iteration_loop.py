@@ -33,7 +33,12 @@ from recovar.em.dense_single_volume.batch_planning import (
     _image_backend,
     _maybe_cache_raw_image_loaders,
 )
-from recovar.em.dense_single_volume.em_engine import run_em
+from recovar.em.dense_single_volume.dense_em_types import DenseEMInputs
+from recovar.em.dense_single_volume.em_engine import (
+    dense_em_request_from_legacy_kwargs,
+    run_dense_em,
+    run_em,
+)
 from recovar.em.dense_single_volume.firstiter_cc import (
     _build_firstiter_cc_pass2_grids,
     _safe_dense_k_class_rotation_block_size,
@@ -3058,26 +3063,33 @@ def _score_half_dense(
     # branch is the single dense pass used when adaptive oversampling is off.
     direct_em_kwargs.pop("relion_exact_fine_gaussian", None)
     direct_em_kwargs.pop("reconstruction_current_size", None)
-    _, ha_k, Ft_y_k, Ft_ctf_k, em_stats_k, noise_stats_k = run_em(
-        experiment_dataset,
-        means_k,
-        mean_variance,
-        noise_variance_k,
-        effective_rotations,
-        current_translations,
-        disc_type,
-        return_stats=True,
-        accumulate_noise=True,
-        disable_adjoint_y=disable_adjoint_y,
-        disable_adjoint_ctf=disable_adjoint_ctf,
-        **direct_em_kwargs,
+    dense_result = run_dense_em(
+        dense_em_request_from_legacy_kwargs(
+            DenseEMInputs(
+                experiment_dataset=experiment_dataset,
+                mean=means_k,
+                mean_variance=mean_variance,
+                noise_variance=noise_variance_k,
+                rotations=effective_rotations,
+                translations=current_translations,
+                disc_type=disc_type,
+            ),
+            dict(
+                return_stats=True,
+                accumulate_noise=True,
+                disable_adjoint_y=disable_adjoint_y,
+                disable_adjoint_ctf=disable_adjoint_ctf,
+                **direct_em_kwargs,
+            ),
+        ),
+        legacy_runner=run_em,
     )
     return HalfScoreResult(
-        ha=ha_k,
-        Ft_y=Ft_y_k,
-        Ft_ctf=Ft_ctf_k,
-        em_stats=em_stats_k,
-        noise_stats=noise_stats_k,
+        ha=dense_result.hard_assignment,
+        Ft_y=dense_result.Ft_y,
+        Ft_ctf=dense_result.Ft_ctf,
+        em_stats=dense_result.relion_stats,
+        noise_stats=dense_result.noise_stats,
         mstep_accumulator_shape=None,
     )
 

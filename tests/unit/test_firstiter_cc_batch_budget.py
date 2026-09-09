@@ -172,6 +172,119 @@ def test_firstiter_cc_adaptive_dispatch_clamps_against_fine_translation_grid(mon
     assert np.all(captured["fine_mstep_rotations_override"] == 0.25)
 
 
+def test_dense_half_direct_route_preserves_legacy_runner_hook(monkeypatch):
+    captured = {}
+    dataset = object()
+    mean = object()
+    mean_variance = object()
+    noise_variance = object()
+    rotations = np.zeros((3, 3, 3), dtype=np.float32)
+    translations = np.zeros((2, 2), dtype=np.float32)
+    rotation_log_prior = object()
+    translation_log_prior = object()
+    image_corrections = object()
+    scale_corrections = object()
+    image_pre_shifts = object()
+    translation_prior_centers = object()
+
+    def fake_run_em(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return ("new_mean", "hard_assignment", "Ft_y", "Ft_ctf", "relion_stats", "noise_stats")
+
+    monkeypatch.setattr(iteration_loop, "run_em", fake_run_em)
+
+    result = iteration_loop._score_half_dense(
+        k=0,
+        experiment_dataset=dataset,
+        means_k=mean,
+        mean_variance=mean_variance,
+        noise_variance_k=noise_variance,
+        effective_rotations=rotations,
+        current_translations=translations,
+        base_translations=translations,
+        current_healpix_order=1,
+        state=SimpleNamespace(adaptive_oversampling=0),
+        random_perturbation=0.0,
+        disc_type="linear_interp",
+        image_batch_size=99,
+        rotation_log_prior_k=rotation_log_prior,
+        class_rotation_log_prior_k=None,
+        translation_log_prior=translation_log_prior,
+        translation_search_base=image_pre_shifts,
+        trans_prior_center_for_engine=translation_prior_centers,
+        image_corrections_k=image_corrections,
+        scale_corrections_k=scale_corrections,
+        firstiter_score_mode_this_iter="normalized_cc",
+        firstiter_winner_take_all_this_iter=True,
+        cs_for_engine=12,
+        class_log_priors=None,
+        k_class_enabled=False,
+        relion_firstiter_cc_this_iter=False,
+        disable_adjoint_y=True,
+        disable_adjoint_ctf=False,
+        safe_batch_sizes=lambda *_args, **_kwargs: (17, 19),
+        max_significants=None,
+        noise_stats_per_half_per_class=[None, None],
+        class_assignments=[None, None],
+        class_posterior_per_half=[None, None],
+        class_full_posterior_per_half=[None, None],
+        class_rotation_posterior_per_half=[None, None],
+        best_pose_rotations=[None, None],
+        best_pose_rotation_eulers=[None, None],
+        best_pose_translations=[None, None],
+    )
+
+    assert captured["args"] == (
+        dataset,
+        mean,
+        mean_variance,
+        noise_variance,
+        rotations,
+        translations,
+        "linear_interp",
+    )
+    assert captured["kwargs"] == {
+        "image_batch_size": 17,
+        "rotation_block_size": 19,
+        "current_size": 12,
+        "rotation_log_prior": rotation_log_prior,
+        "translation_log_prior": translation_log_prior,
+        "score_with_masked_images": True,
+        "image_indices": None,
+        "rotation_translation_mask": None,
+        "projection_padding_factor": iteration_loop.PROJECTION_PADDING_FACTOR,
+        "reconstruction_padding_factor": iteration_loop.PADDING_FACTOR,
+        "image_corrections": image_corrections,
+        "scale_corrections": scale_corrections,
+        "class_log_prior": 0.0,
+        "sparse_pass2": False,
+        "accumulate_noise": True,
+        "return_stats": True,
+        "return_profile": False,
+        "normalization_log_evidence": None,
+        "image_pre_shifts": image_pre_shifts,
+        "translation_prior_centers": translation_prior_centers,
+        "half_spectrum_scoring": True,
+        "relion_firstiter_score_mode": "normalized_cc",
+        "relion_firstiter_winner_take_all": True,
+        "disable_adjoint_y": True,
+        "disable_adjoint_ctf": False,
+        "score_only": False,
+        "use_float64_scoring": iteration_loop._DENSE_EM_STATIC_KWARGS["use_float64_scoring"],
+        "use_float64_projections": iteration_loop._DENSE_EM_STATIC_KWARGS["use_float64_projections"],
+        "do_gridding_correction": True,
+        "square_window": iteration_loop.RELION_FOURIER_WINDOW_SQUARE,
+        "relion_half_volume_mstep": False,
+        "return_half_volume_accumulators": False,
+    }
+    assert result.ha == "hard_assignment"
+    assert result.Ft_y == "Ft_y"
+    assert result.Ft_ctf == "Ft_ctf"
+    assert result.em_stats == "relion_stats"
+    assert result.noise_stats == "noise_stats"
+
+
 def test_k1_firstiter_cc_dispatch_uses_coarse_batch_for_significance(monkeypatch):
     captured = {}
     calls = []
