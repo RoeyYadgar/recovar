@@ -1,7 +1,7 @@
 # Dense Single-Volume EM Refactor Progress
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
-Current phase: C2 — centralize runtime policy and environment parsing
+Current phase: C3 — extract diagnostics and parity capture
 Last updated: 2026-09-09
 
 ## Status board
@@ -10,8 +10,8 @@ Last updated: 2026-09-09
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
-| C2 Policy/environment boundary | IN PROGRESS | `ExecutionSettings` composes all four established leaves. The top-level raw cache, global dense planner, and first-iteration clamps consume the snapshot; the typed exact-local request and engine now consume `LocalCacheSettings`. Direct legacy callers retain lazy environment adapters. Introduce a grouped local-search host request before forwarding the final leaf from the top-level loop. |
-| C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
+| C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
+| C3 Diagnostics extraction | READY | Begin with the null sink and stable lifecycle payloads, then move one serialization family at a time without changing artifact schemas. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
@@ -123,6 +123,14 @@ GPU identity and paired timing context.
 | 2026-09-09 | Exact-local typed cache request | `test_local_em_types.py` plus two real cache-route equivalence cases in `test_refine_relion_mode.py` | 24/24 passed. The typed/legacy adapters round-trip the cache object, and invalid environment values are bypassed for raw, processed-half, and sparse-M-step decisions without changing numerical outputs. Read-only persistent-cache warnings were sandbox-only non-failures. |
 | 2026-09-09 | Exact-local caller compatibility | Ten selected local-search cases plus two local K-class cases | 12/12 passed; the new optional compatibility keyword preserves both caller families. |
 | 2026-09-09 | Exact-local request CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.45 s`. |
+| 2026-09-09 | Grouped local-search host boundary | `test_local_search_types.py`, selected local-search refinement cases, and merge guards | 24/24, 13/13, and 29/29 passed. All three production local-search calls use one typed request; execution settings forwarding passed 16/16. |
+| 2026-09-09 | Environment access migration | Focused local, shared, sparse, refinement, K-class, and policy suites | Local selection: 185 passed and one expected GPU-HLO skip; shared selection: 129 passed and three GPU-only skips; K-class/merge selection: 136/136; refinement policy selection: 121/121. The broad sparse selection passed 93 cases; two unrelated numerical-expectation cases are recorded under open risks. |
+| 2026-09-09 | Runtime configuration and structural ratchets | `test_runtime_environment_boundary.py` plus `test_dense_runtime_options.py` | 37/37 passed. Only `runtime_options.py` and `diagnostics/config.py` may access the process environment, JIT functions may not call compatibility accessors, and every named setting must have an effect class. |
+| 2026-09-09 | Final C2 compatibility matrix | Selected diagnostic, precision, finalization, translation-grid, batching, convergence, dump, merge, and sparse-preparation cases | 54 passed, 350 deselected; seven existing warnings. Explicit runtime injection and legacy environment aliases resolved identically in the covered routes. |
+| 2026-09-09 | Final C2 CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.57 s`, consistent with the prior C2 range of `49.45`--`50.18 s`. |
+| 2026-09-09 | Sparse expectation adjudication | Two exact focused cases at C2 `0f7b0337`, then the failing coarse case at pre-C2 `dc64e343` | The explicit algebraic-bypass route passed. The coarse-posterior case failed identically at both commits by one `7.45e-9` float32 value (`1.2938e-7` relative), proving it predates C2; no tolerance was changed. |
+| 2026-09-09 | Requested full K=1 validation | Slurm `60520380`; `$HOME/palmer_scratch/tmp/recovar_em_test_c2_0f7b0337_20260909_retry1` | Completed `0:0` on one A100 allocation: 13 numbered iterations, identical current-size trajectory, final-all-data, correlation `0.998392015`, RELION FSC-AUC `0.994875338`, ledger time `965.948 s`, Slurm wall `1081 s`, and peak RSS `17.764 GiB`. The raw, unaligned GT metrics are non-scoring. |
+| 2026-09-09 | Final same-allocation C2 A/B | Slurm `60521289`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c2_samegpu_0f7b0337_vs_dc64e343_retry1` | Completed `0:0` on one A100-PCIE-40GB. Candidate/control direct map FSC-AUC was `0.9992773`; candidate-vs-RELION FSC-AUC improved by `+0.0004093`; ledger time was unchanged (`+0.0009%`), process wall improved `0.20%`, exact-local time improved `1.07%`, and peak RSS improved `0.48%`. |
 
 ## Decision log
 
@@ -850,6 +858,240 @@ iteration controller, replace the 71-argument local-search host call with a
 grouped request/compatibility adapter so the migration removes coupling instead
 of adding another parameter to it.
 
+### 2026-09-09 — C2 complete: resolved runtime and environment boundary
+
+Hypothesis: dense single-volume EM can snapshot process configuration once,
+classify every supported setting, and expose typed algorithm/execution policy
+to host orchestration without changing numerical kernels, defaults, diagnostic
+compatibility, or the autonomous refinement trajectory.
+
+The implementation was split into small reviewable commits:
+
+| Commit | Purpose |
+|---|---|
+| `4df8b3ef` | Add the immutable `LocalSearchIterationRequest`. |
+| `16a3fd04` | Migrate the three production local-search calls to grouped data. |
+| `89ec99a8` | Carry run-resolved execution settings through local search. |
+| `0366d498` | Add immutable environment capture and scoped compatibility access. |
+| `63713084`, `947d51b9` | Centralize and then mechanically format diagnostic environment access. |
+| `9dec10d0` | Centralize local-engine execution environment access. |
+| `40739818` | Centralize shared dense-EM policy access. |
+| `71a99e93` | Centralize sparse pass-2 policy access. |
+| `e6aa484e` | Centralize refinement-controller policy access. |
+| `b5984788` | Resolve major algorithm choices as typed settings. |
+| `108e12bd`, `0d8ebe51` | Capture one runtime configuration at refinement entry and mechanically format its modules. |
+| `0f7b0337` | Add AST ratchets for the environment boundary and JIT kernels. |
+
+`EnvironmentSnapshot` is an immutable, sorted view of the process environment.
+`RuntimeConfiguration` composes that snapshot with `AlgorithmSettings`,
+`ExecutionSettings`, and `DiagnosticsPlan`. `refine_single_volume` resolves or
+accepts this object before validation and device work, logs the resolved typed
+algorithm/execution policy plus diagnostic setting names, and activates it for
+the run. Direct legacy helper calls still obtain live environment values when
+there is no active refinement scope, preserving the established test and
+external-call compatibility path.
+
+The promoted algorithm fields are float64 scoring, float64 projection,
+RELION-exact fine Gaussian scoring, the accelerated-double `floorf` quirk,
+the K=1 exact translation grid, and final-all-data grid correction. Their typed
+defaults exactly preserve the pre-C2 branch behavior. In particular, this
+refactor does not use the typed seam to change the existing final-all-data grid
+default; any scientific default correction remains a separately tested
+algorithm change.
+
+Configuration conflicts now fail at the host boundary. A separately supplied
+`ExecutionSettings` must agree with an explicitly supplied
+`RuntimeConfiguration`, and simultaneous significance/pass-2 target-half
+diagnostics are rejected when `DiagnosticsPlan` is constructed. Diagnostic
+overlays create a new immutable snapshot rather than mutating `os.environ`.
+
+The final classifier covers all 260 exact `RECOVAR_*` string settings present
+under the package:
+
+| Effect class | Names |
+|---|---:|
+| Algorithm | 88 |
+| Tuning | 67 |
+| Passive diagnostic | 91 |
+| Invasive experiment | 14 |
+
+The source ratchet rejects any direct `os.environ`, `os.getenv`, or imported
+equivalent outside `runtime_options.py` and `diagnostics/config.py`. A second
+ratchet rejects calls to runtime-environment compatibility accessors from
+`jax.jit`-decorated functions, and a third requires every exact setting name to
+have an effect class. Dense, local, and sparse numerical kernels therefore no
+longer read process state; host compatibility helpers inside an active run see
+the captured immutable mapping.
+
+Focused validation was deliberately distributed by changed subsystem:
+
+- grouped local-search contract/callers/merge guards passed 24/24, 13/13, and
+  29/29, followed by 16/16 execution-settings forwarding cases;
+- local policy migration passed 185 cases with one expected GPU-HLO skip;
+- shared policy migration passed 129 cases with three GPU-only skips;
+- K-class, joint-semantics, and merge suites passed 136/136;
+- selected refinement-policy cases passed 121/121;
+- the final structural/runtime suite passed 37/37;
+- the final cross-module compatibility matrix passed 54 selected cases with
+  350 deselected and seven existing warnings;
+- `pixi run test-em-fast-guard` passed 16/16 in `49.57 s`, within the observed
+  C2 range of `49.45`--`50.18 s`.
+
+One intermediate broader sparse selection passed 93 cases and exposed two
+numerical expectation mismatches: a float32 coarse-posterior value exceeded
+the test's relative tolerance by about `1.29e-7`, and one then-named explicit
+float64 route had a float32 dtype expectation. At final HEAD the explicit
+algebraic-bypass route passes. The unchanged coarse-posterior case produces the
+same one-value `7.45e-9` failure at both pre-C2 `dc64e343` and C2 `0f7b0337`,
+proving that failure predates the stage. No tolerance, baseline, or numerical
+implementation was changed to hide either result.
+
+Host timing also bounds the new policy lookup cost. Seven one-million-call
+samples measured direct typed-field access at `0.0353 us`, scoped algorithm
+lookup at `0.0870 us`, live `os.environ.get` at `0.6773 us`, and scoped snapshot
+lookup at `0.1699 us` per call. The scoped accessors are outside particle,
+pixel, candidate, bucket, device, and JIT loops. Together with the stable CPU
+guard, this finds no host-performance regression attributable to C2.
+
+Requested full-run job `60520380` completed `0:0` at clean HEAD `0f7b0337`
+with diff SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+It ran on one Slurm A100 allocation and produced 13 numbered iterations, the
+same current-size sequence as the reference, convergence after iteration 13,
+and the final-all-data path. Its artifact and log are:
+
+- `$HOME/palmer_scratch/tmp/recovar_em_test_c2_0f7b0337_20260909_retry1`;
+- `$HOME/palmer_scratch/tmp/recovar_em_c2_0f7b0337_60520380.log`.
+
+The requested command was run unchanged except for the unique, non-overwriting
+output directory:
+
+```bash
+python scripts/run_multi_iter_parity.py \
+  --relion_dir relion_em_test_double_seeded \
+  --data_star _full_refinement_data_double_seeded/particles.star \
+  --iter 0 \
+  --max_iter 20 \
+  --output_dir $HOME/palmer_scratch/tmp/recovar_em_test_c2_0f7b0337_20260909_retry1 \
+  --gt_volume $HOME/pi_data/igg_1d/init_mask/backproj_0.01.mrc \
+  --replay-override-max-iter 0
+```
+
+Final correlation against RELION is `0.9983920149` and the decisive merged
+FSC-AUC is `0.9948753382`. Both exceed the immediately preceding fresh C1
+checkpoint (`+0.00005738` correlation and `+0.00041669` FSC-AUC). The older
+initial artifact remains higher by `0.00018693` correlation and `0.00098011`
+FSC-AUC; that absolute cross-run gap predates C2 and is not treated as a C2
+effect. The supplied GT metric was not alignment-enabled and is therefore a
+raw frame-mismatched diagnostic, not a quality decision. Ledger time was
+`965.948 s`; Slurm wall was `1081 s`; batch peak RSS was `17.764 GiB`. This
+single run is not used for a broad GPU timing claim.
+
+Five earlier Slurm attempts (`60519851`, `60519952`, `60520014`, `60520087`,
+and `60520308`) stopped in launcher, build, library, or preflight setup before
+science. Job `60520314` passed the GPU preflight but stopped before iteration 1
+because the RELION binding could not find FFTW. They are excluded from quality
+and timing evidence.
+
+Same-allocation job `60521289` completed `0:0` in `00:34:53` on physical GPU
+`GPU-b4639563-0794-75fe-47b9-cf05a6fdf85a`, an NVIDIA A100-PCIE-40GB. It ran
+pre-C2 `dc64e343` and C2 `0f7b0337` sequentially with the same pinned CUDA
+library, RELION binding, fixture, seed, cleaned compatibility environment, and
+isolated runtime/cache roots. Both detached worktrees had empty tracked diffs;
+their only untracked entries were the two fixture links.
+
+Each arm ran this command from its pinned worktree, changing only `<arm>`:
+
+```bash
+python -m scripts.run_multi_iter_parity \
+  --relion_dir relion_em_test_double_seeded \
+  --data_star _full_refinement_data_double_seeded/particles.star \
+  --iter 0 --max_iter 20 \
+  --output_dir "$RUN_ROOT/<arm>_output" \
+  --gt_volume "$HOME/pi_data/igg_1d/init_mask/backproj_0.01.mrc" \
+  --replay-override-max-iter 0
+```
+
+The combined standard-output and standard-error logs are
+`$HOME/palmer_scratch/tmp/dense_em_refactor_c2_samegpu_0f7b0337_vs_dc64e343_retry1/logs/dense-em-c2-ab-60521289.out`
+and
+`$HOME/palmer_scratch/tmp/dense_em_refactor_c2_samegpu_0f7b0337_vs_dc64e343_retry1/logs/dense-em-c2-ab-60521289.err`.
+
+| Measure | Control `dc64e343` | Candidate `0f7b0337` | Candidate delta |
+|---|---:|---:|---:|
+| Completed iterations | 13 | 13 | same |
+| Current-size trajectory | `46,46,72,70,70,70,70,70,70,72,72,72,72` | same | same |
+| Final-all-data path | yes | yes | same |
+| Final merged FSC-AUC vs RELION | `0.9944652754` | `0.9948745863` | `+0.0004093110` |
+| Final merged correlation vs RELION (diagnostic) | `0.9983334284` | `0.9983925903` | `+0.0000591619` |
+| Ledger elapsed | `994.729 s` | `994.738 s` | `+0.0009%` |
+| Exact-local EM time | `335.584 s` | `331.995 s` | `-1.07%` |
+| External process wall | `1043.57 s` | `1041.45 s` | `-0.20%` |
+| Peak RSS | `11,126,756 KiB` | `11,073,504 KiB` | `-0.48%` |
+
+The two 310-key result archives have identical key order, shapes, and dtypes.
+Current-size, pixel-resolution, healpix-order, finalization, sampling, and
+gridding-policy fields match exactly. The direct final merged maps have
+normalized non-DC FSC-AUC `0.9992772717`, minimum non-DC FSC `0.9973098636`,
+and diagnostic correlation `0.9998790672`. Across the 13 iterations, 484 of
+13,000 significant-count rows, 235 best-rotation rows, and 96
+best-translation rows differ; the final all-data poses differ in 53 rotation
+rows and 11 translation rows. The maximum saved iteration-FSC difference is
+`0.00413997`. These differences are disclosed rather than called bitwise
+parity.
+
+The first numerical difference is already limited to GPU accumulator
+roundoff at iteration 0: the largest `Ft_y` difference is `5.21e-10` and the
+largest `Ft_ctf` difference is `4.55e-13`. An independent C2 candidate repeat
+has iteration-0 differences of the same scale (`9.31e-10` and `4.55e-13`)
+against the paired candidate. Those two C2 candidate maps directly match at
+FSC-AUC `0.9999992076` with minimum non-DC FSC `0.9999902248`, while their
+RELION FSC-AUC values differ by only `7.52e-7`. The later discrete drift is
+therefore consistent with iterative amplification of the existing
+nondeterministic GPU accumulation seed, not a changed schedule, routing
+policy, numerical kernel, or accepted quality metric. The candidate improves
+both RELION-facing metrics, and the paired timing and memory deltas remain far
+inside the investigation thresholds.
+
+The portable artifact root is
+`$HOME/palmer_scratch/tmp/dense_em_refactor_c2_samegpu_0f7b0337_vs_dc64e343_retry1`.
+It contains both ledgers, 310-field result archives, intermediate arrays,
+resource records, provenance manifests, and logs, plus a `SAFE_TO_DELETE`
+marker. The launcher SHA-256 is
+`e924737e266ed69ae3b759862ef15c235f16ed3dda6433db12efe06153417914`;
+the pinned CUDA library SHA-256 is
+`107149065aafb5988815b693a2852c01a87dd9d6f4719ccad2f289b0f00a7143`.
+Control and candidate ledger SHA-256 values are, respectively,
+`a032d52928cb15a683da5c58fa8dc2f004ee99d08f33a1f73d9534577a0b4b49`
+and
+`b329dd753622f800b67eee6f2e3854a2058f1961cf48e9593517852d182f7baa`.
+Ledger compile counts are `null` for both arms, so this job does not support a
+compilation-count claim.
+
+C2 exit criteria:
+
+- all 260 exact settings are classified as algorithm, tuning, passive
+  diagnostic, or invasive experiment;
+- direct process reads are confined to `runtime_options.py` and
+  `diagnostics/config.py`, with AST ratchets protecting that boundary and JIT
+  kernels;
+- host orchestration receives one resolved `RuntimeConfiguration` containing
+  typed algorithm, execution, and diagnostic policy;
+- configuration conflicts fail before device work and logs show resolved
+  typed policy rather than scattered raw values;
+- environment compatibility tests, focused subsystem tests, K-class guards,
+  and the CPU fast guard pass with the established values and defaults;
+- the requested full K=1 run and paired A100 comparison show no accepted
+  quality, end-to-end performance, exact-local performance, or memory
+  regression.
+
+Decision: C2 is complete with a structural GPU pass. The absolute
+cross-RELION FSC-AUC remains just below the program's `0.995` gate, as it did
+before C2; candidate C2 improves the paired control by `0.0004093`, so this is
+retained as an independent scientific-quality issue rather than a refactor
+regression. C3 may now begin from the immutable runtime and diagnostics-plan
+boundary.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -875,13 +1117,12 @@ Open risks:
 
 ## Immediate next actions
 
-1. Treat C1 as structurally complete at the typed host boundaries; retain the
-   legacy engines as the sole numerical implementations until a separately
-   justified algorithm-preserving decomposition.
-2. Introduce a grouped request/compatibility adapter for the 71-argument
-   local-search host call, then carry `ExecutionSettings.local_cache` inside
-   that request rather than adding another top-level scalar parameter.
-3. Ratchet direct environment reads toward host boundaries one independently
-   testable policy family at a time.
-4. Track the absolute FSC-AUC gap between the older artifact and both arms of
-   jobs `60511038` and `60517729` separately from structural equivalence.
+1. Define the C3 null diagnostics sink and stable lifecycle payloads at the
+   existing host synchronization points; do not introduce a generic event bus.
+2. Move one serialization family at a time out of the controller and engines,
+   retaining exact NPZ keys, dtypes, shapes, filenames, and stop behavior.
+3. Keep passive, shadow, and invasive diagnostics visibly separate; passive
+   capture must never select production outputs.
+4. Compare null-diagnostics output, synchronization, lowered HLO, compilation
+   count, timing, and memory against the C2 checkpoint, while tracking the
+   older absolute `0.995` FSC-AUC issue independently.
