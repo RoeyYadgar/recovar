@@ -43,6 +43,7 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalSearchSettings,
 )
 from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationRequest
+from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
 from recovar.em.sampling import build_local_search_grid_metadata
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,7 @@ def _run_local_search_iteration(
     source_faithful_spectrum_norm=False,
     rotation_grid_mstep_rotations=None,
     generate_relion_mstep_rotations=False,
+    execution_settings: ExecutionSettings | None = None,
 ):
     """Run exact local search over image-specific rotation neighborhoods.
 
@@ -364,6 +366,11 @@ def _run_local_search_iteration(
         padding_factor=max(int(projection_padding_factor), int(reconstruction_padding_factor), 1),
         n_classes=local_kernel_classes,
         current_size=local_batch_planning_current_size,
+        settings=(
+            None
+            if execution_settings is None
+            else execution_settings.dense_batch_planning
+        ),
     )
     if (
         local_batch_plan.image_batch_size != image_batch_size
@@ -451,6 +458,9 @@ def _run_local_search_iteration(
             class_posterior_sums_from_noise=bool(reconstruct_significant_only and accumulate_noise),
             debug_iteration=debug_iteration,
             translation_prior_centers=translation_prior_centers,
+            cache_settings=(
+                None if execution_settings is None else execution_settings.local_cache
+            ),
         )
         use_noise_class_sums = bool(reconstruct_significant_only and accumulate_noise)
         class_mstep_posterior_sums = (
@@ -506,6 +516,11 @@ def _run_local_search_iteration(
                 execution=LocalExecutionSettings(
                     image_batch_size=image_batch_size,
                     rotation_block_size=rotation_block_size,
+                    cache=(
+                        None
+                        if execution_settings is None
+                        else execution_settings.local_cache
+                    ),
                 ),
                 scoring=LocalScoringSettings(
                     score_with_masked_images=score_with_masked_images,
@@ -684,4 +699,5 @@ def run_local_search_iteration(
         source_faithful_spectrum_norm=scoring.source_faithful_spectrum_norm,
         rotation_grid_mstep_rotations=grid.rotation_grid_mstep_rotations,
         generate_relion_mstep_rotations=grid.generate_relion_mstep_rotations,
+        execution_settings=execution.settings,
     )

@@ -3251,6 +3251,7 @@ def _score_half_local(
     relion_projector_half=None,
     relion_projector_r_max: int | None = None,
     source_faithful_spectrum_norm: bool = False,
+    execution_settings=None,
 ) -> HalfScoreResult:
     """Local-search E+M scoring for one half-set.
 
@@ -3466,6 +3467,7 @@ def _score_half_local(
                     parent_ibs,
                     parent_rbs,
                     local_pass1_current_size,
+                    settings=execution_settings,
                 ),
                 scoring=LocalSearchIterationScoring(
                     half_spectrum_scoring=True,
@@ -3704,6 +3706,7 @@ def _score_half_local(
                         safe_rbs,
                         cs_for_engine,
                         reconstruction_current_size_for_engine,
+                        execution_settings,
                     ),
                     scoring=LocalSearchIterationScoring(
                         half_spectrum_scoring=True,
@@ -3804,6 +3807,7 @@ def _score_half_local(
                 safe_rbs,
                 cs_for_engine,
                 reconstruction_current_size_for_engine,
+                execution_settings,
             ),
             scoring=LocalSearchIterationScoring(
                 half_spectrum_scoring=True,
@@ -7003,6 +7007,7 @@ def _run_relion_iteration_loop(
                     relion_projector_half=relion_projector_half_by_half[k],
                     relion_projector_r_max=relion_projector_r_max_by_half[k],
                     source_faithful_spectrum_norm=source_faithful_spectrum_norm,
+                    execution_settings=execution,
                 )
                 ha_k = local_result.ha
                 Ft_y_k = local_result.Ft_y
@@ -9898,6 +9903,7 @@ def _run_relion_iteration_loop(
                 local_profile_history=history.local_profile_history,
                 relion_projector_half=final_relion_projector_half_by_half[k],
                 relion_projector_r_max=final_relion_projector_r_max_by_half[k],
+                execution_settings=execution,
             )
         else:
             final_result = _score_half_dense_in_bpref_scope(

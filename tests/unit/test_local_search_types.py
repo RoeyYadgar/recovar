@@ -105,4 +105,5 @@ def test_local_search_iteration_adapter_maps_every_legacy_parameter():
     assert bound.arguments["rotation_grid_mstep_rotations"] == "mstep_rotations"
     assert bound.arguments["projection_relion_texture_interp"] is None
     assert bound.arguments["source_faithful_spectrum_norm"] is True
+    assert bound.arguments["execution_settings"] is settings
     assert request.execution.settings is settings
