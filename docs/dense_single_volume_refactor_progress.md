@@ -10,7 +10,7 @@ Last updated: 2026-09-09
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
-| C2 Policy/environment boundary | IN PROGRESS | `ExecutionSettings` composes the first-iteration, global raw-image cache, dense batch-planning, and exact-local cache leaves. `RefinementOptions` carries the snapshot; the top-level raw cache, global dense planner, and all first-iteration clamps consume its resolved values. Direct legacy callers retain lazy environment-compatible adapters. Migrate the exact-local cache leaf through its typed request seam. |
+| C2 Policy/environment boundary | IN PROGRESS | `ExecutionSettings` composes all four established leaves. The top-level raw cache, global dense planner, and first-iteration clamps consume the snapshot; the typed exact-local request and engine now consume `LocalCacheSettings`. Direct legacy callers retain lazy environment adapters. Introduce a grouped local-search host request before forwarding the final leaf from the top-level loop. |
 | C3 Diagnostics extraction | NOT STARTED | Depends on C1/C2 typed seams. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
@@ -120,6 +120,9 @@ GPU identity and paired timing context.
 | 2026-09-09 | First-iteration planner settings | Complete `test_firstiter_cc_batch_budget.py` plus the top-level settings-boundary case in `test_refine_relion_mode.py` | 14/14 passed with two pre-existing SciPy gimbal-lock warnings. Invalid process state was bypassed by the explicit typed budget for both coarse and fine clamps. |
 | 2026-09-09 | Batch-planner façade host timing | Seven 500,000-call samples of a bare stub and the callable façade | Best direct/façade times were `0.262` / `0.535 us/call`, a `0.274 us` dispatch cost (about `0.3%` of the previously measured real planner call). |
 | 2026-09-09 | First-iteration settings CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.72 s`. |
+| 2026-09-09 | Exact-local typed cache request | `test_local_em_types.py` plus two real cache-route equivalence cases in `test_refine_relion_mode.py` | 24/24 passed. The typed/legacy adapters round-trip the cache object, and invalid environment values are bypassed for raw, processed-half, and sparse-M-step decisions without changing numerical outputs. Read-only persistent-cache warnings were sandbox-only non-failures. |
+| 2026-09-09 | Exact-local caller compatibility | Ten selected local-search cases plus two local K-class cases | 12/12 passed; the new optional compatibility keyword preserves both caller families. |
+| 2026-09-09 | Exact-local request CPU guard | `pixi run test-em-fast-guard` | 16/16 passed in `49.45 s`. |
 
 ## Decision log
 
@@ -791,6 +794,62 @@ Decision: accepted. The remaining composed-but-not-top-level-consumed leaf is
 request/compatibility boundary, then migrate its host caller without adding
 individual cache-limit scalars.
 
+### 2026-09-09 — exact-local cache settings in the typed request
+
+Hypothesis: `LocalCacheSettings` can enter the exact-local engine as one member
+of `LocalExecutionSettings`, round-trip through the legacy K-class adapter, and
+control all three cache decisions without adding individual limit arguments or
+changing any route's numerical result.
+
+Files changed: `local_em_types.py`, `local_em_engine.py`, `k_class.py`,
+`test_local_em_types.py`, and two existing route-equivalence cases in
+`test_refine_relion_mode.py`.
+
+`LocalExecutionSettings.cache` is an optional typed leaf. The legacy
+`run_local_em_exact` boundary accepts one optional `cache_settings` object for
+direct-call compatibility, and `run_local_em` maps the grouped field to it.
+The K-class legacy-to-request adapter maps the same object back into the local
+execution group. Inside the engine, the processed-half preference, raw-image
+fallback, and per-bucket sparse big-JIT M-step decision all receive that one
+object. No cache formula, default, eligibility comparison, bucket shape,
+selected numerical route, array operation, dtype, reduction, JIT signature,
+tolerance, or baseline changed.
+
+When the object is absent, all three helpers preserve their historical lazy
+field-specific environment parsing. When present, they read only immutable
+fields from the supplied object. The adapter contract test now covers every
+live compatibility parameter, including the new grouped cache field, and its
+round trip through the K-class builder.
+
+The 22 contract cases plus two real engine route-equivalence cases passed
+24/24. Those engine cases deliberately set all relevant process variables to
+invalid values, then select raw versus processed-half caching and sparse versus
+deferred M-step execution through explicit settings; hard assignments, stats,
+accumulators, and noise remain within their unchanged existing checks. The ten
+selected local-search callers and two K-class callers passed 12/12. Read-only
+JAX persistent-cache warnings were caused by the sandbox and did not affect
+results. The CPU EM fast guard passed 16/16 in `49.45 s`.
+
+The compatibility path performs the same parser calls as before. The explicit
+per-bucket sparse-M-step helper path was previously measured at `0.32 us/call`,
+versus `0.48 us/call` for the former inline lookup and `0.82 us/call` for the
+transitional compatibility adapter. This slice adds only one host object
+forwarding operation per exact-local invocation and does not enter JIT/device
+code. No new GPU job was submitted; Slurm job `60517729` remains the latest
+same-GPU structural A/B evidence.
+
+Tested dirty-tree provenance: HEAD `4011e8e7`, tracked diff SHA-256
+`6b238fdfc04449431391f733e4140e5077e82aa717b63aae3f3435ba833bdf8a`,
+and 1,427 pre-existing untracked paths with sorted manifest SHA-256
+`565752e3c6fcb6404f7a6da29289d1fd2b350ae1d88448d6bea850de2bcb1072`.
+
+Commit: `a87d1fcb` — `em: pass cache settings through local request`.
+
+Decision: accepted. Before forwarding `ExecutionSettings.local_cache` from the
+iteration controller, replace the 71-argument local-search host call with a
+grouped request/compatibility adapter so the migration removes coupling instead
+of adding another parameter to it.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -819,9 +878,9 @@ Open risks:
 1. Treat C1 as structurally complete at the typed host boundaries; retain the
    legacy engines as the sole numerical implementations until a separately
    justified algorithm-preserving decomposition.
-2. Add the remaining `LocalCacheSettings` leaf to the typed exact-local
-   request/compatibility boundary, preserving lazy compatibility for direct
-   legacy callers and avoiding individual cache-limit scalars.
+2. Introduce a grouped request/compatibility adapter for the 71-argument
+   local-search host call, then carry `ExecutionSettings.local_cache` inside
+   that request rather than adding another top-level scalar parameter.
 3. Ratchet direct environment reads toward host boundaries one independently
    testable policy family at a time.
 4. Track the absolute FSC-AUC gap between the older artifact and both arms of
