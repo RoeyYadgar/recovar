@@ -21,6 +21,7 @@ from recovar.em.dense_single_volume.helpers.scoring import (
     _e_step_block_scores_windowed,
     _update_logsumexp,
 )
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 from recovar.utils.nvtx_shim import nvtx
 
 _SIGNIFICANCE_SCORE_CACHE_ENV = "RECOVAR_SIGNIFICANCE_SCORE_CACHE"
@@ -69,7 +70,7 @@ def _compact_projection_window_positions(compact_indices, window_indices) -> np.
 def _relion_acc_double_floorf_quirk_enabled() -> bool:
     """Match RELION's texture-free ACC projector coordinate flooring."""
 
-    token = os.environ.get(_RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV, "0").strip().lower()
+    token = _runtime_environment().get(_RELION_ACC_DOUBLE_FLOORF_QUIRK_ENV, "0").strip().lower()
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -98,14 +99,14 @@ def _maybe_stop_after_significance_dump(
 ) -> None:
     """Stop an explicit diagnostic only after its complete target set exists."""
 
-    if os.environ.get(_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET_ENV) != "1":
+    if _runtime_environment().get(_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET_ENV) != "1":
         return
     if not os.path.isfile(dump_path):
         raise RuntimeError(
             "RECOVAR significance stop target is missing its dump file: "
             f"{dump_path}"
         )
-    target_iteration = os.environ.get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
     iteration_suffix = (
         ""
         if not target_iteration
@@ -134,7 +135,7 @@ def _maybe_stop_after_significance_dump(
 def _k1_coarse_gaussian_ffi_enabled(*, default: bool = False) -> bool:
     """Return whether the RELION coarse Gaussian FFI is active."""
 
-    token = os.environ.get(
+    token = _runtime_environment().get(
         _K1_COARSE_GAUSSIAN_FFI_ENV,
         "1" if default else "0",
     ).strip().lower()
@@ -148,7 +149,7 @@ def _k1_coarse_gaussian_ffi_enabled(*, default: bool = False) -> bool:
 def _k1_coarse_gaussian_sincosf_enabled(*, default: bool = False) -> bool:
     """Return whether exact RELION coarse score translation is active."""
 
-    token = os.environ.get(
+    token = _runtime_environment().get(
         _K1_COARSE_GAUSSIAN_SINCOSF_ENV,
         "1" if default else "0",
     ).strip().lower()
@@ -164,7 +165,7 @@ def _k1_coarse_gaussian_sincosf_enabled(*, default: bool = False) -> bool:
 def _k1_coarse_gaussian_native_texture_enabled(*, default: bool = False) -> bool:
     """Return whether projection and coarse scoring run in one RELION kernel."""
 
-    token = os.environ.get(
+    token = _runtime_environment().get(
         _K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV,
         "1" if default else "0",
     ).strip().lower()
@@ -180,7 +181,7 @@ def _k1_coarse_gaussian_native_texture_enabled(*, default: bool = False) -> bool
 def _k1_relion_exact_coarse_operands_enabled(*, default: bool = False) -> bool:
     """Return whether coarse Gaussian scoring uses native RFLOAT CTF operands."""
 
-    token = os.environ.get(
+    token = _runtime_environment().get(
         _K1_RELION_EXACT_COARSE_OPERANDS_ENV,
         "1" if default else "0",
     ).strip().lower()
@@ -196,7 +197,7 @@ def _k1_relion_exact_coarse_operands_enabled(*, default: bool = False) -> bool:
 def _k1_relion_f32_coarse_support_enabled(*, default: bool = False) -> bool:
     """Return whether the RELION CUDA float32 coarse support is active."""
 
-    token = os.environ.get(
+    token = _runtime_environment().get(
         _K1_RELION_F32_COARSE_SUPPORT_ENV,
         "1" if default else "0",
     ).strip().lower()
@@ -358,7 +359,7 @@ def _global_pass1_relion_projector_texture_enabled() -> bool:
     Coarse significance defaults to RELION's texture projector.  Set the
     environment flag to false to force the manual/JAX diagnostic fallback.
     """
-    token = os.environ.get(_GLOBAL_PASS1_RELION_PROJECTOR_TEXTURE_ENV, "1").strip().lower()
+    token = _runtime_environment().get(_GLOBAL_PASS1_RELION_PROJECTOR_TEXTURE_ENV, "1").strip().lower()
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -369,7 +370,7 @@ def _global_pass1_relion_projector_texture_enabled() -> bool:
 def _firstiter_cc_tree_top2_rescore_max_margin() -> float | None:
     """Return the near-tie margin for RELION coarse-tree replay."""
 
-    token = os.environ.get(_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV, "").strip()
+    token = _runtime_environment().get(_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV, "").strip()
     if not token:
         return None
     if token.lower() in {"off", "none", "disable", "disabled"}:
@@ -476,7 +477,7 @@ def _select_relion_coarse_rescore_winner_slots(
 def _dense_projection_scale(image_shape) -> float:
     """Match the dense E-step projection scaling used by the shared helper."""
 
-    token = (os.environ.get("RECOVAR_DENSE_MEANS_SCALE") or "-N2").strip()
+    token = (_runtime_environment().get("RECOVAR_DENSE_MEANS_SCALE") or "-N2").strip()
     n = int(image_shape[0])
     scale = {"-N2": -(n**2), "N2": float(n**2)}.get(token)
     if scale is None:
@@ -550,7 +551,7 @@ def _pass1_fused_enabled() -> bool:
     ``RECOVAR_PASS1_FUSED=1`` to opt in. Bit-identical to the unfused path
     when active (same ops, same order, same dtypes).
     """
-    mode = os.environ.get(_SIGNIFICANCE_FUSED_PASS1_ENV, "0").strip().lower()
+    mode = _runtime_environment().get(_SIGNIFICANCE_FUSED_PASS1_ENV, "0").strip().lower()
     return mode in {"1", "true", "yes", "on"}
 
 
@@ -680,18 +681,18 @@ def _significance_score_cache_enabled(n_images, n_classes, n_rot, n_trans, *, us
     too large, callers fall back to the previous recompute path.
     """
 
-    mode = os.environ.get(_SIGNIFICANCE_SCORE_CACHE_ENV, "auto").strip().lower()
+    mode = _runtime_environment().get(_SIGNIFICANCE_SCORE_CACHE_ENV, "auto").strip().lower()
     if mode in {"0", "false", "no", "off", "disable", "disabled"}:
         return False
     force = mode in {"1", "true", "yes", "on", "force", "always"}
     itemsize = 8 if use_float64_scoring else 4
     estimated_bytes = int(n_images) * int(n_classes) * int(n_rot) * int(n_trans) * itemsize
-    max_gb = float(os.environ.get(_SIGNIFICANCE_SCORE_CACHE_MAX_GB_ENV, _SIGNIFICANCE_SCORE_CACHE_DEFAULT_MAX_GB))
+    max_gb = float(_runtime_environment().get(_SIGNIFICANCE_SCORE_CACHE_MAX_GB_ENV, _SIGNIFICANCE_SCORE_CACHE_DEFAULT_MAX_GB))
     return force or estimated_bytes <= int(max_gb * (1024**3))
 
 
 def _significance_debug_dump_enabled() -> bool:
-    return bool(os.environ.get("RECOVAR_SIGNIFICANCE_DUMP_DIR"))
+    return bool(_runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_DIR"))
 
 
 def _significance_debug_dump_matches(*, current_size, debug_iteration) -> bool:
@@ -701,12 +702,12 @@ def _significance_debug_dump_matches(*, current_size, debug_iteration) -> bool:
         return False
     if not parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES"):
         return False
-    target_current_size = os.environ.get("RECOVAR_SIGNIFICANCE_DUMP_CURRENT_SIZE")
+    target_current_size = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_CURRENT_SIZE")
     if target_current_size and (
         current_size is None or int(current_size) != int(target_current_size)
     ):
         return False
-    target_iteration = os.environ.get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
     if target_iteration and (
         debug_iteration is None or int(debug_iteration) != int(target_iteration)
     ):
@@ -766,7 +767,7 @@ def _maybe_dump_tree_rescore_batch(
     ambiguous_original_indices = batch_original_indices[
         np.asarray(ambiguous_rows, dtype=np.int64)
     ]
-    dump_dir = os.environ["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
+    dump_dir = _runtime_environment()["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
     os.makedirs(dump_dir, exist_ok=True)
     candidate_pose_ids = np.asarray(candidate_pose_ids, dtype=np.int32)
     original_best_pose = np.asarray(original_best_pose, dtype=np.int32)
@@ -854,9 +855,9 @@ def _maybe_dump_significance_batch(
         debug_iteration=debug_iteration,
     ):
         return
-    dump_dir = os.environ["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
+    dump_dir = _runtime_environment()["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
     target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
-    target_iteration = os.environ.get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
 
     local_indices = np.asarray(indices, dtype=np.int64)
     original_indices = _original_indices_for_local(experiment_dataset, local_indices)
@@ -1024,9 +1025,9 @@ def _maybe_dump_k_class_significance_batch(
         debug_iteration=debug_iteration,
     ):
         return
-    dump_dir = os.environ["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
+    dump_dir = _runtime_environment()["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
     target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
-    target_iteration = os.environ.get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
 
     local_indices = np.asarray(indices, dtype=np.int64)
     original_indices = _original_indices_for_local(experiment_dataset, local_indices)
@@ -2224,7 +2225,7 @@ def _compute_k_class_significance_batched(
             (
                 "guarded fresh-K=1 default"
                 if relion_coarse_gaussian_default
-                and _K1_RELION_F32_COARSE_SUPPORT_ENV not in os.environ
+                and _K1_RELION_F32_COARSE_SUPPORT_ENV not in _runtime_environment()
                 else "environment override"
             ),
             int(image_shape[0]) if current_size is None else int(current_size),
@@ -2316,7 +2317,7 @@ def _compute_k_class_significance_batched(
             (
                 "guarded fresh-K=1 default"
                 if relion_coarse_gaussian_default
-                and _K1_COARSE_GAUSSIAN_FFI_ENV not in os.environ
+                and _K1_COARSE_GAUSSIAN_FFI_ENV not in _runtime_environment()
                 else "environment override"
             ),
             "float64" if use_float64_scoring else "float32",
@@ -2331,7 +2332,7 @@ def _compute_k_class_significance_batched(
                 (
                     "guarded fresh-K=1 default"
                     if relion_coarse_gaussian_default
-                    and _K1_COARSE_GAUSSIAN_SINCOSF_ENV not in os.environ
+                    and _K1_COARSE_GAUSSIAN_SINCOSF_ENV not in _runtime_environment()
                     else "environment override"
                 ),
                 score_size,
@@ -2345,7 +2346,7 @@ def _compute_k_class_significance_batched(
                 (
                     "guarded fresh-K=1 default"
                     if relion_coarse_gaussian_default
-                    and _K1_RELION_EXACT_COARSE_OPERANDS_ENV not in os.environ
+                    and _K1_RELION_EXACT_COARSE_OPERANDS_ENV not in _runtime_environment()
                     else "environment override"
                 ),
             )
@@ -2365,7 +2366,7 @@ def _compute_k_class_significance_batched(
                 (
                     "guarded fresh-K=1 default"
                     if relion_coarse_gaussian_default
-                    and _K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV not in os.environ
+                    and _K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV not in _runtime_environment()
                     else "environment override"
                 ),
             )
@@ -3213,7 +3214,7 @@ def _compute_k_class_significance_batched(
         )
         passive_score_dump = bool(
             dump_target_local_positions is not None
-            and os.environ.get(_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV) == "1"
+            and _runtime_environment().get(_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV) == "1"
         )
         passive_raw_score_blocks_per_class = (
             [[] for _ in range(n_classes)] if passive_score_dump else None

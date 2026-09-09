@@ -79,6 +79,7 @@ from recovar.em.dense_single_volume.helpers.half_volume_mstep import (
     relion_x_half_accumulators_to_public_layout,
     relion_x_half_mstep_accumulator_dtypes,
 )
+from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 from recovar.em.dense_single_volume.helpers.image_shifts import (
     apply_relion_integer_pre_shifts,
     half_image_phase_factors,
@@ -376,7 +377,7 @@ def _maybe_stop_after_bpref_contribution_dump(
 ) -> None:
     """Stop an explicit diagnostic only after all requested files exist."""
 
-    if os.environ.get(_BPREF_CONTRIBUTION_STOP_AFTER_TARGET_ENV) != "1":
+    if _runtime_environment().get(_BPREF_CONTRIBUTION_STOP_AFTER_TARGET_ENV) != "1":
         return
     contribution_path = Path(contribution_path)
     if not contribution_path.is_file():
@@ -385,7 +386,7 @@ def _maybe_stop_after_bpref_contribution_dump(
             f"{contribution_path}"
         )
     device_dump_requested = bool(
-        os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     )
     resolved_device_path = (
         None if device_signature_path is None else Path(device_signature_path)
@@ -464,7 +465,7 @@ def _bpref_contribution_target_rows(experiment_dataset, image_indices) -> np.nda
     """Return bucket rows selected by the optional frozen original-index target."""
 
     local_indices = np.asarray(image_indices, dtype=np.int64)
-    target_raw = os.environ.get(
+    target_raw = _runtime_environment().get(
         "RECOVAR_BPREF_CONTRIBUTION_DUMP_ORIGINAL_INDICES",
         "",
     ).strip()
@@ -558,7 +559,7 @@ def _bpref_contribution_class_enabled(class_index: int) -> bool:
     the class labels used by the pre-scatter comparison scripts.
     """
 
-    value = os.environ.get(_BPREF_CONTRIBUTION_DUMP_CLASS_ENV, "").strip()
+    value = _runtime_environment().get(_BPREF_CONTRIBUTION_DUMP_CLASS_ENV, "").strip()
     if not value:
         return True
     try:
@@ -675,7 +676,7 @@ def _bpref_image_identities_for_original_indices(original_indices: np.ndarray) -
     the diagnostic never needs pickle.
     """
 
-    mapping_path = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_IMAGE_NAMES_NPY", "").strip()
+    mapping_path = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_IMAGE_NAMES_NPY", "").strip()
     if not mapping_path:
         raise RuntimeError(
             "RECOVAR_BPREF_CONTRIBUTION_IMAGE_NAMES_NPY is required when "
@@ -712,7 +713,7 @@ def _bpref_image_identities_for_original_indices(original_indices: np.ndarray) -
 
 
 def _bpref_required_stack_checksum() -> str:
-    checksum = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_STACK_SHA256", "").strip().lower()
+    checksum = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_STACK_SHA256", "").strip().lower()
     if len(checksum) != 64 or any(char not in "0123456789abcdef" for char in checksum):
         raise RuntimeError(
             "RECOVAR_BPREF_CONTRIBUTION_STACK_SHA256 must contain the frozen source stack SHA256"
@@ -731,10 +732,10 @@ def _sha256_file(path: Path) -> str:
 def flush_bpref_device_panel_accumulator(*, iteration: int, half: int) -> None:
     """Write and release every exact native class panel for one half."""
 
-    dump_dir = os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+    dump_dir = _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     if not dump_dir:
         return
-    run_id = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_RUN_ID", "unset")
+    run_id = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_RUN_ID", "unset")
     prefix = (int(iteration), int(half), run_id)
     keys = sorted(key for key in _bpref_device_panel_metadata if key[:3] == prefix)
     if not keys:
@@ -977,12 +978,12 @@ def _maybe_dump_native_half_mstep(
     recon_volume_shape,
     stage,
 ):
-    dump_dir = os.environ.get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_DIR")
     if not dump_dir:
         return
     context_iteration = int(_bpref_contribution_context["iteration"])
     context_half = int(_bpref_contribution_context["half"])
-    target_iteration = os.environ.get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_ITERATION")
     if target_iteration and context_iteration != int(target_iteration):
         return
 
@@ -992,7 +993,7 @@ def _maybe_dump_native_half_mstep(
 
     path = Path(dump_dir)
     path.mkdir(parents=True, exist_ok=True)
-    run_id = os.environ.get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_RUN_ID", "unset")
+    run_id = _runtime_environment().get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_RUN_ID", "unset")
     np.savez_compressed(
         path
         / (
@@ -1082,11 +1083,11 @@ def _maybe_dump_bpref_contribution_rows(
     """
 
     if (
-        os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
         and device_signature_active is not True
     ):
         return
-    dump_dir = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR")
     if not dump_dir:
         return
     class_index = int(class_index)
@@ -1097,16 +1098,16 @@ def _maybe_dump_bpref_contribution_rows(
     _bpref_contribution_call_counter += 1
     context_iteration = int(_bpref_contribution_context["iteration"])
     context_half = int(_bpref_contribution_context["half"])
-    target_iteration = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ITERATION")
     if target_iteration and context_iteration != int(target_iteration):
         return
-    target_half = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF")
+    target_half = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF")
     if target_half:
         if int(target_half) not in {1, 2}:
             raise ValueError("RECOVAR_BPREF_CONTRIBUTION_DUMP_HALF must be 1 or 2")
         if context_half != int(target_half):
             return
-    target_current_size = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_CURRENT_SIZE")
+    target_current_size = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_CURRENT_SIZE")
     if target_current_size:
         if current_size is None or int(current_size) != int(target_current_size):
             return
@@ -1128,7 +1129,7 @@ def _maybe_dump_bpref_contribution_rows(
         experiment_dataset,
         local_indices,
     )
-    if os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ORIGINAL_INDICES", "").strip():
+    if _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_ORIGINAL_INDICES", "").strip():
         if selected_particle_rows.size == 0:
             return
         local_indices = local_indices[selected_particle_rows]
@@ -1168,7 +1169,7 @@ def _maybe_dump_bpref_contribution_rows(
     _bpref_contribution_dump_counter += 1
     path = Path(dump_dir)
     path.mkdir(parents=True, exist_ok=True)
-    run_id = os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_RUN_ID", "unset")
+    run_id = _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_RUN_ID", "unset")
     stack_indices = np.asarray([int(value.split("@", 1)[0]) for value in image_identities], dtype=np.int64)
     stack_paths = np.asarray([value.split("@", 1)[1] for value in image_identities])
     if high_precision_operand_bundle:
@@ -1255,7 +1256,7 @@ def _maybe_dump_bpref_contribution_rows(
         call_index=np.int64(call_idx),
         iteration=np.int32(context_iteration),
         half=np.int32(context_half),
-        rank=np.int32(int(os.environ.get("RECOVAR_BPREF_CONTRIBUTION_RANK", "0"))),
+        rank=np.int32(int(_runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_RANK", "0"))),
         pass_index=np.int32(2),
         class_index=np.int32(class_index),
         run_id=np.asarray(run_id),
@@ -1376,7 +1377,7 @@ def _maybe_dump_bpref_contribution_rows(
     )
 
     device_signature_path = None
-    device_dump_dir = os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+    device_dump_dir = _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     if device_dump_dir:
         from recovar import cuda_backproject
 
@@ -1514,7 +1515,7 @@ def _maybe_dump_bpref_contribution_rows(
             "volume_shape": tuple(int(value) for value in volume_shape),
             "reconstruction_padding_factor": int(reconstruction_padding_factor),
             "source_stack_sha256": stack_sha256,
-            "rank": int(os.environ.get("RECOVAR_BPREF_CONTRIBUTION_RANK", "0")),
+            "rank": int(_runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_RANK", "0")),
             "causal_arm": (
                 "winner-take-all-per-particle-fused-xhalf"
                 if winner_take_all
@@ -1574,7 +1575,7 @@ def _maybe_dump_bpref_contribution_rows(
             run_id=np.asarray(run_id),
             iteration=np.int32(context_iteration),
             half=np.int32(context_half),
-            rank=np.int32(int(os.environ.get("RECOVAR_BPREF_CONTRIBUTION_RANK", "0"))),
+            rank=np.int32(int(_runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_RANK", "0"))),
             pass_index=np.int32(2),
             class_index=np.int32(class_index),
             call_index=np.int64(call_idx),
@@ -2603,7 +2604,7 @@ def _maybe_prepare_sparse_k_class_compact_pair_plan(
     authoritative.
     """
 
-    stats_flag = os.environ.get(_COMPACT_KCLASS_PAIR_STATS_ENV)
+    stats_flag = _runtime_environment().get(_COMPACT_KCLASS_PAIR_STATS_ENV)
     if stats_flag is None or stats_flag.strip().lower() not in {"1", "true", "yes", "on"}:
         return None
     compact_pair_max_images_per_microbatch = _compact_pair_max_images_per_microbatch_for_pass(
@@ -2787,7 +2788,7 @@ def _bucket_pass2_inputs(
 def _load_bpref_execution_order_local_override(n_images: int) -> np.ndarray | None:
     """Load a fail-closed diagnostic K=1 particle execution permutation."""
 
-    raw_path = os.environ.get(_BPREF_EXECUTION_ORDER_LOCAL_FILE_ENV)
+    raw_path = _runtime_environment().get(_BPREF_EXECUTION_ORDER_LOCAL_FILE_ENV)
     if raw_path is None or not raw_path.strip():
         return None
     path = Path(raw_path).expanduser()
@@ -2931,7 +2932,7 @@ def _bucket_sparse_k_class_pass2_inputs(
 
 
 def _optional_positive_int_env(name: str) -> int | None:
-    raw = os.environ.get(name)
+    raw = _runtime_environment().get(name)
     if raw is None or raw == "":
         return None
     try:
@@ -2994,7 +2995,7 @@ def _resolve_bpref_execution_bucket_policy(
 
 
 def _optional_nonnegative_int_env(name: str) -> int | None:
-    raw = os.environ.get(name)
+    raw = _runtime_environment().get(name)
     if raw is None or raw == "":
         return None
     try:
@@ -3007,7 +3008,7 @@ def _optional_nonnegative_int_env(name: str) -> int | None:
 
 
 def _optional_positive_float_env(name: str) -> float | None:
-    raw = os.environ.get(name)
+    raw = _runtime_environment().get(name)
     if raw is None or raw == "":
         return None
     try:
@@ -3020,7 +3021,7 @@ def _optional_positive_float_env(name: str) -> float | None:
 
 
 def _env_flag_enabled(name: str, *, default: bool = False) -> bool:
-    raw = os.environ.get(name)
+    raw = _runtime_environment().get(name)
     if raw is None or raw.strip() == "":
         return bool(default)
     return raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -3130,7 +3131,7 @@ def _pass2_top2_debug_target_indices() -> tuple[int, ...]:
     the other half.
     """
 
-    raw = os.environ.get(_PASS2_TOP2_DEBUG_INDICES_ENV, "").strip()
+    raw = _runtime_environment().get(_PASS2_TOP2_DEBUG_INDICES_ENV, "").strip()
     if not raw:
         return ()
     return tuple(int(token) for token in raw.split(",") if token.strip())
@@ -3199,7 +3200,7 @@ def _log_pass2_top2_debug(scores, image_indices, targets: tuple[int, ...], *, da
 
 
 def _pass2_dump_enabled() -> bool:
-    return bool(os.environ.get(_PASS2_DUMP_DIR_ENV)) and not _env_flag_enabled(
+    return bool(_runtime_environment().get(_PASS2_DUMP_DIR_ENV)) and not _env_flag_enabled(
         _NORM_RESIDUAL_DUMP_ONLY_ENV,
         default=False,
     )
@@ -3223,7 +3224,7 @@ def _projection_cache_enabled_for_pass(
 
     if fine_rotations_override is None:
         return False
-    raw = os.environ.get(_SPARSE_PASS2_PROJECTION_CACHE_ENV)
+    raw = _runtime_environment().get(_SPARSE_PASS2_PROJECTION_CACHE_ENV)
     mode = "auto" if raw is None or raw.strip() == "" else raw.strip().lower()
     if mode == "auto":
         # Preserve the currently qualified paths while cache-on/cache-off is
@@ -3247,7 +3248,7 @@ def _cached_score_rotation_chunk_size_for_pass(bucket_size: int) -> int:
 def _compact_pair_mstep_mode_for_pass() -> str:
     """Return the compact-pair M-step reduction mode for this process."""
 
-    raw = os.environ.get(_SPARSE_KCLASS_COMPACT_PAIR_MSTEP_ENV)
+    raw = _runtime_environment().get(_SPARSE_KCLASS_COMPACT_PAIR_MSTEP_ENV)
     if raw is None or raw.strip() == "":
         return "dense"
     mode = raw.strip().lower()
@@ -3595,7 +3596,7 @@ def _device_memory_limit_bytes() -> int | None:
     # ``RECOVAR_SPARSE_PASS2_DEVICE_MEMORY_GB`` overrides the nvidia-smi probe.
     # Keep this as a manual escape hatch for reserving headroom on shared GPUs
     # or working around inaccurate allocator/device probes.
-    _override = os.environ.get("RECOVAR_SPARSE_PASS2_DEVICE_MEMORY_GB")
+    _override = _runtime_environment().get("RECOVAR_SPARSE_PASS2_DEVICE_MEMORY_GB")
     if _override is not None:
         try:
             override_gb = float(_override.strip())
@@ -3619,7 +3620,7 @@ def _device_memory_limit_bytes() -> int | None:
         if query.returncode == 0:
             memory_bytes = _nvidia_smi_visible_device_memory_bytes(
                 query.stdout,
-                os.environ.get("CUDA_VISIBLE_DEVICES"),
+                _runtime_environment().get("CUDA_VISIBLE_DEVICES"),
             )
             if memory_bytes is not None:
                 return memory_bytes
@@ -3659,7 +3660,7 @@ def _device_free_memory_bytes() -> int | None:
         if query.returncode == 0:
             return _nvidia_smi_visible_device_memory_bytes(
                 query.stdout,
-                os.environ.get("CUDA_VISIBLE_DEVICES"),
+                _runtime_environment().get("CUDA_VISIBLE_DEVICES"),
             )
     except Exception:
         pass
@@ -5414,7 +5415,7 @@ def _scoped_bpref_diagnostic_flags(*, active: bool) -> dict[str, bool]:
     """Resolve process flags against an explicit device-capture boundary."""
 
     device_signature_configured = bool(
-        os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     )
     scope_active = bool(active or not device_signature_configured)
     return {
@@ -8887,7 +8888,7 @@ def _relion_fine_mstep_prune_mode(*, use_relion_x_half_mstep: bool, mode_overrid
 
     value = mode_override
     if value is None:
-        value = os.environ.get(_SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE_ENV)
+        value = _runtime_environment().get(_SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE_ENV)
     if value is None or not value.strip():
         return "per_class" if use_relion_x_half_mstep else "none"
     mode = value.strip().lower()
@@ -8950,15 +8951,15 @@ def _reorder_to_indices(image_indices_returned, requested_image_indices, *arrays
 
 
 def _bpref_membership_dump_requested():
-    dump_dir = os.environ.get(_BPREF_MEMBERSHIP_DUMP_DIR_ENV, "").strip()
+    dump_dir = _runtime_environment().get(_BPREF_MEMBERSHIP_DUMP_DIR_ENV, "").strip()
     if not dump_dir:
         return False
     context_iteration = int(_bpref_contribution_context["iteration"])
     context_half = int(_bpref_contribution_context["half"])
-    target_iteration = os.environ.get(_BPREF_MEMBERSHIP_DUMP_ITERATION_ENV)
+    target_iteration = _runtime_environment().get(_BPREF_MEMBERSHIP_DUMP_ITERATION_ENV)
     if target_iteration and context_iteration != int(target_iteration):
         return False
-    target_half = os.environ.get(_BPREF_MEMBERSHIP_DUMP_HALF_ENV)
+    target_half = _runtime_environment().get(_BPREF_MEMBERSHIP_DUMP_HALF_ENV)
     if target_half:
         if int(target_half) not in {1, 2}:
             raise ValueError(f"{_BPREF_MEMBERSHIP_DUMP_HALF_ENV} must be 1 or 2")
@@ -8986,7 +8987,7 @@ def _maybe_dump_k1_bpref_rotation_mass(
 
     if not _bpref_membership_dump_requested():
         return
-    dump_dir = os.environ[_BPREF_MEMBERSHIP_DUMP_DIR_ENV].strip()
+    dump_dir = _runtime_environment()[_BPREF_MEMBERSHIP_DUMP_DIR_ENV].strip()
     context_iteration = int(_bpref_contribution_context["iteration"])
     context_half = int(_bpref_contribution_context["half"])
 
@@ -9159,7 +9160,7 @@ def _maybe_dump_pass2_bucket(
     raw_score_mode="gaussian",
 ):
     """Env-gated sparse pass-2 dump for RELION operand parity debugging."""
-    dump_dir = os.environ.get("RECOVAR_PASS2_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_PASS2_DUMP_DIR")
     if not dump_dir:
         return 0
     target_original_indices = parse_env_int_set("RECOVAR_PASS2_DUMP_ORIGINAL_INDICES")
@@ -9167,13 +9168,13 @@ def _maybe_dump_pass2_bucket(
         target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
     if not target_original_indices:
         return 0
-    target_current_size = os.environ.get("RECOVAR_PASS2_DUMP_CURRENT_SIZE")
+    target_current_size = _runtime_environment().get("RECOVAR_PASS2_DUMP_CURRENT_SIZE")
     if target_current_size:
         if current_size is None or int(current_size) != int(target_current_size):
             return 0
     context_iteration = int(_bpref_contribution_context["iteration"])
     context_half = int(_bpref_contribution_context["half"])
-    target_iteration = os.environ.get("RECOVAR_PASS2_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_PASS2_DUMP_ITERATION")
     if target_iteration and context_iteration != int(target_iteration):
         return 0
     local_indices = np.asarray(image_indices, dtype=np.int64)
@@ -9689,12 +9690,12 @@ def _maybe_dump_norm_residual_inputs(
 
     if not _env_flag_enabled("RECOVAR_PASS2_DUMP_NORM_RESIDUAL_INPUTS", default=False):
         return 0
-    dump_dir = os.environ.get(_PASS2_DUMP_DIR_ENV)
+    dump_dir = _runtime_environment().get(_PASS2_DUMP_DIR_ENV)
     if not dump_dir:
         raise ValueError(
             "RECOVAR_PASS2_DUMP_NORM_RESIDUAL_INPUTS requires RECOVAR_PASS2_DUMP_DIR"
         )
-    target_iteration = os.environ.get("RECOVAR_PASS2_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_PASS2_DUMP_ITERATION")
     context_iteration = int(_bpref_contribution_context["iteration"])
     if target_iteration and context_iteration != int(target_iteration):
         return 0
@@ -10341,7 +10342,7 @@ def _maybe_dump_k_class_pass2_bucket(
 ):
     """Env-gated K-class sparse pass-2 dump for RELION parity debugging."""
 
-    dump_dir = os.environ.get("RECOVAR_PASS2_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_PASS2_DUMP_DIR")
     if not dump_dir:
         return 0
     target_original_indices = parse_env_int_set("RECOVAR_PASS2_DUMP_ORIGINAL_INDICES")
@@ -10349,16 +10350,16 @@ def _maybe_dump_k_class_pass2_bucket(
         target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
     if not target_original_indices:
         return 0
-    target_current_size = os.environ.get("RECOVAR_PASS2_DUMP_CURRENT_SIZE")
+    target_current_size = _runtime_environment().get("RECOVAR_PASS2_DUMP_CURRENT_SIZE")
     if target_current_size:
         if current_size is None or int(current_size) != int(target_current_size):
             return 0
     context_iteration = int(_bpref_contribution_context["iteration"])
     context_half = int(_bpref_contribution_context["half"])
-    target_iteration = os.environ.get("RECOVAR_PASS2_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_PASS2_DUMP_ITERATION")
     if target_iteration and context_iteration != int(target_iteration):
         return 0
-    target_class = os.environ.get("RECOVAR_PASS2_DUMP_CLASS")
+    target_class = _runtime_environment().get("RECOVAR_PASS2_DUMP_CLASS")
     if target_class and int(target_class) != int(class_index) + 1:
         return 0
 
@@ -10794,7 +10795,7 @@ def _pass2_dump_target_rows(
 ) -> np.ndarray:
     """Return batch rows selected by the explicit pass-2 dump contract."""
 
-    dump_dir = os.environ.get("RECOVAR_PASS2_DUMP_DIR")
+    dump_dir = _runtime_environment().get("RECOVAR_PASS2_DUMP_DIR")
     if not dump_dir:
         return np.empty((0,), dtype=np.int64)
     target_original_indices = parse_env_int_set("RECOVAR_PASS2_DUMP_ORIGINAL_INDICES")
@@ -10802,11 +10803,11 @@ def _pass2_dump_target_rows(
         target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
     if not target_original_indices:
         return np.empty((0,), dtype=np.int64)
-    target_iteration = os.environ.get("RECOVAR_PASS2_DUMP_ITERATION")
+    target_iteration = _runtime_environment().get("RECOVAR_PASS2_DUMP_ITERATION")
     context_iteration = int(_bpref_contribution_context["iteration"])
     if target_iteration and context_iteration != int(target_iteration):
         return np.empty((0,), dtype=np.int64)
-    target_current_size = os.environ.get("RECOVAR_PASS2_DUMP_CURRENT_SIZE")
+    target_current_size = _runtime_environment().get("RECOVAR_PASS2_DUMP_CURRENT_SIZE")
     if target_current_size:
         if current_size is None or int(current_size) != int(target_current_size):
             return np.empty((0,), dtype=np.int64)
@@ -10902,7 +10903,7 @@ def _star_column(table, name: str):
 def _relion_exact_ctf_source_star(experiment_dataset) -> Path:
     """Resolve the immutable source STAR for exact RELION CTF evaluation."""
 
-    source_star = os.environ.get("RECOVAR_K1_RELION_EXACT_CTF_STAR", "").strip()
+    source_star = _runtime_environment().get("RECOVAR_K1_RELION_EXACT_CTF_STAR", "").strip()
     if not source_star:
         dataset_source = getattr(experiment_dataset, "particles_file", None)
         if dataset_source and Path(dataset_source).suffix.lower() == ".star":
@@ -11635,13 +11636,13 @@ def compute_pass2_stats_sparse_bucketed(
     diff2/minimum ordering in the active ACC precision (float32 or float64).
     """
     device_signature_configured = bool(
-        os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     )
     device_signature_requested = bool(
         device_signature_configured and bpref_device_signature_active
     )
     contribution_diagnostics_active = bool(
-        os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip()
+        _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip()
         and (bpref_device_signature_active or not device_signature_configured)
     )
     membership_diagnostics_active = _bpref_membership_dump_requested()
@@ -11679,7 +11680,7 @@ def compute_pass2_stats_sparse_bucketed(
         # launch boundary authoritative even when no diagnostic flag is set.
         use_per_particle_launches = True
     if device_signature_requested:
-        if not os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"):
+        if not _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"):
             raise RuntimeError(
                 "RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR requires "
                 "RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"
@@ -12064,7 +12065,7 @@ def compute_pass2_stats_sparse_bucketed(
             logger.info(
                 "STRICT-PARITY diagnostic: executing K=1 BPref particles in the "
                 "explicit local order from %s (%s; %d contiguous particles per bucket call)",
-                os.environ[_BPREF_EXECUTION_ORDER_LOCAL_FILE_ENV],
+                _runtime_environment()[_BPREF_EXECUTION_ORDER_LOCAL_FILE_ENV],
                 "stable within support-size buckets"
                 if processing_order_group_by_bucket_size
                 else "global",
@@ -14334,7 +14335,7 @@ def compute_pass2_stats_sparse_bucketed(
                 noise_sumw_total += float(np.sum(chunk_support_mass, dtype=np.float64))
 
                 if chunked_scale_aa_target_rows.size:
-                    dump_dir = os.environ.get(_PASS2_DUMP_DIR_ENV)
+                    dump_dir = _runtime_environment().get(_PASS2_DUMP_DIR_ENV)
                     if not dump_dir:
                         raise ValueError(
                             "RECOVAR_PASS2_DUMP_NORM_RESIDUAL_INPUTS requires "
@@ -14905,7 +14906,7 @@ def compute_pass2_stats_sparse_bucketed(
                         "RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES"
                     )
                 completed_dump_count, expected_dump_count = _k1_pass2_dump_progress(
-                    dump_dir=os.environ[_PASS2_DUMP_DIR_ENV],
+                    dump_dir=_runtime_environment()[_PASS2_DUMP_DIR_ENV],
                     target_original_indices=target_original_indices,
                     current_size=current_size,
                 )
@@ -15645,7 +15646,7 @@ def compute_pass2_stats_sparse_bucketed(
     merged_noise_stats = None
     if accumulate_noise:
         if relion_wavg_atomic_direct_norm:
-            norm_dump_dir = os.environ.get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
+            norm_dump_dir = _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
             if norm_dump_dir:
                 os.makedirs(norm_dump_dir, exist_ok=True)
                 context_iteration = int(_bpref_contribution_context["iteration"])
@@ -15789,7 +15790,7 @@ def compute_k_class_pass2_stats_sparse_fused(
     """
 
     device_signature_configured = bool(
-        os.environ.get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     )
     device_signature_requested = bool(
         device_signature_configured and bpref_device_signature_active
@@ -15798,7 +15799,7 @@ def compute_k_class_pass2_stats_sparse_fused(
         active=bpref_device_signature_active
     )
     if device_signature_requested:
-        if not os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"):
+        if not _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"):
             raise RuntimeError(
                 "RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR requires "
                 "RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"
@@ -16174,9 +16175,9 @@ def compute_k_class_pass2_stats_sparse_fused(
         int(budget_window_spec.n_score),
         (-1.0 if device_memory_bytes is None else device_memory_bytes / float(1024**3)),
     )
-    compact_pairs_env = os.environ.get(_SPARSE_KCLASS_COMPACT_PAIRS_ENV)
+    compact_pairs_env = _runtime_environment().get(_SPARSE_KCLASS_COMPACT_PAIRS_ENV)
     compact_pairs = _compact_pair_execution_enabled_for_pass()
-    compact_active_rows_env = os.environ.get(_SPARSE_KCLASS_COMPACT_ACTIVE_ROWS_ENV)
+    compact_active_rows_env = _runtime_environment().get(_SPARSE_KCLASS_COMPACT_ACTIVE_ROWS_ENV)
     compact_active_rows = (
         compact_pairs
         and _env_flag_enabled(_SPARSE_KCLASS_COMPACT_ACTIVE_ROWS_ENV, default=True)
@@ -16804,7 +16805,7 @@ def compute_k_class_pass2_stats_sparse_fused(
             sum(len(bucket["image_indices"]) for bucket in rectangular_execution_buckets),
         )
     bucket_group_stats = _k_class_execution_bucket_group_stats(execution_buckets)
-    profile_group_timing = os.environ.get(_SPARSE_KCLASS_GROUP_TIMING_ENV) == "1"
+    profile_group_timing = _runtime_environment().get(_SPARSE_KCLASS_GROUP_TIMING_ENV) == "1"
     last_bucket_size_logged = None
     group_t0 = None
     group_timing = None
@@ -17069,7 +17070,7 @@ def compute_k_class_pass2_stats_sparse_fused(
         bucket_diagnostic_modes = _resolve_bpref_bucket_diagnostic_modes(
             device_signature_requested=device_signature_requested,
             contribution_diagnostics_active=bool(
-                os.environ.get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip()
+                _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", "").strip()
                 and bpref_device_signature_active
             ),
             target_particle_rows=target_particle_rows,
@@ -17526,7 +17527,7 @@ def compute_k_class_pass2_stats_sparse_fused(
                         )
                 if not use_exact_relion_gaussian:
                     class_log_z_for_bucket = _logsumexp_pass2_bucket_score_only(scores)
-            target_dump_class = os.environ.get("RECOVAR_PASS2_DUMP_CLASS")
+            target_dump_class = _runtime_environment().get("RECOVAR_PASS2_DUMP_CLASS")
             if (
                 use_exact_relion_gaussian
                 and pass2_dump_rows.size
@@ -17672,7 +17673,7 @@ def compute_k_class_pass2_stats_sparse_fused(
             scores_by_class = []
             class_score_log_z_bucket = []
             for class_index, raw_diff2 in enumerate(raw_diff2_by_class):
-                target_dump_class = os.environ.get(
+                target_dump_class = _runtime_environment().get(
                     "RECOVAR_PASS2_DUMP_CLASS"
                 )
                 if (
@@ -17947,14 +17948,14 @@ def compute_k_class_pass2_stats_sparse_fused(
                     target_original_indices = parse_env_int_set(
                         "RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES"
                     )
-                target_class = os.environ.get("RECOVAR_PASS2_DUMP_CLASS")
+                target_class = _runtime_environment().get("RECOVAR_PASS2_DUMP_CLASS")
                 target_classes_one_based = (
                     {int(target_class)}
                     if target_class
                     else range(1, len(class_bucket_arrays) + 1)
                 )
                 completed_dump_count, expected_dump_count = _k_class_pass2_dump_progress(
-                    dump_dir=os.environ[_PASS2_DUMP_DIR_ENV],
+                    dump_dir=_runtime_environment()[_PASS2_DUMP_DIR_ENV],
                     target_original_indices=target_original_indices,
                     target_classes_one_based=target_classes_one_based,
                     current_size=current_size,
