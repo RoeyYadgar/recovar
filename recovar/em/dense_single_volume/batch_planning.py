@@ -13,7 +13,6 @@ EM dispatch.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from dataclasses import dataclass
 
@@ -26,7 +25,9 @@ from recovar.em.dense_single_volume.runtime_options import (
     EM_RAW_IMAGE_CACHE_MAX_GB_ENV as _EM_RAW_IMAGE_CACHE_MAX_GB_ENV,
 )
 from recovar.em.dense_single_volume.runtime_options import (
+    DenseBatchPlanningSettings,
     RawImageCacheSettings,
+    load_dense_batch_planning_settings,
     load_raw_image_cache_max_gb,
     load_raw_image_cache_mode,
 )
@@ -39,7 +40,6 @@ logger = logging.getLogger(__name__)
 RELION_SCORE_TENSOR_FLOAT_BUDGET = 200_000_000
 _RELION_EM_BATCH_DEFAULT_GPU_GB = 80.0
 _RELION_EM_BATCH_USABLE_FRACTION = 0.65
-_RELION_EM_BATCH_PROJECTION_FRACTION = 0.20
 _RELION_EM_BATCH_SCORE_FRACTION = 0.20
 _RELION_EM_BATCH_MAX_PROJECTION_GB = 10.0
 _RELION_EM_BATCH_MIN_PROJECTION_GB = 0.5
@@ -55,7 +55,6 @@ _RELION_EM_BATCH_RUNTIME_TRANSLATION_TILE_FRACTION = 0.17
 _RELION_EM_BATCH_MAX_TRANSLATION_TILE_GB = 14.0
 _RELION_EM_BATCH_MIN_TRANSLATION_TILE_GB = 0.5
 _RELION_EM_BATCH_RUNTIME_FREE_FRACTION = 0.80
-_RELION_EM_BATCH_PROJECTION_FRACTION_ENV = "RECOVAR_RELION_EM_BATCH_PROJECTION_FRACTION"
 
 
 @dataclass(frozen=True)
@@ -84,19 +83,6 @@ def _safe_int(value, default):
         return int(default)
 
 
-def _positive_env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None or raw.strip() == "":
-        return float(default)
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a positive finite float, got {raw!r}") from exc
-    if not np.isfinite(value) or value <= 0:
-        raise ValueError(f"{name} must be a positive finite float, got {raw!r}")
-    return float(value)
-
-
 def _active_half_spectrum_pixels(image_shape, current_size: int | None) -> int:
     full_half_pixels = int(image_shape[0]) * (int(image_shape[1]) // 2 + 1)
     if current_size is None:
@@ -122,6 +108,7 @@ def _estimate_relion_em_batch_sizes(
     n_classes: int = 1,
     gpu_memory_gb: float | None = None,
     current_size: int | None = None,
+    settings: DenseBatchPlanningSettings | None = None,
 ) -> _RelionEMBatchPlan:
     """Choose EM microbatch sizes from pose-grid, image, class, and GPU size."""
     # Indirection through iteration_loop module so test monkeypatches on
@@ -175,13 +162,10 @@ def _estimate_relion_em_batch_sizes(
             ),
         )
     )
-    projection_fraction = _positive_env_float(
-        _RELION_EM_BATCH_PROJECTION_FRACTION_ENV,
-        _RELION_EM_BATCH_PROJECTION_FRACTION,
-    )
+    resolved_settings = load_dense_batch_planning_settings() if settings is None else settings
     projection_budget_gb = max(
         _RELION_EM_BATCH_MIN_PROJECTION_GB,
-        min(_RELION_EM_BATCH_MAX_PROJECTION_GB, usable_gb * projection_fraction),
+        min(_RELION_EM_BATCH_MAX_PROJECTION_GB, usable_gb * resolved_settings.projection_fraction),
     )
     translation_tile_budget_gb = max(
         _RELION_EM_BATCH_MIN_TRANSLATION_TILE_GB,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ RELION_FIRSTITER_RECON_COMPLEX_BUDGET_ENV = "RECOVAR_RELION_FIRSTITER_RECON_COMP
 EM_RAW_IMAGE_CACHE_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE"
 EM_RAW_IMAGE_CACHE_MAX_GB_ENV = "RECOVAR_EM_RAW_IMAGE_CACHE_MAX_GB"
 EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB = 16.0
+RELION_EM_BATCH_PROJECTION_FRACTION = 0.20
+RELION_EM_BATCH_PROJECTION_FRACTION_ENV = "RECOVAR_RELION_EM_BATCH_PROJECTION_FRACTION"
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,17 @@ class RawImageCacheSettings:
 
     mode: str = "auto"
     max_gb: float = EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB
+
+
+@dataclass(frozen=True)
+class DenseBatchPlanningSettings:
+    """Resolved memory fractions used by the dense EM batch planner."""
+
+    projection_fraction: float = RELION_EM_BATCH_PROJECTION_FRACTION
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(float(self.projection_fraction)) or float(self.projection_fraction) <= 0:
+            raise ValueError("projection_fraction must be a positive finite float")
 
 
 def load_first_iteration_batch_settings(
@@ -74,3 +88,23 @@ def load_raw_image_cache_max_gb(environ: Mapping[str, str] | None = None) -> flo
 
     env = os.environ if environ is None else environ
     return float(env.get(EM_RAW_IMAGE_CACHE_MAX_GB_ENV, EM_RAW_IMAGE_CACHE_DEFAULT_MAX_GB))
+
+
+def load_dense_batch_planning_settings(
+    environ: Mapping[str, str] | None = None,
+) -> DenseBatchPlanningSettings:
+    """Resolve dense batch-planning settings from compatibility variables."""
+
+    env = os.environ if environ is None else environ
+    raw = env.get(RELION_EM_BATCH_PROJECTION_FRACTION_ENV)
+    if raw is None or raw.strip() == "":
+        return DenseBatchPlanningSettings()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{RELION_EM_BATCH_PROJECTION_FRACTION_ENV} must be a positive finite float, got {raw!r}"
+        ) from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{RELION_EM_BATCH_PROJECTION_FRACTION_ENV} must be a positive finite float, got {raw!r}")
+    return DenseBatchPlanningSettings(projection_fraction=value)
