@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IN PROGRESS — SETUP COMPONENTS EXTRACTED | Immutable host plans own compatibility, validated inputs, and dimensions. A separate JAX-aware component now owns precision, reconstruction geometry, accumulator metadata, Fourier windows, and projection-route selection. Microbatch/bucket planning is next; the 98-argument JIT boundary remains fixed. |
+| C4 Exact-local engine | IN PROGRESS — SETUP COMPONENTS EXTRACTED | Immutable host plans and a JAX-aware array component own validation and setup. Memory-aware microbatch/x-half cap policy now has a dedicated module; composing it with bucket topology is next. The 98-argument JIT boundary remains fixed. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -138,6 +138,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local input plan | Commit `5544838b` | Planner/contracts 43/43, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Per-image host validation preserves shapes, conversion dtypes, error order, and translation-center dtype. |
 | 2026-09-10 | C4 exact-local geometry plan | Commit `344eae0f` | Planner/contracts 45/45, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Derived dimensions moved to a lightweight immutable plan; JAX-backed precision, window, and accumulator setup remains in the engine. |
 | 2026-09-10 | C4 exact-local array setup | Commit `1b9ca28b` | Setup/planner/contracts 53/53, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Precision, reconstruction/accumulator shapes, Fourier windows, x-half adjoint metadata, and projection mode moved together with original ordering. |
+| 2026-09-10 | C4 exact-local microbatch policy | Commit `b0d8b75a` | All 18 focused cap tests passed. GPU-memory defaults, explicit overrides, score-only bounds, planned floors, and x-half tail/projection caps moved intact to `local_em_batch_planning.py`; engine compatibility names remain. |
 
 ## Decision log
 
@@ -2056,6 +2057,48 @@ Commit SHA and descriptive message: `1b9ca28b` —
 Decision: accepted. Next extract effective microbatch caps and bucket topology
 into a plan while retaining every x-half tail/projection cap and diagnostic
 bucket filter.
+
+### 2026-09-10 — C4 exact-local microbatch policy module
+
+Hypothesis: the existing memory-aware cap functions form one coherent policy
+component and can move out of the engine before bucket orchestration changes.
+
+Files changed: new `local_em_batch_planning.py`, `local_em_engine.py`, and the
+cap monkeypatch targets in `test_refine_relion_mode.py`.
+
+The new module owns the visible-GPU and allocator-free-memory probes, standard
+and high-memory defaults, explicit environment compatibility, score-only tile
+bound, planned image-batch floor, and the separate x-half tail and projection
+caps. `local_em_engine` re-exports the established private names so existing
+callers and test imports continue to resolve while direct monkeypatches now
+target the owning module.
+
+Algorithmic invariants protected: formulas, constants, exception messages,
+environment names, warning fallbacks, high-memory detection, and the order in
+which caps are applied are unchanged. This slice does not yet alter the engine
+orchestration, bucket construction, diagnostic filtering, logging, JAX arrays,
+or compiled calls.
+
+Focused tests and exact results: all 18 selected microbatch, high-memory,
+score-only, environment-override, x-half-tail, and x-half-projection tests
+passed in `7.38 s`. The new module and touched files pass targeted Ruff checks.
+The preceding array-setup slice already ran the full real exact-local and CPU
+guard ladders; no additional GPU or broad CPU run is needed for this exact code
+move.
+
+Provenance: code commit
+`b0d8b75a8ae33de7ae5e64d3e9d7fd5202c0798e` on `dense_em_refactor`;
+pre-commit dirty diff SHA-256
+`071ab6244189b0901ebcba198e8102a9e6d121affb46b487c4d209334d4ec8da`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `b0d8b75a` —
+`refactor: extract exact-local microbatch policy`.
+
+Decision: accepted. Next compose this policy and
+`bucket_local_hypothesis_layout` behind an immutable plan, leaving diagnostic
+target-only filtering explicit until it moves behind the diagnostics sink.
 
 ## Per-slice update template
 
