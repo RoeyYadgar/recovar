@@ -142,6 +142,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local staged cap plan | Commit `7727bde6` | Route/cap tests 21/21, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. One `LocalExecutionSettings` object now feeds immutable x-half route and generic/tail/projection cap plans. |
 | 2026-09-10 | C4 exact-local bucket topology | Commit `3fa2447e` | Bucket contracts/builders 10/10, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Production buckets and shape-frequency/image-count summaries now have immutable contracts; diagnostic filtering remains downstream. |
 | 2026-09-10 | C4 exact-local static inputs | Commit `2e5f3a6c` | Static setup 9/9, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Big-JIT mask/window/x-half index arrays and disabled sentinels now travel as `LocalBigJitStaticInputs`. |
+| 2026-09-10 | C4 internal request context | Commit `42ab9b14` | Request/planner contracts 45/45 and every selected real `run_local_em_exact` case 21/21 passed. The compatibility entry point now composes all existing groups into one explicit `LocalEMRequest` before planning. |
 
 ## Decision log
 
@@ -2254,6 +2255,48 @@ Commit SHA and descriptive message: `2e5f3a6c` —
 
 Decision: accepted. Next extract immutable cache/big-JIT route selection, then
 separate cache resources from mutable cache statistics.
+
+### 2026-09-10 — C4 internal exact-local request context
+
+Hypothesis: the legacy compatibility signature can compose the existing typed
+groups once into `LocalEMRequest`, giving later components one explicit context
+without introducing mutable algorithm state.
+
+Files changed: `local_em_engine.py` only.
+
+The engine now constructs scoring, projection, execution, search,
+reconstruction, output, correction, posterior, input, and diagnostic values
+once, then composes them into the already-public immutable request type. Mode,
+geometry, and validated-input planners consume the corresponding request
+members. Existing scalar aliases remain for untouched numerical code.
+
+This is the chosen middle ground between a stateful refinement class and long
+parameter injection: dependencies are explicit in a per-call value object,
+JAX arrays remain ordinary arguments, and helpers can consume cohesive request
+groups without reading ambient state.
+
+Algorithmic invariants protected: dataclass construction only stores existing
+references/scalars; validation order, conversions, arrays, cache decisions,
+bucket topology, JIT calls, and outputs are unchanged.
+
+Focused tests and exact results: request/planner contracts passed 45/45 in
+`6.73 s`; every selected real `run_local_em_exact` case passed 21/21 with 355
+deselected in `79.22 s`. Targeted engine lint passed. The immediately preceding
+static-input slice's CPU guard (16/16) remains applicable because this change
+adds only host object composition.
+
+Provenance: code commit
+`42ab9b140a19ee52078aad60e6806172e55ee9e6` on `dense_em_refactor`;
+pre-commit dirty diff SHA-256
+`662b0c0d8d2b0b6b50752f94abd58640d8287e68b6e838c1cb187d6d453ad724`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `42ab9b14` —
+`refactor: compose exact-local request context`.
+
+Decision: accepted. Next pass this request to immutable cache/big-JIT route
+selection.
 
 ## Per-slice update template
 
