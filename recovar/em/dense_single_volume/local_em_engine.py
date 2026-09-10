@@ -43,7 +43,6 @@ from recovar.em.dense_single_volume.helpers.preprocessing import (
     _cast_shift_inputs,
     _norm_inputs,
     process_half_image,
-    resolve_image_mask_for_half_preprocess,
 )
 from recovar.em.dense_single_volume.helpers.preprocessing import (
     apply_half_translation_phases as _apply_half_translation_phases,
@@ -142,6 +141,7 @@ from recovar.em.dense_single_volume.local_em_array_setup import (
     make_local_em_precision,
     plan_local_em_fourier,
     plan_local_em_reconstruction,
+    prepare_local_big_jit_static_inputs,
 )
 from recovar.em.dense_single_volume.local_em_planning import (
     plan_local_em_geometry,
@@ -2144,25 +2144,26 @@ def run_local_em_exact(
     timing.preprocess_s += translation_phase_time
     preprocess_profile["translation_phase_s"] += translation_phase_time
 
-    big_jit_image_mask_arg, big_jit_mask_mode = resolve_image_mask_for_half_preprocess(
-        experiment_dataset,
-        image_shape,
-        require_mask=score_with_masked_images,
+    big_jit_static_inputs = prepare_local_big_jit_static_inputs(
+        experiment_dataset=experiment_dataset,
+        geometry=geometry_plan,
+        fourier=fourier_plan,
+        mode=mode_plan,
+        scoring=scoring_settings,
+        precision=precision_policy,
     )
-    big_jit_image_mask_arg = jnp.asarray(big_jit_image_mask_arg)
-
-    big_jit_window_indices_arg = window_spec.score_or_full_indices(n_half)
-    big_jit_recon_window_indices_arg = window_spec.recon_or_full_indices(n_half)
-    big_jit_mstep_recon_window_indices_arg = (
-        mstep_recon_window_indices if mstep_relion_x_half else big_jit_recon_window_indices_arg
-    )
-    disabled_noise_wsum = jnp.zeros(1, dtype=precision_policy.score_real_dtype)
-    disabled_noise_img_power = jnp.zeros(1, dtype=precision_policy.score_real_dtype)
-    disabled_noise_a2 = jnp.zeros(1, dtype=precision_policy.score_real_dtype)
-    disabled_noise_xa = jnp.zeros(1, dtype=precision_policy.score_real_dtype)
-    disabled_noise_scale = jnp.zeros(1, dtype=precision_policy.score_real_dtype)
-    disabled_group_ids = jnp.zeros(1, dtype=jnp.int32)
-    disabled_noise_shell_indices = jnp.zeros(n_half, dtype=jnp.int32)
+    big_jit_image_mask_arg = big_jit_static_inputs.image_mask
+    big_jit_mask_mode = big_jit_static_inputs.image_mask_mode
+    big_jit_window_indices_arg = big_jit_static_inputs.score_window_indices
+    big_jit_recon_window_indices_arg = big_jit_static_inputs.reconstruction_window_indices
+    big_jit_mstep_recon_window_indices_arg = big_jit_static_inputs.mstep_reconstruction_window_indices
+    disabled_noise_wsum = big_jit_static_inputs.disabled_noise_wsum
+    disabled_noise_img_power = big_jit_static_inputs.disabled_noise_image_power
+    disabled_noise_a2 = big_jit_static_inputs.disabled_noise_a2
+    disabled_noise_xa = big_jit_static_inputs.disabled_noise_xa
+    disabled_noise_scale = big_jit_static_inputs.disabled_noise_scale
+    disabled_group_ids = big_jit_static_inputs.disabled_group_ids
+    disabled_noise_shell_indices = big_jit_static_inputs.disabled_noise_shell_indices
 
     local_support_rows = int(np.sum(local_layout.rotation_counts))
     significant_backprojection_candidate = (

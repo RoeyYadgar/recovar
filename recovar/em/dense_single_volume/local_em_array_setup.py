@@ -18,6 +18,7 @@ from recovar.em.dense_single_volume.helpers.half_volume_mstep import (
     half_volume_accumulator_shape,
     relion_backprojector_volume_shape,
 )
+from recovar.em.dense_single_volume.helpers.preprocessing import resolve_image_mask_for_half_preprocess
 from recovar.em.dense_single_volume.helpers.projection import indexed_projection_available
 from recovar.em.dense_single_volume.local_em_planning import LocalEMGeometryPlan, LocalEMModePlan
 from recovar.em.dense_single_volume.local_em_types import (
@@ -68,6 +69,24 @@ class LocalEMFourierPlan:
     mstep_adjoint_max_r: float | None
     projection: LocalProjectionPlan
     projection_mode: str
+
+
+@dataclass(frozen=True)
+class LocalBigJitStaticInputs:
+    """Call-wide arrays shared by every exact-local big-JIT bucket."""
+
+    image_mask: Any
+    image_mask_mode: str
+    score_window_indices: Any
+    reconstruction_window_indices: Any
+    mstep_reconstruction_window_indices: Any
+    disabled_noise_wsum: Any
+    disabled_noise_image_power: Any
+    disabled_noise_a2: Any
+    disabled_noise_xa: Any
+    disabled_noise_scale: Any
+    disabled_group_ids: Any
+    disabled_noise_shell_indices: Any
 
 
 def make_local_em_precision(
@@ -196,4 +215,42 @@ def plan_local_em_fourier(
         mstep_adjoint_max_r=mstep_adjoint_max_r,
         projection=projection_plan,
         projection_mode=_projection_mode(window, projection_plan, relion_projector_half),
+    )
+
+
+def prepare_local_big_jit_static_inputs(
+    *,
+    experiment_dataset,
+    geometry: LocalEMGeometryPlan,
+    fourier: LocalEMFourierPlan,
+    mode: LocalEMModePlan,
+    scoring: LocalScoringSettings,
+    precision: DensePrecisionPolicy,
+) -> LocalBigJitStaticInputs:
+    """Construct the existing mask, window, and disabled-sentinel arrays."""
+
+    image_mask, image_mask_mode = resolve_image_mask_for_half_preprocess(
+        experiment_dataset,
+        geometry.image_shape,
+        require_mask=scoring.score_with_masked_images,
+    )
+    image_mask = jnp.asarray(image_mask)
+    score_window_indices = fourier.window.score_or_full_indices(geometry.n_half)
+    reconstruction_window_indices = fourier.window.recon_or_full_indices(geometry.n_half)
+    mstep_reconstruction_window_indices = (
+        fourier.mstep_reconstruction_window_indices if mode.mstep_relion_x_half else reconstruction_window_indices
+    )
+    return LocalBigJitStaticInputs(
+        image_mask=image_mask,
+        image_mask_mode=image_mask_mode,
+        score_window_indices=score_window_indices,
+        reconstruction_window_indices=reconstruction_window_indices,
+        mstep_reconstruction_window_indices=mstep_reconstruction_window_indices,
+        disabled_noise_wsum=jnp.zeros(1, dtype=precision.score_real_dtype),
+        disabled_noise_image_power=jnp.zeros(1, dtype=precision.score_real_dtype),
+        disabled_noise_a2=jnp.zeros(1, dtype=precision.score_real_dtype),
+        disabled_noise_xa=jnp.zeros(1, dtype=precision.score_real_dtype),
+        disabled_noise_scale=jnp.zeros(1, dtype=precision.score_real_dtype),
+        disabled_group_ids=jnp.zeros(1, dtype=jnp.int32),
+        disabled_noise_shell_indices=jnp.zeros(geometry.n_half, dtype=jnp.int32),
     )

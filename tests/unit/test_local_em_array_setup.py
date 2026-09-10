@@ -12,6 +12,7 @@ from recovar.em.dense_single_volume.local_em_array_setup import (
     make_local_em_precision,
     plan_local_em_fourier,
     plan_local_em_reconstruction,
+    prepare_local_big_jit_static_inputs,
 )
 from recovar.em.dense_single_volume.local_em_planning import (
     plan_local_em_geometry,
@@ -185,3 +186,43 @@ def test_local_fourier_plan_preserves_projection_route_precedence(
     )
 
     assert plan.projection_mode == expected_mode
+
+
+def test_local_big_jit_static_inputs_preserve_full_window_sentinels():
+    geometry, search, projection, mode, reconstruction = _plans()
+    fourier = plan_local_em_fourier(
+        geometry=geometry,
+        search=search,
+        projection=projection,
+        mode=mode,
+        reconstruction=reconstruction,
+    )
+    precision = make_local_em_precision(
+        scoring=LocalScoringSettings(
+            score_with_masked_images=False,
+            use_float64_scoring=True,
+        ),
+        projection=projection,
+    )
+
+    inputs = prepare_local_big_jit_static_inputs(
+        experiment_dataset=SimpleNamespace(),
+        geometry=geometry,
+        fourier=fourier,
+        mode=mode,
+        scoring=LocalScoringSettings(score_with_masked_images=False),
+        precision=precision,
+    )
+
+    assert inputs.image_mask.shape == geometry.image_shape
+    assert inputs.image_mask_mode == "none"
+    np.testing.assert_array_equal(inputs.score_window_indices, np.arange(geometry.n_half))
+    np.testing.assert_array_equal(inputs.reconstruction_window_indices, np.arange(geometry.n_half))
+    assert inputs.mstep_reconstruction_window_indices is inputs.reconstruction_window_indices
+    assert inputs.disabled_noise_wsum.dtype == np.float64
+    assert inputs.disabled_noise_image_power.shape == (1,)
+    assert inputs.disabled_noise_a2.shape == (1,)
+    assert inputs.disabled_noise_xa.shape == (1,)
+    assert inputs.disabled_noise_scale.shape == (1,)
+    assert inputs.disabled_group_ids.dtype == np.int32
+    assert inputs.disabled_noise_shell_indices.shape == (geometry.n_half,)
