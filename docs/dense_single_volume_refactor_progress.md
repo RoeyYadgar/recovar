@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IN PROGRESS — PLANNING EXTRACTED | Immutable host/array and bucket plans own validation/setup. Call-wide masks, window indices, x-half indices, and disabled big-JIT sentinels are grouped. Cache routing/state is next; the 98-argument JIT boundary remains fixed. |
+| C4 Exact-local engine | IMPLEMENTATION COMPLETE — GPU GATE PENDING | Typed request/plans separate validation, array setup, batching, caches, diagnostics, and results. The big-JIT boundary now uses six dynamic PyTrees plus one frozen policy, with named host results and the original two-buffer donation contract. Fixed-input HLO/compile-count and paired warm GPU validation are next. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -2465,6 +2465,61 @@ not modified.
 Decision: accepted. Next move exact-local diagnostic route resolution and
 payload emission out of the algorithmic loop using the C3 sink boundary.
 
+### 2026-09-10 — C4 exact-local diagnostic session
+
+Hypothesis: exact-local environment routing and writer configuration can move
+behind one host session while observation points continue to receive the same
+already-produced arrays.
+
+Files changed: new `local_diagnostics.py`, `local_em_engine.py`, new
+`test_local_diagnostics.py`, and updated diagnostic ownership contracts in
+`test_refine_relion_mode.py`.
+
+`LocalDiagnosticsSession` parses the score, fused-posterior, and noise requests
+once. It owns current-size/iteration filtering, score operand and split flags,
+one-shot pending targets, bucket matching, explicit target-only filtering,
+writer configuration, and unobserved-target warnings. The exact-local engine
+now calls named emission methods with algorithm values; paths, requested
+iterations/sizes, environment branches, and target mutation no longer appear
+at each observation point.
+
+Algorithmic invariants protected: request parsers execute in their previous
+order; the score route flags retain their original runtime environment source;
+the target-only branch remains explicit and invasive; configured noise capture
+continues to request its legacy materialization even when call filters later
+reject the write. Writer functions, payload keys/dtypes/shapes, filename rules,
+JIT outputs, and numerical branches are unchanged.
+
+Focused tests and exact results:
+
+- diagnostic session, score/fused/noise capture, target-only, and ownership
+  contracts: 9 passed and 370 deselected in `18.50 s`, with one expected
+  gimbal-lock warning;
+- every selected real `run_local_em_exact` route: 21 passed and 355 deselected
+  in `78.66 s`;
+- CPU fast guard: 16 passed in `50.29 s`, after the expected login-node CUDA
+  discovery traceback;
+- new diagnostics/tests pass Ruff format and lint; the engine and touched
+  legacy test pass the established targeted lint scope.
+
+GPU validation remains part of the final C4 paired gate. The production/null
+route creates only small host request/session objects and performs no capture
+materialization or I/O. Diagnostic payload conversion remains inside the
+existing enabled writer adapters.
+
+Provenance: code commit
+`6041093d5fb0097d0da31966a4904b489d3a98f2` on `dense_em_refactor`;
+committed patch SHA-256
+`f4edf3679999e21182684a1a88bec84b77472de57e483f486de02e8feeb615ba`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `6041093d` —
+`refactor: isolate exact-local diagnostics`.
+
+Decision: accepted. C4 implementation is feature-complete; run the fixed-input
+HLO/compile-count checks and paired warm Slurm GPU quality/performance gate.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2490,6 +2545,5 @@ Open risks:
 
 ## Immediate next actions
 
-1. Move exact-local diagnostic payload gathering behind the C3 sink using the
-   new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
-   GPU timing gates before closing C4.
+1. Run the fixed-input HLO/compile-count checks and paired warm Slurm GPU
+   quality/performance gate, then record the C4 closure decision.
