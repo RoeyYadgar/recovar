@@ -98,6 +98,7 @@ from recovar.em.dense_single_volume.local_big_jit_types import (
     LocalBigJitPolicy,
     LocalBigJitProjectionInputs,
     LocalBigJitSharedInputs,
+    unpack_local_big_jit_result,
 )
 from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
     EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB,
@@ -2362,7 +2363,56 @@ def run_local_em_exact(
             return_big_jit_debug_operands = bool(debug_score_dump_operands and score_debug_bucket_matches)
             if return_big_jit_debug_arrays:
                 big_jit_debug_bucket_count += 1
-            big_jit_result = run_local_bucket_big_jit(
+            big_jit_policy = LocalBigJitPolicy(
+                mask_mode=big_jit_mask_mode,
+                score_with_masked_images=score_with_masked_images,
+                apply_integer_pre_shift=apply_integer_pre_shift,
+                apply_fourier_pre_shift=apply_fourier_pre_shift,
+                half_spectrum_scoring=half_spectrum_scoring,
+                use_float64_scoring=use_float64_scoring,
+                use_float64_normalization=use_float64_normalization,
+                use_window=use_window,
+                reconstruct_significant_only=reconstruct_significant_only,
+                adaptive_fraction=adaptive_fraction,
+                max_significants=max_significants,
+                has_normalization_log_z=normalization_log_z_np is not None,
+                has_normalization_log_evidence=normalization_log_evidence_np is not None,
+                has_reconstruction_probability_threshold=has_reconstruction_probability_threshold,
+                score_only=score_only,
+                image_shape=image_shape,
+                projection_volume_shape=proj_volume_shape,
+                reconstruction_volume_shape=recon_volume_shape,
+                disc_type=disc_type,
+                projection_half_volume=projection_half_volume_big_jit,
+                projection_max_r=projection_max_r_big_jit,
+                mstep_max_r=mstep_adjoint_max_r,
+                use_compact_relion_projector_projection=bool(compact_relion_projector_big_jit),
+                use_relion_projection_cache=bool(relion_projection_cache.enabled),
+                relion_projector_output_size=int(big_jit_relion_projector_output_size),
+                projection_relion_texture_interp=bool(projection_relion_texture_interp),
+                projection_force_jax=bool(projection_force_jax),
+                use_relion_projector=bool(use_relion_projector),
+                relion_projector_r_max=relion_projector_r_max_big_jit,
+                projection_padding_factor=int(projection_padding_factor),
+                mstep_subtract_ctf_projection=bool(mstep_subtract_ctf_projection),
+                mstep_relion_x_half=bool(mstep_relion_x_half),
+                disable_adjoint_y=big_jit_disable_adjoint_y,
+                disable_adjoint_ctf=big_jit_disable_adjoint_ctf,
+                accumulate_noise=accumulate_noise and not return_big_jit_deferred_mstep_inputs,
+                accumulate_scale_correction=group_ids_np is not None,
+                return_noise_split=return_noise_split,
+                n_shells=n_shells_arg,
+                norm_current_size=current_size,
+                include_unweighted_norm_high_shell=include_unweighted_norm_high_shell,
+                source_faithful_spectrum_norm=source_faithful_spectrum_norm,
+                return_mstep_tensors=return_big_jit_mstep_tensors,
+                return_deferred_mstep_inputs=return_big_jit_deferred_mstep_inputs,
+                return_deferred_noise_inputs=bool(return_big_jit_deferred_mstep_inputs and accumulate_noise),
+                return_debug_arrays=return_big_jit_debug_arrays,
+                return_debug_scores=return_big_jit_debug_scores,
+                return_debug_operands=return_big_jit_debug_operands,
+            )
+            raw_big_jit_result = run_local_bucket_big_jit(
                 LocalBigJitImageInputs(
                     images=jnp.asarray(batch_data),
                     ctf_params=jnp.asarray(ctf_params),
@@ -2423,169 +2473,46 @@ def run_local_em_exact(
                     reconstruction_probability_threshold=reconstruction_probability_threshold_arg,
                 ),
                 config,
-                policy=LocalBigJitPolicy(
-                    mask_mode=big_jit_mask_mode,
-                    score_with_masked_images=score_with_masked_images,
-                    apply_integer_pre_shift=apply_integer_pre_shift,
-                    apply_fourier_pre_shift=apply_fourier_pre_shift,
-                    half_spectrum_scoring=half_spectrum_scoring,
-                    use_float64_scoring=use_float64_scoring,
-                    use_float64_normalization=use_float64_normalization,
-                    use_window=use_window,
-                    reconstruct_significant_only=reconstruct_significant_only,
-                    adaptive_fraction=adaptive_fraction,
-                    max_significants=max_significants,
-                    has_normalization_log_z=normalization_log_z_np is not None,
-                    has_normalization_log_evidence=normalization_log_evidence_np is not None,
-                    has_reconstruction_probability_threshold=has_reconstruction_probability_threshold,
-                    score_only=score_only,
-                    image_shape=image_shape,
-                    projection_volume_shape=proj_volume_shape,
-                    reconstruction_volume_shape=recon_volume_shape,
-                    disc_type=disc_type,
-                    projection_half_volume=projection_half_volume_big_jit,
-                    projection_max_r=projection_max_r_big_jit,
-                    mstep_max_r=mstep_adjoint_max_r,
-                    use_compact_relion_projector_projection=bool(compact_relion_projector_big_jit),
-                    use_relion_projection_cache=bool(relion_projection_cache.enabled),
-                    relion_projector_output_size=int(big_jit_relion_projector_output_size),
-                    projection_relion_texture_interp=bool(projection_relion_texture_interp),
-                    projection_force_jax=bool(projection_force_jax),
-                    use_relion_projector=bool(use_relion_projector),
-                    relion_projector_r_max=relion_projector_r_max_big_jit,
-                    projection_padding_factor=int(projection_padding_factor),
-                    mstep_subtract_ctf_projection=bool(mstep_subtract_ctf_projection),
-                    mstep_relion_x_half=bool(mstep_relion_x_half),
-                    disable_adjoint_y=big_jit_disable_adjoint_y,
-                    disable_adjoint_ctf=big_jit_disable_adjoint_ctf,
-                    accumulate_noise=accumulate_noise and not return_big_jit_deferred_mstep_inputs,
-                    accumulate_scale_correction=group_ids_np is not None,
-                    return_noise_split=return_noise_split,
-                    n_shells=n_shells_arg,
-                    norm_current_size=current_size,
-                    include_unweighted_norm_high_shell=include_unweighted_norm_high_shell,
-                    source_faithful_spectrum_norm=source_faithful_spectrum_norm,
-                    return_mstep_tensors=return_big_jit_mstep_tensors,
-                    return_deferred_mstep_inputs=return_big_jit_deferred_mstep_inputs,
-                    return_deferred_noise_inputs=bool(return_big_jit_deferred_mstep_inputs and accumulate_noise),
-                    return_debug_arrays=return_big_jit_debug_arrays,
-                    return_debug_scores=return_big_jit_debug_scores,
-                    return_debug_operands=return_big_jit_debug_operands,
-                ),
+                policy=big_jit_policy,
             )
-            debug_scores = None
-            debug_probs = None
-            debug_shifted_score_split = None
-            debug_shifted_recon_split = None
-            debug_ctf2_over_nv_score = None
-            debug_ctf2_over_nv_recon = None
-            debug_proj_weighted = None
-            debug_proj_for_noise = None
-            if return_big_jit_debug_arrays:
-                if return_big_jit_debug_operands:
-                    (
-                        *big_jit_result,
-                        debug_scores,
-                        debug_probs,
-                        debug_shifted_score_split,
-                        debug_shifted_recon_split,
-                        debug_ctf2_over_nv_score,
-                        debug_ctf2_over_nv_recon,
-                        debug_proj_weighted,
-                        debug_proj_for_noise,
-                    ) = big_jit_result
-                    if score_only:
-                        debug_shifted_recon_split = None
-                        debug_ctf2_over_nv_recon = None
-                        debug_proj_for_noise = None
-                else:
-                    *big_jit_result, debug_scores, debug_probs = big_jit_result
-            if return_big_jit_deferred_mstep_inputs:
-                (
-                    Ft_y,
-                    Ft_ctf,
-                    noise_wsum,
-                    noise_img_power,
-                    noise_a2,
-                    noise_xa,
-                    noise_scale_xa,
-                    noise_scale_aa,
-                    bucket_norm_correction,
-                    noise_sigma2_offset,
-                    noise_sumw,
-                    batch_norm,
-                    log_Z,
-                    best_log_score,
-                    best_argmax,
-                    max_posterior,
-                    probs_sum_t,
-                    reconstruction_probs_sum_t,
-                    n_significant_samples,
-                    reconstruction_sample_mask,
-                    reconstruction_rotation_mask,
-                    reconstruction_row_count_jax,
-                    reconstruction_probs,
-                    shifted_recon_split,
-                    ctf2_over_nv_recon,
-                    shifted_noise_split,
-                    processed_score_half,
-                ) = big_jit_result
-                summed = None
-                ctf_probs = None
-            elif return_big_jit_mstep_tensors:
-                (
-                    Ft_y,
-                    Ft_ctf,
-                    noise_wsum,
-                    noise_img_power,
-                    noise_a2,
-                    noise_xa,
-                    noise_scale_xa,
-                    noise_scale_aa,
-                    bucket_norm_correction,
-                    noise_sigma2_offset,
-                    noise_sumw,
-                    batch_norm,
-                    log_Z,
-                    best_log_score,
-                    best_argmax,
-                    max_posterior,
-                    probs_sum_t,
-                    reconstruction_probs_sum_t,
-                    n_significant_samples,
-                    reconstruction_sample_mask,
-                    reconstruction_rotation_mask,
-                    reconstruction_row_count_jax,
-                    summed,
-                    ctf_probs,
-                ) = big_jit_result
-            else:
-                (
-                    Ft_y,
-                    Ft_ctf,
-                    noise_wsum,
-                    noise_img_power,
-                    noise_a2,
-                    noise_xa,
-                    noise_scale_xa,
-                    noise_scale_aa,
-                    bucket_norm_correction,
-                    noise_sigma2_offset,
-                    noise_sumw,
-                    batch_norm,
-                    log_Z,
-                    best_log_score,
-                    best_argmax,
-                    max_posterior,
-                    probs_sum_t,
-                    reconstruction_probs_sum_t,
-                    n_significant_samples,
-                    reconstruction_sample_mask,
-                    reconstruction_rotation_mask,
-                    reconstruction_row_count_jax,
-                ) = big_jit_result
-                summed = None
-                ctf_probs = None
+            big_jit_result = unpack_local_big_jit_result(raw_big_jit_result, big_jit_policy)
+            Ft_y = big_jit_result.mstep.y
+            Ft_ctf = big_jit_result.mstep.ctf
+            noise_wsum = big_jit_result.noise.wsum
+            noise_img_power = big_jit_result.noise.image_power
+            noise_a2 = big_jit_result.noise.a2
+            noise_xa = big_jit_result.noise.xa
+            noise_scale_xa = big_jit_result.noise.scale_xa
+            noise_scale_aa = big_jit_result.noise.scale_aa
+            noise_sigma2_offset = big_jit_result.noise.sigma2_offset
+            noise_sumw = big_jit_result.noise.sumw
+            bucket_norm_correction = big_jit_result.bucket_norm_correction
+            batch_norm = big_jit_result.batch_norm
+            log_Z = big_jit_result.log_evidence
+            best_log_score = big_jit_result.best_log_score
+            best_argmax = big_jit_result.best_argmax
+            max_posterior = big_jit_result.max_posterior
+            probs_sum_t = big_jit_result.rotation_posterior_sums
+            reconstruction_probs_sum_t = big_jit_result.reconstruction_rotation_posterior_sums
+            n_significant_samples = big_jit_result.significant_sample_counts
+            reconstruction_sample_mask = big_jit_result.reconstruction_sample_mask
+            reconstruction_rotation_mask = big_jit_result.reconstruction_rotation_mask
+            reconstruction_row_count_jax = big_jit_result.reconstruction_row_count
+            summed = big_jit_result.summed
+            ctf_probs = big_jit_result.ctf_probabilities
+            reconstruction_probs = big_jit_result.reconstruction_probabilities
+            shifted_recon_split = big_jit_result.shifted_reconstruction
+            ctf2_over_nv_recon = big_jit_result.ctf2_over_noise_reconstruction
+            shifted_noise_split = big_jit_result.shifted_noise
+            processed_score_half = big_jit_result.processed_score_half
+            debug_scores = big_jit_result.debug_scores
+            debug_probs = big_jit_result.debug_probabilities
+            debug_shifted_score_split = big_jit_result.debug_shifted_score
+            debug_shifted_recon_split = big_jit_result.debug_shifted_reconstruction
+            debug_ctf2_over_nv_score = big_jit_result.debug_ctf2_over_noise_score
+            debug_ctf2_over_nv_recon = big_jit_result.debug_ctf2_over_noise_reconstruction
+            debug_proj_weighted = big_jit_result.debug_weighted_projection
+            debug_proj_for_noise = big_jit_result.debug_noise_projection
             if group_ids_np is None:
                 noise_scale_xa = None
                 noise_scale_aa = None

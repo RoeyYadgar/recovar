@@ -146,3 +146,159 @@ class LocalBigJitPolicy:
     return_debug_arrays: bool
     return_debug_scores: bool
     return_debug_operands: bool
+
+
+@dataclass(frozen=True)
+class LocalBigJitResult:
+    """Stable named view of every compiled exact-local bucket result route."""
+
+    mstep: LocalBigJitMstepAccumulators
+    noise: LocalBigJitNoiseAccumulators
+    bucket_norm_correction: Any
+    batch_norm: Any
+    log_evidence: Any
+    best_log_score: Any
+    best_argmax: Any
+    max_posterior: Any
+    rotation_posterior_sums: Any
+    reconstruction_rotation_posterior_sums: Any
+    significant_sample_counts: Any
+    reconstruction_sample_mask: Any
+    reconstruction_rotation_mask: Any
+    reconstruction_row_count: Any
+    summed: Any | None = None
+    ctf_probabilities: Any | None = None
+    reconstruction_probabilities: Any | None = None
+    shifted_reconstruction: Any | None = None
+    ctf2_over_noise_reconstruction: Any | None = None
+    shifted_noise: Any | None = None
+    processed_score_half: Any | None = None
+    debug_scores: Any | None = None
+    debug_probabilities: Any | None = None
+    debug_shifted_score: Any | None = None
+    debug_shifted_reconstruction: Any | None = None
+    debug_ctf2_over_noise_score: Any | None = None
+    debug_ctf2_over_noise_reconstruction: Any | None = None
+    debug_weighted_projection: Any | None = None
+    debug_noise_projection: Any | None = None
+
+
+def unpack_local_big_jit_result(raw_result, policy: LocalBigJitPolicy) -> LocalBigJitResult:
+    """Convert the compiled route-dependent tuple into one named host view."""
+
+    values = tuple(raw_result)
+    debug_scores = None
+    debug_probabilities = None
+    debug_shifted_score = None
+    debug_shifted_reconstruction = None
+    debug_ctf2_over_noise_score = None
+    debug_ctf2_over_noise_reconstruction = None
+    debug_weighted_projection = None
+    debug_noise_projection = None
+    if policy.return_debug_arrays:
+        if policy.return_debug_operands:
+            values, debug_values = values[:-8], values[-8:]
+            (
+                debug_scores,
+                debug_probabilities,
+                debug_shifted_score,
+                debug_shifted_reconstruction,
+                debug_ctf2_over_noise_score,
+                debug_ctf2_over_noise_reconstruction,
+                debug_weighted_projection,
+                debug_noise_projection,
+            ) = debug_values
+            if policy.score_only:
+                debug_shifted_reconstruction = None
+                debug_ctf2_over_noise_reconstruction = None
+                debug_noise_projection = None
+        else:
+            values, debug_values = values[:-2], values[-2:]
+            debug_scores, debug_probabilities = debug_values
+
+    (
+        y,
+        ctf,
+        noise_wsum,
+        noise_image_power,
+        noise_a2,
+        noise_xa,
+        noise_scale_xa,
+        noise_scale_aa,
+        bucket_norm_correction,
+        noise_sigma2_offset,
+        noise_sumw,
+        batch_norm,
+        log_evidence,
+        best_log_score,
+        best_argmax,
+        max_posterior,
+        rotation_posterior_sums,
+        reconstruction_rotation_posterior_sums,
+        significant_sample_counts,
+        reconstruction_sample_mask,
+        reconstruction_rotation_mask,
+        reconstruction_row_count,
+        *route_values,
+    ) = values
+
+    summed = None
+    ctf_probabilities = None
+    reconstruction_probabilities = None
+    shifted_reconstruction = None
+    ctf2_over_noise_reconstruction = None
+    shifted_noise = None
+    processed_score_half = None
+    if policy.return_deferred_mstep_inputs:
+        (
+            reconstruction_probabilities,
+            shifted_reconstruction,
+            ctf2_over_noise_reconstruction,
+            shifted_noise,
+            processed_score_half,
+        ) = route_values
+    elif policy.return_mstep_tensors:
+        summed, ctf_probabilities = route_values
+    elif route_values:
+        raise ValueError(f"unexpected exact-local big-JIT result tail of length {len(route_values)}")
+
+    return LocalBigJitResult(
+        mstep=LocalBigJitMstepAccumulators(y=y, ctf=ctf),
+        noise=LocalBigJitNoiseAccumulators(
+            wsum=noise_wsum,
+            image_power=noise_image_power,
+            a2=noise_a2,
+            xa=noise_xa,
+            scale_xa=noise_scale_xa,
+            scale_aa=noise_scale_aa,
+            sigma2_offset=noise_sigma2_offset,
+            sumw=noise_sumw,
+        ),
+        bucket_norm_correction=bucket_norm_correction,
+        batch_norm=batch_norm,
+        log_evidence=log_evidence,
+        best_log_score=best_log_score,
+        best_argmax=best_argmax,
+        max_posterior=max_posterior,
+        rotation_posterior_sums=rotation_posterior_sums,
+        reconstruction_rotation_posterior_sums=reconstruction_rotation_posterior_sums,
+        significant_sample_counts=significant_sample_counts,
+        reconstruction_sample_mask=reconstruction_sample_mask,
+        reconstruction_rotation_mask=reconstruction_rotation_mask,
+        reconstruction_row_count=reconstruction_row_count,
+        summed=summed,
+        ctf_probabilities=ctf_probabilities,
+        reconstruction_probabilities=reconstruction_probabilities,
+        shifted_reconstruction=shifted_reconstruction,
+        ctf2_over_noise_reconstruction=ctf2_over_noise_reconstruction,
+        shifted_noise=shifted_noise,
+        processed_score_half=processed_score_half,
+        debug_scores=debug_scores,
+        debug_probabilities=debug_probabilities,
+        debug_shifted_score=debug_shifted_score,
+        debug_shifted_reconstruction=debug_shifted_reconstruction,
+        debug_ctf2_over_noise_score=debug_ctf2_over_noise_score,
+        debug_ctf2_over_noise_reconstruction=debug_ctf2_over_noise_reconstruction,
+        debug_weighted_projection=debug_weighted_projection,
+        debug_noise_projection=debug_noise_projection,
+    )
