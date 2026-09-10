@@ -1338,7 +1338,7 @@ Provenance: parent HEAD `7b8c51021216487cfb1b391fd3e9fe613564d114`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: extract dense engine diagnostics`.
+Commit SHA and descriptive message: `cbeb7cee` — `refactor: extract dense engine diagnostics`.
 
 Decision: accepted.
 
@@ -1348,6 +1348,54 @@ adapter, then run the focused significance suite and CPU fast guard.
 Open risks: the CC diagnostic still intentionally performs shadow host
 arithmetic when explicitly enabled; it must remain classified `SHADOW`, never
 passive or production-authoritative.
+
+### 2026-09-10 — C3 significance serialization and stop adapter
+
+Hypothesis: Significance artifacts can use named host writers and an explicit
+`SignificanceTarget`, with stop-after-target policy fully outside the numerical
+helper, while retaining its public diagnostic signatures.
+
+Files changed: `diagnostics/significance_capture.py`,
+`helpers/significance.py`, and this ledger.
+
+Algorithmic invariants protected: scoring and significance selection are
+unchanged; the three existing host capture positions retain the same payload
+values. The K-class writer persists the archive before evaluating the invasive
+completion boundary. Legacy exception and helper names remain importable.
+`helpers/significance.py` now contains no direct `np.save*` call and no stop
+exception implementation.
+
+Focused tests and exact results: K-class signature/call-site ratchets, operand
+schema/dtypes/shapes, disabled/future iteration gates, durable stop behavior,
+unsuffixed naming, and complete-target-set behavior; 10/10 passed with 53
+deselected.
+
+CPU fast guard: 16/16 passed in 52.86 seconds. JAX logged the expected CPU-node
+CUDA initialization warning before falling back; the guard exited zero.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured in this host-only extraction.
+
+Performance artifacts and deltas: not measured in this host-only extraction.
+
+Compile/memory observations: numerical/JIT signatures and requested values are
+unchanged; no new trace output is enabled.
+
+Provenance: parent HEAD `cbeb7cee28b3d62500d588e67198d8f2baf1d4e3`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: extract significance diagnostics`.
+
+Decision: accepted.
+
+Next action: extract sparse-pass/BPref serialization and move its stop
+exceptions into the sparse diagnostics adapter.
+
+Open risks: payload assembly remains in the compatibility capture helpers; a
+later C5 split can replace their long legacy signatures with grouped sparse
+request types without mixing that engine refactor into C3.
 
 ## Per-slice update template
 

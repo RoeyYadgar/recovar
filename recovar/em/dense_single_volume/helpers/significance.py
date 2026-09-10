@@ -21,6 +21,14 @@ from recovar.em.dense_single_volume.helpers.scoring import (
     _e_step_block_scores_windowed,
     _update_logsumexp,
 )
+from recovar.em.dense_single_volume.diagnostics.significance_capture import (
+    SignificanceDumpComplete,
+    SignificanceTarget,
+    stop_after_significance_dump,
+    write_kclass_significance,
+    write_single_class_significance,
+    write_tree_rescore,
+)
 from recovar.em.dense_single_volume.runtime_options import (
     current_algorithm_settings,
     current_environment as _runtime_environment,
@@ -42,9 +50,6 @@ _K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV = (
 )
 _K1_RELION_EXACT_COARSE_OPERANDS_ENV = "RECOVAR_K1_RELION_EXACT_COARSE_OPERANDS"
 _K1_RELION_F32_COARSE_SUPPORT_ENV = "RECOVAR_K1_RELION_F32_COARSE_SUPPORT"
-_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET_ENV = (
-    "RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET"
-)
 _SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV = (
     "RECOVAR_SIGNIFICANCE_DUMP_PASSIVE_CACHE"
 )
@@ -74,17 +79,6 @@ def _relion_acc_double_floorf_quirk_enabled() -> bool:
     return current_algorithm_settings().relion_acc_double_floorf_quirk
 
 
-class SignificanceDumpComplete(RuntimeError):
-    """Raised after an explicitly targeted coarse-significance dump is durable."""
-
-    def __init__(self, *, dump_path: str):
-        self.dump_path = str(dump_path)
-        super().__init__(
-            "requested RECOVAR coarse-significance target was written "
-            f"(dump_path={self.dump_path})"
-        )
-
-
 def _maybe_stop_after_significance_dump(
     dump_path: str,
     *,
@@ -93,39 +87,17 @@ def _maybe_stop_after_significance_dump(
     current_size: int | None,
     debug_iteration: int | None,
 ) -> None:
-    """Stop an explicit diagnostic only after its complete target set exists."""
+    """Compatibility wrapper for the diagnostics-owned stop policy."""
 
-    if _runtime_environment().get(_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET_ENV) != "1":
-        return
-    if not os.path.isfile(dump_path):
-        raise RuntimeError(
-            "RECOVAR significance stop target is missing its dump file: "
-            f"{dump_path}"
-        )
-    target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
-    iteration_suffix = (
-        ""
-        if not target_iteration
-        else f"_it{int(debug_iteration):03d}"
+    stop_after_significance_dump(
+        dump_path,
+        SignificanceTarget(
+            dump_dir=dump_dir,
+            original_indices=frozenset(target_original_indices),
+            current_size=current_size,
+            debug_iteration=debug_iteration,
+        ),
     )
-    current_size_label = -1 if current_size is None else int(current_size)
-    expected_paths = [
-        os.path.join(
-            dump_dir,
-            f"significance_orig{int(original_index):06d}{iteration_suffix}_cs"
-            f"{current_size_label:03d}.npz",
-        )
-        for original_index in sorted(target_original_indices)
-    ]
-    missing_paths = [path for path in expected_paths if not os.path.isfile(path)]
-    if missing_paths:
-        logger.info(
-            "RECOVAR coarse-significance stop target progress: %d/%d files written",
-            len(expected_paths) - len(missing_paths),
-            len(expected_paths),
-        )
-        return
-    raise SignificanceDumpComplete(dump_path=dump_path)
 
 
 def _k1_coarse_gaussian_ffi_enabled(*, default: bool = False) -> bool:
@@ -785,7 +757,7 @@ def _maybe_dump_tree_rescore_batch(
             f"tree_rescore_orig{int(original_index):06d}_it"
             f"{int(debug_iteration):03d}_cs{int(current_size):03d}.npz",
         )
-        np.savez_compressed(
+        write_tree_rescore(
             out_path,
             original_index=np.int64(original_index),
             candidate_pose_ids=candidate_pose_ids[row],
@@ -893,7 +865,7 @@ def _maybe_dump_significance_batch(
             f"significance_orig{int(original_idx):06d}{iteration_suffix}_cs"
             f"{(-1 if current_size is None else int(current_size)):03d}.npz",
         )
-        np.savez_compressed(
+        write_single_class_significance(
             out_path,
             original_index=np.int64(original_idx),
             local_index=np.int64(local_indices[local_pos]),
@@ -1250,13 +1222,15 @@ def _maybe_dump_k_class_significance_batch(
             save_kwargs["projected_cross_score_per_class"] = cross_scores[
                 :, local_pos
             ].astype(np.float64)
-        np.savez_compressed(out_path, **save_kwargs)
-        _maybe_stop_after_significance_dump(
+        write_kclass_significance(
             out_path,
-            dump_dir=dump_dir,
-            target_original_indices=target_original_indices,
-            current_size=current_size,
-            debug_iteration=debug_iteration,
+            save_kwargs,
+            target=SignificanceTarget(
+                dump_dir=dump_dir,
+                original_indices=frozenset(target_original_indices),
+                current_size=current_size,
+                debug_iteration=debug_iteration,
+            ),
         )
 
 
