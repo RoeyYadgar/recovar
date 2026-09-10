@@ -11,7 +11,7 @@ Last updated: 2026-09-10
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
-| C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas, improved paired FSC-AUC, and showed no runtime or memory regression. |
+| C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second; move its remaining raw diagnostic payload gathering with the new cohesive state types. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
@@ -133,6 +133,7 @@ GPU identity and paired timing context.
 | 2026-09-09 | Final same-allocation C2 A/B | Slurm `60521289`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c2_samegpu_0f7b0337_vs_dc64e343_retry1` | Completed `0:0` on one A100-PCIE-40GB. Candidate/control direct map FSC-AUC was `0.9992773`; candidate-vs-RELION FSC-AUC improved by `+0.0004093`; ledger time was unchanged (`+0.0009%`), process wall improved `0.20%`, exact-local time improved `1.07%`, and peak RSS improved `0.48%`. |
 | 2026-09-10 | Complete C3 focused matrix | Ten diagnostics/schema/performance test files plus significance selection | 237 passed, 2 expected GPU-only skips in `132.97 s`; significance 12/12 passed. Final CPU fast guard passed 16/16 in `50.91 s`. |
 | 2026-09-10 | Final same-allocation C3 A/B | Slurm `60538896`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c3_samegpu_cfc22c31_vs_0f7b0337` | Completed `0:0` on one A100-PCIE-40GB. Both arms ran 13 iterations and final-all-data. Direct map FSC-AUC was `0.9992226`; candidate RELION FSC-AUC improved `+0.0004193`; ledger time improved `0.30%`, process wall improved `3.53%`, and RSS changed `+0.15%`. Fixed-input normalized StableHLO hashes matched exactly. |
+| 2026-09-10 | C3 restart lifecycle correction | Commit `13b97bfa`; Slurm `60539997`; `$HOME/palmer_scratch/tmp/recovar_em_test_iteration_started_fix_active_13b97bfa` | Focused lifecycle tests 10/10, replay/diagnostics selection 17/17, and CPU fast guard 16/16 passed. The active-diagnostics iteration-3 replay completed one iteration at size 70, wrote `parity_dump/iter_004.npz`, exited 0, and produced final correlation `0.9999999971` and FSC-AUC `0.9999993657` versus RELION. |
 
 ## Decision log
 
@@ -1733,6 +1734,56 @@ changes that boundary. Legacy artifact payload gathering remains at some
 controller/sparse host sites and is assigned to their C5/C7 typed-state
 migrations. `TraceSpec` replaces those established internal trace flags only
 when each engine boundary is refactored in C4--C6.
+
+### 2026-09-10 — C3 restart lifecycle corrective slice
+
+Cause: `IterationStarted` was emitted at the true iteration boundary, before
+current-size planning, but its newly introduced payload eagerly evaluated
+`int(cs)`. No `cs` value exists yet for a run resumed from a nonzero RELION
+iteration, so an enabled diagnostics sink raised `UnboundLocalError` before
+the algorithm entered size planning. The null sink masked the issue because
+its guarded route did not construct the event.
+
+Fix: retain the event at the existing timing boundary and make
+`IterationStarted.current_size` optional. The controller no longer reads `cs`
+when emitting the start event. Existing callers that supply a third size value
+remain compatible, while current-size computation, replay override, all JAX
+inputs, and every numerical branch remain unchanged.
+
+Focused validation:
+
+- lifecycle sink and source-order regressions: 10 passed in `8.22 s`;
+- diagnostics plus restart/replay refinement selection: 17 passed and 369
+  deselected in `5.26 s`;
+- CPU fast guard: 16 passed in `49.98 s`.
+
+GPU validation: Slurm job `60539997` completed on the requested `gpu`
+partition with exit status 0. It used the reported one-iteration restart shape
+(`--iter 3 --max_iter 1 --continuous-relion-noise-stat`) and explicitly enabled
+the two passive routes from the failing run. The runtime resolved
+`RECOVAR_DEBUG_ESTEP_DIR` and `RECOVAR_PARITY_DUMP_DIR`, entered the iteration
+at `current_size=70`, processed both half-sets, and wrote
+`parity_dump/iter_004.npz`. The result ledger records one completed iteration,
+refinement elapsed `123.460 s`, final merged correlation versus RELION
+`0.9999999971`, and final merged FSC-AUC versus RELION `0.9999993657`.
+External wall time was `187.90 s`, including input staging and postprocessing;
+peak RSS was `4,238,232 KiB`.
+
+The artifact root is
+`$HOME/palmer_scratch/tmp/recovar_em_test_iteration_started_fix_active_13b97bfa`
+and is marked `SAFE_TO_DELETE`. An earlier job, `60539976`, was cancelled after
+crossing the line because its intentionally scrubbed environment selected the
+null sink and therefore did not test the reported branch.
+
+Commit SHA and descriptive message: `13b97bfa` —
+`fix: avoid reading current size before planning`.
+
+Decision: accepted as a C3 corrective slice. No paired performance run is
+warranted because the change removes one invalid host scalar conversion from
+an enabled-only diagnostic event and does not alter numerical work, JIT
+signatures, array materialization, or production null-route execution.
+
+Next action: continue C4 exact-local engine work.
 
 ## Per-slice update template
 
