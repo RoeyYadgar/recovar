@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IN PROGRESS — HOST PLANS EXTRACTED | The host body is classified into five stages. Immutable mode, per-image input, and geometry plans now own scalar compatibility, host-array validation, and derived dimensions; Fourier-window and accumulator setup is next. Numerical and 98-argument JIT boundaries remain fixed. |
+| C4 Exact-local engine | IN PROGRESS — SETUP COMPONENTS EXTRACTED | Immutable host plans own compatibility, validated inputs, and dimensions. A separate JAX-aware component now owns precision, reconstruction geometry, accumulator metadata, Fourier windows, and projection-route selection. Microbatch/bucket planning is next; the 98-argument JIT boundary remains fixed. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -137,6 +137,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local mode plan | Commit `6698527d` | Planner/contracts 32/32, real route selection 11/11, and CPU fast guard 16/16 passed. Scalar compatibility checks moved behind one immutable plan; no array or JIT boundary changed. |
 | 2026-09-10 | C4 exact-local input plan | Commit `5544838b` | Planner/contracts 43/43, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Per-image host validation preserves shapes, conversion dtypes, error order, and translation-center dtype. |
 | 2026-09-10 | C4 exact-local geometry plan | Commit `344eae0f` | Planner/contracts 45/45, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Derived dimensions moved to a lightweight immutable plan; JAX-backed precision, window, and accumulator setup remains in the engine. |
+| 2026-09-10 | C4 exact-local array setup | Commit `1b9ca28b` | Setup/planner/contracts 53/53, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Precision, reconstruction/accumulator shapes, Fourier windows, x-half adjoint metadata, and projection mode moved together with original ordering. |
 
 ## Decision log
 
@@ -1995,6 +1996,67 @@ Decision: accepted. Next isolate the JAX-aware precision, Fourier-window, and
 accumulator metadata behind a component that preserves their current execution
 order and array construction exactly.
 
+### 2026-09-10 — C4 exact-local JAX-aware array setup
+
+Hypothesis: precision selection, reconstruction geometry, packed-accumulator
+metadata, Fourier-window construction, x-half adjoint coordinates, and
+projection-route selection can move behind one JAX-aware component without
+changing their order or the arrays consumed by the bucket engine.
+
+Files changed: new `local_em_array_setup.py`, `local_em_engine.py`, and new
+`test_local_em_array_setup.py`.
+
+The component intentionally sits beside, rather than inside,
+`local_em_planning.py`: host validation remains lightweight, while this module
+may construct the existing JAX window-index arrays. Its frozen contracts are
+`LocalEMReconstructionPlan`, `LocalProjectionPlan`, and `LocalEMFourierPlan`.
+The projection plan materializes the legacy keyword dictionary only at the
+existing engine boundary.
+
+Execution order is preserved explicitly: the engine creates the precision
+policy and casts the projection volume, resolves reconstruction geometry,
+emits the existing route log, and only then constructs packed shapes, Fourier
+indices, x-half coordinate mappings, and projection mode. Weight construction,
+noise conversion, dtype selection, and actual accumulator allocation remain in
+the engine immediately afterward.
+
+Algorithmic invariants protected: all established helper functions remain the
+single source of truth; the projection keyword names, values, and insertion
+order are unchanged; force-JAX, texture, unavailable-CUDA, indexed-CUDA, full,
+and RELION-projector route precedence is tested. No bucket input, posterior,
+M-step, cache, output, or compiled-call signature changed. The legacy private
+x-half window name remains available from `local_em_engine` for compatibility.
+
+Focused tests and exact results:
+
+- array setup plus host planner and request/result contracts: 53 passed in
+  `8.13 s`; the warnings were read-only login-node compilation-cache writes;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `98.33 s` with CPU-only JAX and writable temporary caches;
+- CPU fast guard: 16 passed in `53.33 s` (including the expected login-node
+  CUDA discovery traceback before the forced CPU test process);
+- both new files pass Ruff format/lint, and the legacy engine passes targeted
+  lint with only its recorded whole-file import debt excluded.
+
+GPU validation: deferred to the C4 compiled-boundary gate. This slice moves the
+same helper calls in the same order and does not alter any JIT function,
+argument, shape class, bucket loop, or allocation. The real engine and CPU fast
+guard execute the moved JAX setup and numerical paths.
+
+Provenance: code commit
+`1b9ca28b85627c8063af7875124f3e656c017761` on `dense_em_refactor`;
+pre-commit dirty diff SHA-256
+`f79f86878d55e8f28cc648297fc711cbb2f4abe6cd53a77f4e68ab2b430f4df6`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `1b9ca28b` —
+`refactor: isolate exact-local array setup`.
+
+Decision: accepted. Next extract effective microbatch caps and bucket topology
+into a plan while retaining every x-half tail/projection cap and diagnostic
+bucket filter.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2020,14 +2082,11 @@ Open risks:
 
 ## Immediate next actions
 
-1. Isolate JAX-aware precision, Fourier-window, and accumulator metadata from
-   the lightweight host plans while preserving current execution order and
-   leaving actual accumulator allocation in the engine.
-2. Extract effective microbatch caps and bucket topology, keeping x-half tail
+1. Extract effective microbatch caps and bucket topology, keeping x-half tail
    and projection caps numerically and observably identical.
-3. Separate cache/projection preparation from output accumulator state, then
+2. Separate cache/projection preparation from output accumulator state, then
    introduce the grouped dynamic PyTrees and frozen static policy at the big
    JIT boundary one caller route at a time.
-4. Move exact-local diagnostic payload gathering behind the C3 sink using the
+3. Move exact-local diagnostic payload gathering behind the C3 sink using the
    new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
    GPU timing gates before closing C4.
