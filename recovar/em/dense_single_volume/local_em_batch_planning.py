@@ -16,9 +16,11 @@ from recovar.em.dense_single_volume.local_em_array_setup import (
 from recovar.em.dense_single_volume.local_em_planning import LocalEMGeometryPlan, LocalEMModePlan
 from recovar.em.dense_single_volume.local_em_types import LocalExecutionSettings
 from recovar.em.dense_single_volume.local_layout import (
+    LocalBucketSpec,
     LocalHypothesisLayout,
     _exact_bucket_rotation_size,
     _exact_local_large_bucket_quantum,
+    bucket_local_hypothesis_layout,
 )
 from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 
@@ -73,6 +75,30 @@ class LocalMicrobatchPlan:
     tail_cap: int
     effective_cap: int
     projection_target_row_pixels: int | None
+
+
+@dataclass(frozen=True)
+class LocalBucketSummary:
+    """Immutable host summary of an exact-local bucket sequence."""
+
+    bucket_count: int
+    image_count: int
+    rotation_size_min: int
+    rotation_size_median: int
+    rotation_size_mean: float
+    rotation_size_max: int
+    images_per_bucket_median: int
+    images_per_bucket_max: int
+    top_rotation_sizes: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class LocalBucketPlan:
+    """Production bucket topology before any diagnostic-only filtering."""
+
+    buckets: tuple[LocalBucketSpec, ...]
+    total_local_rotations: int
+    summary: LocalBucketSummary
 
 
 def _visible_gpu_memory_bytes() -> int | None:
@@ -461,4 +487,75 @@ def plan_local_microbatch_cap(
         tail_cap=int(tail_cap),
         effective_cap=int(effective_cap),
         projection_target_row_pixels=projection_target_row_pixels,
+    )
+
+
+def summarize_local_buckets(bucket_specs) -> LocalBucketSummary:
+    """Summarize bucket shape classes without changing their order."""
+
+    if not bucket_specs:
+        return LocalBucketSummary(
+            bucket_count=0,
+            image_count=0,
+            rotation_size_min=0,
+            rotation_size_median=0,
+            rotation_size_mean=0.0,
+            rotation_size_max=0,
+            images_per_bucket_median=0,
+            images_per_bucket_max=0,
+            top_rotation_sizes=(),
+        )
+    bucket_rotation_counts = np.asarray(
+        [int(bucket.bucket_rotation_count) for bucket in bucket_specs],
+        dtype=np.int64,
+    )
+    bucket_image_counts = np.asarray(
+        [int(bucket.image_indices.shape[0]) for bucket in bucket_specs],
+        dtype=np.int64,
+    )
+    unique_bucket_counts, unique_bucket_freq = np.unique(bucket_rotation_counts, return_counts=True)
+    top_rotation_sizes = tuple(
+        sorted(
+            (
+                (int(bucket_count), int(frequency))
+                for bucket_count, frequency in zip(unique_bucket_counts, unique_bucket_freq)
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:6]
+    )
+    return LocalBucketSummary(
+        bucket_count=len(bucket_specs),
+        image_count=int(np.sum(bucket_image_counts, dtype=np.int64)),
+        rotation_size_min=int(np.min(bucket_rotation_counts)),
+        rotation_size_median=int(np.median(bucket_rotation_counts)),
+        rotation_size_mean=float(np.mean(bucket_rotation_counts)),
+        rotation_size_max=int(np.max(bucket_rotation_counts)),
+        images_per_bucket_median=int(np.median(bucket_image_counts)),
+        images_per_bucket_max=int(np.max(bucket_image_counts)),
+        top_rotation_sizes=top_rotation_sizes,
+    )
+
+
+def plan_local_buckets(
+    *,
+    local_layout: LocalHypothesisLayout,
+    execution: LocalExecutionSettings,
+    microbatch: LocalMicrobatchPlan,
+) -> LocalBucketPlan:
+    """Build the established production bucket sequence and its summary."""
+
+    buckets = tuple(
+        bucket_local_hypothesis_layout(
+            local_layout,
+            image_batch_size=execution.image_batch_size,
+            rotation_block_size=execution.rotation_block_size,
+            max_hypotheses_per_microbatch=microbatch.effective_cap,
+            unify_bucket_sizes=execution.unify_local_bucket_sizes,
+        )
+    )
+    return LocalBucketPlan(
+        buckets=buckets,
+        total_local_rotations=int(local_layout.total_local_rotations),
+        summary=summarize_local_buckets(buckets),
     )

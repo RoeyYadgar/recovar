@@ -132,8 +132,10 @@ from recovar.em.dense_single_volume.local_em_batch_planning import (  # noqa: F4
     _exact_local_xhalf_projection_target_row_pixels,
     _exact_local_xhalf_tail_microbatch_cap,
     _visible_gpu_memory_bytes,
+    plan_local_buckets,
     plan_local_microbatch_cap,
     plan_local_microbatch_route,
+    summarize_local_buckets,
 )
 from recovar.em.dense_single_volume.local_em_array_setup import (
     local_mstep_adjoint_window as _local_mstep_adjoint_window,
@@ -164,7 +166,6 @@ from recovar.em.dense_single_volume.local_layout import (
     LocalHypothesisLayout,
     _exact_bucket_rotation_size,
     _exact_local_large_bucket_quantum,
-    bucket_local_hypothesis_layout,
 )
 from recovar.em.dense_single_volume.local_score_pass import (
     compute_reconstruction_support,
@@ -1871,7 +1872,6 @@ def run_local_em_exact(
     big_jit_debug_bucket_count = 0
     sparse_adjoint_chunk_count = 0
     sparse_adjoint_target_rows = _optional_nonnegative_int_env(EXACT_LOCAL_SPARSE_ADJOINT_TARGET_ROWS_ENV) or 0
-    total_local_rotations = int(local_layout.total_local_rotations)
     logged_deferred_mstep_chunking = False
     logged_deferred_noise_projection_chunking = False
     logged_cached_noise_projection_chunking = False
@@ -1986,13 +1986,14 @@ def run_local_em_exact(
                 microbatch_plan.projection_target_row_pixels,
             )
     bucket_build_t0 = time.time()
-    bucket_specs = bucket_local_hypothesis_layout(
-        local_layout,
-        image_batch_size=image_batch_size,
-        rotation_block_size=rotation_block_size,
-        max_hypotheses_per_microbatch=max_hypotheses_per_microbatch,
-        unify_bucket_sizes=unify_local_bucket_sizes,
+    bucket_plan = plan_local_buckets(
+        local_layout=local_layout,
+        execution=execution_settings,
+        microbatch=microbatch_plan,
     )
+    bucket_specs = list(bucket_plan.buckets)
+    total_local_rotations = bucket_plan.total_local_rotations
+    bucket_summary = bucket_plan.summary
     timing.bucket_build_s += time.time() - bucket_build_t0
     debug_target_only_targets: set[int] = set()
     if debug_score_dump_filter_matches:
@@ -2009,9 +2010,9 @@ def run_local_em_exact(
         # standalone diagnostics.
         and _env_flag(LOCAL_SCORE_DUMP_TARGET_ONLY_ENV)
     )
-    debug_target_only_original_bucket_count = len(bucket_specs)
-    debug_target_only_original_image_count = int(sum(int(bucket.image_indices.shape[0]) for bucket in bucket_specs))
-    debug_target_only_original_rotations = int(total_local_rotations)
+    debug_target_only_original_bucket_count = bucket_summary.bucket_count
+    debug_target_only_original_image_count = bucket_summary.image_count
+    debug_target_only_original_rotations = total_local_rotations
     if debug_score_dump_target_only:
         filter_t0 = time.time()
         bucket_specs = _filter_buckets_to_debug_targets(
@@ -2023,7 +2024,8 @@ def run_local_em_exact(
         total_local_rotations = int(
             sum(int(np.sum(bucket.actual_rotation_counts, dtype=np.int64)) for bucket in bucket_specs)
         )
-        target_only_images = int(sum(int(bucket.image_indices.shape[0]) for bucket in bucket_specs))
+        bucket_summary = summarize_local_buckets(bucket_specs)
+        target_only_images = bucket_summary.image_count
         logger.info(
             "Exact local debug target-only: keeping %d/%d buckets and %d/%d images "
             "for requested original ids %s; unset %s to retain the full score-only computation",
@@ -2034,35 +2036,21 @@ def run_local_em_exact(
             sorted(int(target) for target in debug_target_only_targets),
             LOCAL_SCORE_DUMP_TARGET_ONLY_ENV,
         )
-    if bucket_specs:
-        bucket_rotation_counts = np.asarray(
-            [int(bucket.bucket_rotation_count) for bucket in bucket_specs],
-            dtype=np.int64,
-        )
-        bucket_image_counts = np.asarray(
-            [int(bucket.image_indices.shape[0]) for bucket in bucket_specs],
-            dtype=np.int64,
-        )
-        unique_bucket_counts, unique_bucket_freq = np.unique(bucket_rotation_counts, return_counts=True)
-        top_bucket_counts = sorted(
-            ((int(bucket_count), int(freq)) for bucket_count, freq in zip(unique_bucket_counts, unique_bucket_freq)),
-            key=lambda item: item[1],
-            reverse=True,
-        )[:6]
+    if bucket_summary.bucket_count:
         logger.info(
             "Exact local bucketing: %d images -> %d buckets "
             "(bucket_size min/med/mean/max=%d/%d/%.1f/%d, images_per_bucket med/max=%d/%d, "
             "top_bucket_counts=%s; max_hypotheses_per_microbatch=%d, n_score_pixels=%d, "
             "n_recon_pixels=%d, n_trans=%d, score_only=%s, relion_x_half_mstep=%s)",
             n_images,
-            len(bucket_specs),
-            int(np.min(bucket_rotation_counts)),
-            int(np.median(bucket_rotation_counts)),
-            float(np.mean(bucket_rotation_counts)),
-            int(np.max(bucket_rotation_counts)),
-            int(np.median(bucket_image_counts)),
-            int(np.max(bucket_image_counts)),
-            top_bucket_counts,
+            bucket_summary.bucket_count,
+            bucket_summary.rotation_size_min,
+            bucket_summary.rotation_size_median,
+            bucket_summary.rotation_size_mean,
+            bucket_summary.rotation_size_max,
+            bucket_summary.images_per_bucket_median,
+            bucket_summary.images_per_bucket_max,
+            list(bucket_summary.top_rotation_sizes),
             int(max_hypotheses_per_microbatch),
             int(n_windowed),
             int(window_spec.n_recon),

@@ -12,9 +12,13 @@ from recovar.em.dense_single_volume.local_em_array_setup import (
 )
 from recovar.em.dense_single_volume.local_em_batch_planning import (
     EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS,
+    LocalBucketPlan,
+    LocalBucketSummary,
     LocalMicrobatchPlan,
+    plan_local_buckets,
     plan_local_microbatch_cap,
     plan_local_microbatch_route,
+    summarize_local_buckets,
 )
 from recovar.em.dense_single_volume.local_em_planning import (
     plan_local_em_geometry,
@@ -174,3 +178,48 @@ def test_local_microbatch_route_disables_xhalf_caps_for_score_only():
     assert not route.xhalf_bpref_mstep
     assert not route.full_bpref
     assert route.auto_boost_factor is None
+
+
+def test_local_bucket_summary_preserves_shape_frequencies_and_image_counts():
+    summary = summarize_local_buckets(
+        [
+            SimpleNamespace(bucket_rotation_count=4, image_indices=np.zeros(2, dtype=np.int32)),
+            SimpleNamespace(bucket_rotation_count=4, image_indices=np.zeros(1, dtype=np.int32)),
+            SimpleNamespace(bucket_rotation_count=8, image_indices=np.zeros(3, dtype=np.int32)),
+        ]
+    )
+
+    assert summary == LocalBucketSummary(
+        bucket_count=3,
+        image_count=6,
+        rotation_size_min=4,
+        rotation_size_median=4,
+        rotation_size_mean=16 / 3,
+        rotation_size_max=8,
+        images_per_bucket_median=2,
+        images_per_bucket_max=3,
+        top_rotation_sizes=((4, 2), (8, 1)),
+    )
+
+
+def test_local_bucket_plan_wraps_existing_builder_in_immutable_topology():
+    layout, _, _, execution, _, _ = _planning_inputs()
+    microbatch = LocalMicrobatchPlan(
+        initial_cap=256,
+        tail_cap=256,
+        effective_cap=256,
+        projection_target_row_pixels=None,
+    )
+
+    plan = plan_local_buckets(
+        local_layout=layout,
+        execution=execution,
+        microbatch=microbatch,
+    )
+
+    assert isinstance(plan, LocalBucketPlan)
+    assert isinstance(plan.buckets, tuple)
+    assert plan.total_local_rotations == 200
+    assert plan.summary.bucket_count == 1
+    assert plan.summary.image_count == 1
+    assert plan.summary.rotation_size_max == 256
