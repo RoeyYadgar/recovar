@@ -7,8 +7,10 @@ import numpy as np
 import pytest
 
 from recovar.em.dense_single_volume.local_em_planning import (
+    LocalEMGeometryPlan,
     LocalEMInputPlan,
     LocalEMModePlan,
+    plan_local_em_geometry,
     plan_local_em_inputs,
     plan_local_em_modes,
 )
@@ -27,6 +29,10 @@ def _layout(n_images=3, n_dims=2):
         n_images=n_images,
         translation_grid=np.zeros((4, n_dims), dtype=np.float32),
     )
+
+
+def _dataset(image_shape=(48, 48), volume_shape=(48, 48, 48)):
+    return SimpleNamespace(image_shape=image_shape, volume_shape=volume_shape)
 
 
 def test_local_mode_plan_normalizes_default_execution():
@@ -272,3 +278,33 @@ def test_local_input_plan_preserves_translation_center_dtype_and_shape_validatio
             posterior=LocalPosteriorInputs(translation_prior_centers=np.zeros((2, 2))),
             search=LocalSearchSettings(current_size=40),
         )
+
+
+@pytest.mark.parametrize(
+    ("reconstruction_current_size", "expected_mstep_current_size"),
+    [(None, 40), (32, 32)],
+)
+def test_local_geometry_plan_preserves_shapes_and_derives_sizes(
+    reconstruction_current_size,
+    expected_mstep_current_size,
+):
+    image_shape = (48, 48)
+    volume_shape = (48, 48, 48)
+    plan = plan_local_em_geometry(
+        experiment_dataset=_dataset(image_shape=image_shape, volume_shape=volume_shape),
+        local_layout=_layout(),
+        search=LocalSearchSettings(
+            current_size=40,
+            reconstruction_current_size=reconstruction_current_size,
+        ),
+    )
+
+    assert isinstance(plan, LocalEMGeometryPlan)
+    assert plan.image_shape is image_shape
+    assert plan.volume_shape is volume_shape
+    assert (plan.image_height, plan.image_width) == image_shape
+    assert plan.mstep_current_size == expected_mstep_current_size
+    assert plan.n_half == 48 * 25
+    assert plan.n_translations == 4
+    with pytest.raises(FrozenInstanceError):
+        plan.n_half = 1

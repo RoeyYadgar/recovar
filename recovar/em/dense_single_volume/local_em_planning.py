@@ -49,6 +49,19 @@ class LocalEMInputPlan:
     translation_prior_centers: np.ndarray | None
 
 
+@dataclass(frozen=True)
+class LocalEMGeometryPlan:
+    """Derived input geometry for exact-local EM."""
+
+    image_shape: tuple[int, int]
+    volume_shape: tuple[int, ...]
+    image_height: int
+    image_width: int
+    mstep_current_size: int | None
+    n_half: int
+    n_translations: int
+
+
 def plan_local_em_modes(
     *,
     scoring: LocalScoringSettings,
@@ -174,4 +187,29 @@ def plan_local_em_inputs(
         normalization_log_evidence=normalization_log_evidence,
         reconstruction_probability_threshold=reconstruction_probability_threshold,
         translation_prior_centers=translation_prior_centers,
+    )
+
+
+def plan_local_em_geometry(
+    *,
+    experiment_dataset: Any,
+    local_layout: Any,
+    search: LocalSearchSettings,
+) -> LocalEMGeometryPlan:
+    """Derive input sizes without constructing JAX arrays."""
+
+    image_shape = experiment_dataset.image_shape
+    volume_shape = experiment_dataset.volume_shape
+    image_height, image_width = image_shape
+    mstep_current_size = (
+        search.current_size if search.reconstruction_current_size is None else int(search.reconstruction_current_size)
+    )
+    return LocalEMGeometryPlan(
+        image_shape=image_shape,
+        volume_shape=volume_shape,
+        image_height=image_height,
+        image_width=image_width,
+        mstep_current_size=mstep_current_size,
+        n_half=image_height * (image_width // 2 + 1),
+        n_translations=int(local_layout.translation_grid.shape[0]),
     )
