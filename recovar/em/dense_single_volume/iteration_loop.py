@@ -1516,6 +1516,8 @@ def _k1_skip_significance_pruning_enabled() -> bool:
 from recovar.em.dense_single_volume.debug_dumps import (  # noqa: F401
     _maybe_dump_noise_update_debug,
     _save_iteration_intermediates,
+    write_controller_npz,
+    write_controller_npz_compressed,
 )
 from recovar.em.dense_single_volume.ppca_bridge import (  # noqa: F401
     PPCAKClassScheduleBridge,
@@ -2407,7 +2409,7 @@ def _relion_projector_half_maps_for_scoring(
             with open(os.path.join(cache_dir, "SAFE_TO_DELETE"), "a", encoding="utf-8"):
                 pass
             tmp_path = f"{cache_path}.{os.getpid()}.tmp.npz"
-            np.savez(
+            write_controller_npz(
                 tmp_path,
                 projector_half=np.asarray(projector_half),
                 projector_r_max=np.int64(projector_r_max),
@@ -2425,7 +2427,7 @@ def _relion_projector_half_maps_for_scoring(
         label = dump_label or "projector"
         safe_label = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(label))
         os.makedirs(dump_dir, exist_ok=True)
-        np.savez_compressed(
+        write_controller_npz_compressed(
             os.path.join(dump_dir, f"{safe_label}_relion_projector_half.npz"),
             projector_half=np.asarray(projector_half),
             reference_real=np.asarray(refs_real),
@@ -3859,7 +3861,7 @@ def _score_half_local(
         profile_row["diagnostic_score_only"] = np.bool_(diagnostic_score_only)
         local_profile_history.append(profile_row)
         if save_intermediates_dir is not None:
-            np.savez_compressed(
+            write_controller_npz_compressed(
                 os.path.join(
                     save_intermediates_dir,
                     f"it{iteration:03d}_half{k + 1}_local_profile.npz",
@@ -5694,7 +5696,7 @@ def _run_relion_iteration_loop(
                     import pathlib
 
                     pathlib.Path(_kclass_dump_dir).mkdir(parents=True, exist_ok=True)
-                    np.savez(
+                    write_controller_npz(
                         pathlib.Path(_kclass_dump_dir) / f"recovar_kclass_current_size_it{iteration + 1:03d}.npz",
                         iteration=np.int32(iteration + 1),
                         previous_current_size=np.int32(prev_cs),
@@ -7191,7 +7193,7 @@ def _run_relion_iteration_loop(
                         "half_index": np.int32(k),
                         "ave_Pmax": np.float64(float(np.mean(em_stats_k.max_posterior_per_image))),
                     }
-                    np.savez(_manifest_path, **_manifest)
+                    write_controller_npz(_manifest_path, **_manifest)
                     logger.info("Manifest dumped: %s", _manifest_path)
 
             # NOTE: means[k] reconstruction is DEFERRED until after the
@@ -7368,7 +7370,7 @@ def _run_relion_iteration_loop(
             import pathlib
 
             pathlib.Path(_bpref_prejoin_dir).mkdir(parents=True, exist_ok=True)
-            np.savez(
+            write_controller_npz(
                 pathlib.Path(_bpref_prejoin_dir)
                 / f"recovar_bpref_prejoin_it{iteration + 1:03d}.npz",
                 schema=np.asarray("recovar-bpref-prejoin-v2"),
@@ -7628,7 +7630,7 @@ def _run_relion_iteration_loop(
                     _preserve_kclass_dump_dtype = _runtime_environment().get(
                         "RECOVAR_KCLASS_DUMP_PRESERVE_DTYPE", ""
                     ).strip().lower() not in {"", "0", "false", "no", "off"}
-                    np.savez(
+                    write_controller_npz(
                         pathlib.Path(_kclass_dump_dir)
                         / f"recovar_kclass_mstep_it{iteration + 1:03d}_c{class_idx + 1:02d}.npz",
                         iteration=np.int32(iteration + 1),
@@ -7741,7 +7743,7 @@ def _run_relion_iteration_loop(
                 import pathlib
 
                 pathlib.Path(_bpref_accum_dir).mkdir(parents=True, exist_ok=True)
-                np.savez(
+                write_controller_npz(
                     pathlib.Path(_bpref_accum_dir) / f"recovar_bpref_accum_it{iteration + 1:03d}.npz",
                     schema=np.asarray("recovar-bpref-accum-v2"),
                     run_id=np.asarray(_runtime_environment().get("RECOVAR_BPREF_BOUNDARY_DUMP_RUN_ID", "unset")),
@@ -8309,7 +8311,7 @@ def _run_relion_iteration_loop(
             _tau2_dump_path = (
                 pathlib.Path(_tau2_debug_dump_dir) / f"recovar_tau2_debug_it{iteration + 1:03d}.npz"
             )
-            np.savez(_tau2_dump_path, **_tau2_dump)
+            write_controller_npz(_tau2_dump_path, **_tau2_dump)
             logger.info("RELION tau2 debug dump written: %s", _tau2_dump_path)
         history.record_pixel_resolution(pixel_res)
 
@@ -10016,7 +10018,7 @@ def _run_relion_iteration_loop(
                 "iteration": np.int32(-1),
                 "half_index": np.int32(k),
             }
-            np.savez(_manifest_path, **_manifest)
+            write_controller_npz(_manifest_path, **_manifest)
             logger.info("Final manifest dumped: %s", _manifest_path)
 
     final_Ft_y_0 = final_outs.Ft_y[0]
@@ -10280,7 +10282,7 @@ def _run_relion_iteration_loop(
                 if _key in final_tau2_update_details and final_tau2_update_details[_key] is not None:
                     _final_dump[f"tau2_{_key}"] = np.asarray(final_tau2_update_details[_key], dtype=np.float64)
         _final_dump_path = pathlib.Path(_final_bpref_accum_dir) / "recovar_final_bpref_accum.npz"
-        np.savez(_final_dump_path, **_final_dump)
+        write_controller_npz(_final_dump_path, **_final_dump)
         logger.info("Final all-data BPref accumulators dumped: %s", _final_dump_path)
 
     # Reconstruct the final volume from the COMBINED Ft_y/Ft_ctf accumulators

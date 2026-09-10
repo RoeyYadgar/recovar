@@ -26,7 +26,21 @@ from recovar.em.dense_single_volume.helpers.half_spectrum import (
 from recovar.em.dense_single_volume.relion_metadata import _relion_half_plane_shell_counts
 from recovar.em.sampling import rotation_grid_size
 
+from .sinks import NPZ_DIAGNOSTICS
+
 logger = logging.getLogger(__name__)
+
+
+def write_controller_npz(path, **payload) -> None:
+    """Serialize an uncompressed controller diagnostic schema."""
+
+    NPZ_DIAGNOSTICS.write_fields(path, compressed=False, **payload)
+
+
+def write_controller_npz_compressed(path, **payload) -> None:
+    """Serialize a compressed controller diagnostic schema."""
+
+    NPZ_DIAGNOSTICS.write_fields(path, compressed=True, **payload)
 
 
 def _dump_array_or_empty(arr):

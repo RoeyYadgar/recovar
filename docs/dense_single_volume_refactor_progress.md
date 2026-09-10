@@ -1437,7 +1437,7 @@ Provenance: parent HEAD `752bfcf647b1a41361e249daa269ebf63749aa12`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: extract sparse diagnostics adapters`.
+Commit SHA and descriptive message: `9411717f` — `refactor: extract sparse diagnostics adapters`.
 
 Decision: accepted.
 
@@ -1447,6 +1447,52 @@ cross-module structural ratchet.
 Open risks: sparse payload assembly still has legacy long signatures pending
 the C5 request-type split; invasive bucket prioritization must be moved behind
 an explicitly labeled route before C3 closes.
+
+### 2026-09-10 — C3 controller serialization boundary
+
+Hypothesis: Every remaining controller artifact can use the shared host NPZ
+sink without changing when values are materialized or how schemas are formed.
+
+Files changed: `diagnostics/controller_capture.py`, the `debug_dumps.py`
+compatibility facade, `iteration_loop.py`, a cross-module structural ratchet,
+and this ledger.
+
+Algorithmic invariants protected: all eleven controller write sites retain
+their original paths, compression choices, payload construction, dtypes, and
+exception shielding. Cache load/atomic-replace order and algorithm calls are
+unchanged. None of the five controller/engine/significance/sparse numerical
+modules contains direct `np.save*` calls.
+
+Focused tests and exact results: cross-module serialization and stop-policy
+ratchets, noise schema, projector cache reuse, and both intermediate-map
+branches; 6/6 passed with 373 deselected and four existing complex-cast
+warnings.
+
+CPU fast guard: scheduled after diagnostic effect routing is explicit.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured in this host-only extraction.
+
+Performance artifacts and deltas: not measured in this host-only extraction.
+
+Compile/memory observations: no numerical signature, returned array, or JIT
+input changed; the shared writer is reached only at the prior host write sites.
+
+Provenance: parent HEAD `9411717f7b4301b8df2a23b33700762bf053d1fc`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: centralize controller serialization`.
+
+Decision: accepted.
+
+Next action: make passive, shadow, and invasive diagnostic routing explicit;
+move invasive sparse bucket prioritization behind that adapter.
+
+Open risks: several legacy payload dictionaries remain assembled near their
+algorithm state because moving them requires the C5/C7 request/state objects;
+serialization itself and stop policy are now outside those modules.
 
 ## Per-slice update template
 

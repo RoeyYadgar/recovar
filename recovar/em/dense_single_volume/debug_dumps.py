@@ -2,3 +2,5 @@
 
 from .diagnostics.controller_capture import _maybe_dump_noise_update_debug as _maybe_dump_noise_update_debug
 from .diagnostics.controller_capture import _save_iteration_intermediates as _save_iteration_intermediates
+from .diagnostics.controller_capture import write_controller_npz as write_controller_npz
+from .diagnostics.controller_capture import write_controller_npz_compressed as write_controller_npz_compressed
