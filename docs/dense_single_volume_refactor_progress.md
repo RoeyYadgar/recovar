@@ -2298,6 +2298,56 @@ Commit SHA and descriptive message: `42ab9b14` —
 Decision: accepted. Next pass this request to immutable cache/big-JIT route
 selection.
 
+### 2026-09-10 — C4 exact-local cache route plan
+
+Hypothesis: cache selection and big-JIT eligibility can be resolved once from
+the typed request and existing host plans, leaving allocation and numerical
+work in their original order.
+
+Files changed: `local_caches.py`, `local_em_engine.py`, and new
+`test_local_caches.py`.
+
+`LocalCacheRoute` now names the local-support threshold decision, RELION
+projector compatibility, environment override, processed-half preference, and
+the final big-JIT/processed-cache route. `LocalCacheRouteConstraints` keeps the
+two diagnostic disablers explicit at the boundary. The planner consumes the
+composed `LocalEMRequest` plus the input, geometry, Fourier, and mode plans,
+instead of receiving another list of individual flags and sizes.
+
+Algorithmic invariants protected: the threshold formula, short-circuit order,
+integer-shift test, cache-size estimate, environment-value parsing, diagnostic
+disablers, and route precedence are unchanged. The planner allocates no JAX
+arrays. Cache construction, projection preparation, bucket inputs, compiled
+calls, and accumulation remain at their prior locations.
+
+Focused tests and exact results:
+
+- new route cases plus the selected legacy raw/processed-cache cases: 11
+  passed and 404 deselected in `6.63 s`;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `79.38 s` using CPU-only JAX and writable temporary caches;
+- CPU fast guard: 16 passed in `52.74 s`, with the expected login-node CUDA
+  discovery traceback before its CPU-only test process;
+- cache/test files pass Ruff format and lint; the engine passes the established
+  targeted lint scope.
+
+GPU validation remains deferred to the grouped compiled-boundary gate. This
+slice creates two small frozen host objects once per exact-local call and
+changes no cache contents, HLO input, compile shape, or numerical operation.
+
+Provenance: code commit
+`fa638bc873bd7c986e1ee86e190cdaced4e11796` on `dense_em_refactor`;
+committed patch SHA-256
+`a15fedef9139f2653cd226301990a5377a0ba22fb46ccfa084f24045a933327f`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `fa638bc8` —
+`refactor: extract exact-local cache routing`.
+
+Decision: accepted. Next separate allocated cache/projection resources from
+mutable cache statistics and output accumulators.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2323,9 +2373,9 @@ Open risks:
 
 ## Immediate next actions
 
-1. Separate cache/projection preparation from output accumulator state, then
-   introduce the grouped dynamic PyTrees and frozen static policy at the big
-   JIT boundary one caller route at a time.
+1. Separate allocated cache/projection resources from mutable cache statistics
+   and output accumulator state, then introduce the grouped dynamic PyTrees and
+   frozen static policy at the big-JIT boundary one caller route at a time.
 2. Move exact-local diagnostic payload gathering behind the C3 sink using the
    new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
    GPU timing gates before closing C4.
