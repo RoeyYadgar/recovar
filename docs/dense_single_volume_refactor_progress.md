@@ -1165,7 +1165,7 @@ Provenance: parent HEAD `15c5342449eb5b6f980fb0788dbe1570a6b3d171`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: extract parity diagnostics sink`.
+Commit SHA and descriptive message: `f233f3a9` — `refactor: extract parity diagnostics sink`.
 
 Decision: accepted.
 
@@ -1174,6 +1174,48 @@ local engine capture adapters.
 
 Open risks: the compatibility implementation retains its historical process
 singleton until the C7 `RefinementSession` owns the run-wide sink.
+
+### 2026-09-10 — C3 local capture module boundary
+
+Hypothesis: Dense and exact-local request parsing, payload construction, and
+serialization can move as one cohesive diagnostic module while stable imports
+continue through a thin compatibility facade.
+
+Files changed: `diagnostics/local_capture.py`, `local_debug.py`, and this
+ledger.
+
+Algorithmic invariants protected: the 954-line implementation is moved
+mechanically; call sites, request values, array conversions, payload schemas,
+filenames, and exception behavior are unchanged. No numerical engine file or
+JIT boundary changes.
+
+Focused tests and exact results: targeted dense original-index score capture,
+local request matching, local score schema, and fused-posterior filtering;
+3/3 passed with 374 deselected and one pre-existing gimbal-lock warning.
+
+CPU fast guard: deferred until the first production caller/schema migration.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured; implementation move only.
+
+Performance artifacts and deltas: not measured; call sites are unchanged.
+
+Compile/memory observations: no numerical code or function signature changed.
+
+Provenance: parent HEAD `f233f3a9b2fff1fb417a6d513fa51ac761ff973b`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: relocate local diagnostic capture`.
+
+Decision: accepted.
+
+Next action: relocate compact-candidate and controller debug artifact writers,
+then remove direct serialization from numerical engines.
+
+Open risks: production callers still use the compatibility facade until their
+larger legacy files can be migrated without unrelated formatting churn.
 
 ## Per-slice update template
 
