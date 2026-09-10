@@ -15,6 +15,13 @@ import numpy as np
 from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.image_shifts import apply_relion_integer_pre_shifts
 from recovar.em.dense_single_volume.helpers.preprocessing import process_half_image
+from recovar.em.dense_single_volume.local_em_array_setup import LocalEMFourierPlan
+from recovar.em.dense_single_volume.local_em_planning import (
+    LocalEMGeometryPlan,
+    LocalEMInputPlan,
+    LocalEMModePlan,
+)
+from recovar.em.dense_single_volume.local_em_types import LocalEMRequest
 
 # The constants remain re-exported here for local_em_engine and test compatibility.
 from recovar.em.dense_single_volume.runtime_options import (  # noqa: F401
@@ -29,6 +36,12 @@ from recovar.em.dense_single_volume.runtime_options import (  # noqa: F401
     load_local_raw_cache_max_gb,
     load_local_sparse_big_jit_mstep_max_gb,
 )
+from recovar.em.dense_single_volume.runtime_options import (
+    current_environment as _runtime_environment,
+)
+
+EXACT_LOCAL_DISABLE_BIG_JIT_ENV = "RECOVAR_DISABLE_LOCAL_BIG_JIT"
+EXACT_LOCAL_BIG_JIT_MIN_SIGNIFICANT_ROW_FRACTION = 0.25
 
 
 @dataclass(frozen=True)
@@ -37,6 +50,29 @@ class _LocalProcessedHalfCache:
     score_half: np.ndarray
     recon_half: np.ndarray | None
     integer_pre_shifts_applied: bool
+
+
+@dataclass(frozen=True)
+class LocalCacheRouteConstraints:
+    """Diagnostic conditions that can disable the production big-JIT route."""
+
+    bpref_contribution_capture_active: bool
+    debug_noise_dump_requested: bool
+
+
+@dataclass(frozen=True)
+class LocalCacheRoute:
+    """Immutable cache and big-JIT selection for one exact-local call."""
+
+    local_support_rows: int
+    significant_backprojection_candidate: bool
+    use_relion_projector: bool
+    compact_relion_projector_big_jit: bool
+    relion_projector_big_jit_supported: bool
+    big_jit_disabled: bool
+    processed_half_cache_preferred: bool
+    use_big_jit_buckets: bool
+    use_processed_half_cache: bool
 
 
 def _local_raw_cache_enabled(
@@ -65,6 +101,67 @@ def _local_processed_half_cache_enabled(
     estimated_gb = int(n_images) * int(n_half) * bytes_per_value * n_arrays / 1e9
     max_gb = load_local_processed_half_cache_max_gb() if settings is None else float(settings.processed_half_max_gb)
     return estimated_gb <= max_gb
+
+
+def plan_local_cache_route(
+    *,
+    request: LocalEMRequest,
+    inputs: LocalEMInputPlan,
+    geometry: LocalEMGeometryPlan,
+    fourier: LocalEMFourierPlan,
+    mode: LocalEMModePlan,
+    constraints: LocalCacheRouteConstraints,
+) -> LocalCacheRoute:
+    """Resolve call-wide cache and big-JIT eligibility before allocation."""
+
+    local_layout = request.inputs.local_layout
+    local_support_rows = int(np.sum(local_layout.rotation_counts))
+    significant_backprojection_candidate = bool(
+        request.search.reconstruct_significant_only
+        and inputs.n_images > 0
+        and local_support_rows
+        >= int(np.ceil(max(inputs.n_images, 1) / EXACT_LOCAL_BIG_JIT_MIN_SIGNIFICANT_ROW_FRACTION))
+    )
+    use_relion_projector = request.inputs.relion_projector_half is not None
+    compact_relion_projector_big_jit = bool(use_relion_projector and fourier.window.use_window)
+    relion_projector_big_jit_supported = bool(
+        use_relion_projector and (not fourier.window.use_window or compact_relion_projector_big_jit)
+    )
+    big_jit_disabled = _runtime_environment().get(EXACT_LOCAL_DISABLE_BIG_JIT_ENV, "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    image_pre_shifts = request.corrections.image_pre_shifts
+    processed_half_cache_preferred = (
+        image_pre_shifts is None or _all_integer_pre_shifts_or_none(image_pre_shifts, inputs.n_images) is not None
+    ) and _local_processed_half_cache_enabled(
+        inputs.n_images,
+        geometry.n_half,
+        np.complex64,
+        store_recon_half=bool(request.scoring.score_with_masked_images),
+        settings=request.execution.cache,
+    )
+    use_big_jit_buckets = bool(
+        ((not use_relion_projector) or relion_projector_big_jit_supported)
+        and not big_jit_disabled
+        and not constraints.bpref_contribution_capture_active
+        and not request.outputs.return_reconstruction_probability_values
+        and not (request.outputs.accumulate_noise and constraints.debug_noise_dump_requested)
+        and not processed_half_cache_preferred
+    )
+    return LocalCacheRoute(
+        local_support_rows=local_support_rows,
+        significant_backprojection_candidate=significant_backprojection_candidate,
+        use_relion_projector=use_relion_projector,
+        compact_relion_projector_big_jit=compact_relion_projector_big_jit,
+        relion_projector_big_jit_supported=relion_projector_big_jit_supported,
+        big_jit_disabled=big_jit_disabled,
+        processed_half_cache_preferred=processed_half_cache_preferred,
+        use_big_jit_buckets=use_big_jit_buckets,
+        use_processed_half_cache=not use_big_jit_buckets and processed_half_cache_preferred,
+    )
 
 
 def _sparse_big_jit_mstep_tensors_within_memory(

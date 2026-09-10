@@ -97,6 +97,7 @@ from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
     EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
     EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB,
     EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+    LocalCacheRouteConstraints,
     _all_integer_pre_shifts_or_none,
     _build_local_processed_half_cache,
     _build_local_raw_cache,
@@ -105,6 +106,7 @@ from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
     _LocalProcessedHalfCache,
     _sparse_big_jit_mstep_tensors_memory_gb,
     _validate_native_half_batch,
+    plan_local_cache_route,
 )
 from recovar.em.dense_single_volume.local_debug import (
     current_size_matches_request,
@@ -116,6 +118,12 @@ from recovar.em.dense_single_volume.local_debug import (
     parse_debug_fused_posterior_dump_request,
     parse_debug_noise_component_dump_request,
     parse_debug_score_dump_request,
+)
+from recovar.em.dense_single_volume.local_em_array_setup import (
+    make_local_em_precision,
+    plan_local_em_fourier,
+    plan_local_em_reconstruction,
+    prepare_local_big_jit_static_inputs,
 )
 from recovar.em.dense_single_volume.local_em_batch_planning import (  # noqa: F401
     EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV,
@@ -136,13 +144,6 @@ from recovar.em.dense_single_volume.local_em_batch_planning import (  # noqa: F4
     plan_local_microbatch_route,
     summarize_local_buckets,
 )
-from recovar.em.dense_single_volume.local_em_array_setup import (
-    local_mstep_adjoint_window as _local_mstep_adjoint_window,
-    make_local_em_precision,
-    plan_local_em_fourier,
-    plan_local_em_reconstruction,
-    prepare_local_big_jit_static_inputs,
-)
 from recovar.em.dense_single_volume.local_em_planning import (
     plan_local_em_geometry,
     plan_local_em_inputs,
@@ -150,13 +151,13 @@ from recovar.em.dense_single_volume.local_em_planning import (
 )
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
-    LocalExecutionSettings,
     LocalEMDiagnostics,
     LocalEMInputs,
     LocalEMOutputSpec,
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalEMResult,
+    LocalExecutionSettings,
     LocalPosteriorInputs,
     LocalProjectionSettings,
     LocalReconstructionSettings,
@@ -167,7 +168,6 @@ from recovar.em.dense_single_volume.local_layout import (
     LocalBucketSpec,
     LocalHypothesisLayout,
     _exact_bucket_rotation_size,
-    _exact_local_large_bucket_quantum,
 )
 from recovar.em.dense_single_volume.local_score_pass import (
     compute_reconstruction_support,
@@ -198,6 +198,8 @@ from recovar.em.dense_single_volume.local_timing import (  # noqa: F401
 )
 from recovar.em.dense_single_volume.runtime_options import (
     LocalCacheSettings,
+)
+from recovar.em.dense_single_volume.runtime_options import (
     current_environment as _runtime_environment,
 )
 from recovar.em.dense_single_volume.shape_buckets import pad_axis, pad_batch_data_ctf_and_valid_mask
@@ -298,14 +300,10 @@ EXACT_LOCAL_PROGRESS_SECONDS_ENV = "RECOVAR_EXACT_LOCAL_PROGRESS_SECONDS"
 DEFAULT_EXACT_LOCAL_PROGRESS_CHUNKS = 1000
 DEFAULT_EXACT_LOCAL_PROGRESS_SECONDS = 300
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
 # Disabled by default: on the 50k/256 local-search target this cache made the
 # iteration slower by precomputing more spectra than the bucket schedule reuses.
-# Upper bound for the extra M-step tensors materialized by the sparse big-JIT
-# hybrid path. This path still packs rows before backprojection; the cap only
-# guards the temporary fused summed/ctf tensor outputs.
-EXACT_LOCAL_BIG_JIT_MIN_SIGNIFICANT_ROW_FRACTION = 0.25
-
-
 def _local_mstep_rotations(bucket: LocalBucketSpec) -> np.ndarray:
     """Return the adjoint-only rotations, falling back to scoring rotations.
 
@@ -2197,40 +2195,22 @@ def run_local_em_exact(
     disabled_group_ids = big_jit_static_inputs.disabled_group_ids
     disabled_noise_shell_indices = big_jit_static_inputs.disabled_noise_shell_indices
 
-    local_support_rows = int(np.sum(local_layout.rotation_counts))
-    significant_backprojection_candidate = (
-        reconstruct_significant_only
-        and n_images > 0
-        and local_support_rows >= int(np.ceil(max(n_images, 1) / EXACT_LOCAL_BIG_JIT_MIN_SIGNIFICANT_ROW_FRACTION))
+    cache_route = plan_local_cache_route(
+        request=local_request,
+        inputs=input_plan,
+        geometry=geometry_plan,
+        fourier=fourier_plan,
+        mode=mode_plan,
+        constraints=LocalCacheRouteConstraints(
+            bpref_contribution_capture_active=bpref_contribution_capture_active,
+            debug_noise_dump_requested=debug_noise_dump_dir is not None,
+        ),
     )
-    use_relion_projector = relion_projector_half is not None
-    compact_relion_projector_big_jit = bool(use_relion_projector and window_spec.use_window)
-    relion_projector_big_jit_supported = bool(
-        use_relion_projector and (not use_window or compact_relion_projector_big_jit)
-    )
-    disable_big_jit_buckets = _runtime_environment().get("RECOVAR_DISABLE_LOCAL_BIG_JIT", "").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    processed_half_cache_preferred = (
-        image_pre_shifts is None or _all_integer_pre_shifts_or_none(image_pre_shifts, n_images) is not None
-    ) and _local_processed_half_cache_enabled(
-        n_images,
-        n_half,
-        np.complex64,
-        store_recon_half=bool(score_with_masked_images),
-        settings=cache_settings,
-    )
-    use_big_jit_buckets = (
-        ((not use_relion_projector) or relion_projector_big_jit_supported)
-        and not disable_big_jit_buckets
-        and not bpref_contribution_capture_active
-        and not return_reconstruction_probability_values
-        and not (accumulate_noise and debug_noise_dump_dir is not None)
-        and not processed_half_cache_preferred
-    )
+    significant_backprojection_candidate = cache_route.significant_backprojection_candidate
+    use_relion_projector = cache_route.use_relion_projector
+    compact_relion_projector_big_jit = cache_route.compact_relion_projector_big_jit
+    processed_half_cache_preferred = cache_route.processed_half_cache_preferred
+    use_big_jit_buckets = cache_route.use_big_jit_buckets
     mean_for_proj_big_jit = mean_for_proj
     projection_half_volume_big_jit = False
     relion_projector_half_big_jit = jnp.zeros((1, 1, 1), dtype=jnp.complex64)
@@ -2324,7 +2304,7 @@ def run_local_em_exact(
         ).reshape(-1)
         projection_half_volume_big_jit = True
 
-    can_use_processed_half_cache = not use_big_jit_buckets and processed_half_cache_preferred
+    can_use_processed_half_cache = cache_route.use_processed_half_cache
     if can_use_processed_half_cache:
         processed_half_cache_t0 = time.time()
         processed_half_cache = _build_local_processed_half_cache(
