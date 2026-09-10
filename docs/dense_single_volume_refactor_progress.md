@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IN PROGRESS — PLANNING EXTRACTED | Immutable host/array plans own validation and setup; staged memory caps, production bucket topology, and shape summaries now live in `local_em_batch_planning.py`. Cache/preparation state is next. The 98-argument JIT boundary remains fixed. |
+| C4 Exact-local engine | IN PROGRESS — PLANNING EXTRACTED | Immutable host/array and bucket plans own validation/setup. Call-wide masks, window indices, x-half indices, and disabled big-JIT sentinels are grouped. Cache routing/state is next; the 98-argument JIT boundary remains fixed. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -141,6 +141,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local microbatch policy | Commit `b0d8b75a` | All 18 focused cap tests passed. GPU-memory defaults, explicit overrides, score-only bounds, planned floors, and x-half tail/projection caps moved intact to `local_em_batch_planning.py`; engine compatibility names remain. |
 | 2026-09-10 | C4 exact-local staged cap plan | Commit `7727bde6` | Route/cap tests 21/21, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. One `LocalExecutionSettings` object now feeds immutable x-half route and generic/tail/projection cap plans. |
 | 2026-09-10 | C4 exact-local bucket topology | Commit `3fa2447e` | Bucket contracts/builders 10/10, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Production buckets and shape-frequency/image-count summaries now have immutable contracts; diagnostic filtering remains downstream. |
+| 2026-09-10 | C4 exact-local static inputs | Commit `2e5f3a6c` | Static setup 9/9, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Big-JIT mask/window/x-half index arrays and disabled sentinels now travel as `LocalBigJitStaticInputs`. |
 
 ## Decision log
 
@@ -2206,6 +2207,53 @@ Commit SHA and descriptive message: `3fa2447e` —
 
 Decision: accepted. Next separate cache/projection preparation from mutable
 output accumulator state.
+
+### 2026-09-10 — C4 exact-local call-wide static inputs
+
+Hypothesis: mask resolution, full-or-windowed index arrays, x-half M-step
+indices, and disabled noise/group sentinels can be constructed once into a
+named immutable container without changing JAX allocation order.
+
+Files changed: `local_em_array_setup.py`, `local_em_engine.py`, and
+`test_local_em_array_setup.py`.
+
+`LocalBigJitStaticInputs` groups the image mask/mode, score and reconstruction
+indices, M-step coordinate indices, and the seven disabled sentinel arrays.
+The engine retains the old local aliases at the compiled call sites, which
+keeps this slice independent of the later grouped-PyTree migration.
+
+Algorithmic invariants protected: the same mask helper and Fourier-plan methods
+run in the same sequence, and all `jnp.asarray`/`jnp.zeros` calls preserve their
+shape, dtype, and order. Translation-phase timing remains outside the helper.
+No cache decision, bucket array, per-bucket input, posterior, M-step,
+accumulator, or JIT signature changed.
+
+Focused tests and exact results:
+
+- static mask/index/sentinel setup: 9 passed in `7.35 s`;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `79.73 s` with the warm writable CPU cache;
+- CPU fast guard: 16 passed in `51.42 s`, including its expected login-node
+  CUDA discovery traceback before CPU-only execution;
+- focused setup files pass Ruff format/lint, and the engine passes the
+  established targeted lint scope.
+
+GPU validation remains deferred to the grouped compiled-boundary gate. This
+slice only returns references to arrays already constructed at this location;
+it changes no HLO input, shape class, compile count, or per-bucket work.
+
+Provenance: code commit
+`2e5f3a6cb5bf2346a801625df6934aeebbb7657a` on `dense_em_refactor`;
+pre-commit dirty diff SHA-256
+`84c1ea658964133695a07a3155bf558542059238829d4c175fd7e3c4a974e76c`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `2e5f3a6c` —
+`refactor: group exact-local static inputs`.
+
+Decision: accepted. Next extract immutable cache/big-JIT route selection, then
+separate cache resources from mutable cache statistics.
 
 ## Per-slice update template
 
