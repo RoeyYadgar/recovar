@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second; move its remaining raw diagnostic payload gathering with the new cohesive state types. |
+| C4 Exact-local engine | IN PROGRESS — HOST INVENTORY COMPLETE | The 3,306-line host body is classified into five stages. First extract normalized execution-mode validation, then validated per-image inputs; keep the numerical and 98-argument JIT boundaries fixed until those seams pass. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -1784,6 +1784,53 @@ an enabled-only diagnostic event and does not alter numerical work, JIT
 signatures, array materialization, or production null-route execution.
 
 Next action: continue C4 exact-local engine work.
+
+### 2026-09-10 — C4 exact-local host-stage inventory
+
+Hypothesis: the exact-local host body can be decomposed along its existing
+dataflow boundaries without introducing an ambient context object or changing
+the compiled engine. The first useful seam is normalized execution-mode
+validation because it is host-only, has no array materialization, and controls
+the score-only, profile-capture, split, deferred-M-step, and x-half routes.
+
+The current `run_local_em_exact` body is 3,306 lines and has five existing
+stages:
+
+| Stage | Current source span | Main responsibilities | Intended contract |
+|---|---:|---|---|
+| Validation and derived geometry | `1955`--`2243` | mode compatibility, per-image shape checks, projector/reconstruction geometry, precision/window policy, accumulator allocation | immutable mode plan followed by validated input and geometry plans |
+| Microbatch and bucket planning | `2245`--`2535` | effective caps, x-half tail/projection caps, bucket topology, target-only diagnostic filtering, progress accounting | bucket plan with explicit production and diagnostic views |
+| Cache and projection preparation | `2536`--`2728` | translation phases, mask/window arguments, disabled sentinels, projector cache groups, processed-half cache eligibility | cache/preparation state separated from output buffers |
+| Bucket execution and postprocessing | `2730`--`4989` | fetch/reorder, fused or split scoring, packed/deferred M-step, noise accumulation, host result placement | bucket request, accumulator state, and `LocalBucketResult` |
+| Finalization | `4991`--`5187` | accumulator layout conversion, statistics, diagnostics, profile summary, legacy tuple assembly | stable `LocalEMResult` plus compatibility serialization |
+
+The inventory also identifies the main coupling hazards:
+
+- validation currently parses diagnostic requests before all numerical mode
+  conflicts have been rejected;
+- cache eligibility and big-JIT routing depend on values derived in three
+  different stages;
+- the bucket loop selects several numerically distinct routes and therefore
+  must not be consolidated merely because their return shapes resemble one
+  another;
+- host postprocessing already has a helper, but its inputs are still supplied
+  as a long list of mutable buffers;
+- the final stable `LocalEMResult` exists only outside the legacy engine, so
+  the engine still assembles a flag-dependent tuple internally.
+
+First measurable slice: introduce an immutable local mode plan built from the
+existing scoring, reconstruction, and requested-output groups. It must retain
+the current validation order/messages and resolve implicit profile capture
+without changing the legacy signature, the bucket/JIT calls, or any array.
+Focused tests will cover score-only rejection/acceptance, exact-translation
+requirements, implicit profile capture, and valid split/deferred/x-half mode
+identity.
+
+Validation scope: structural and performance-neutral. Baseline provenance is
+HEAD `af338706` on `dense_em_refactor`, empty tracked diff SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`,
+with all five required parity ancestors present. Pre-existing fixture, editor,
+plot, and scratch paths remain untracked and out of scope.
 
 ## Per-slice update template
 
