@@ -1,7 +1,7 @@
 # Dense Single-Volume EM Refactor Progress
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
-Current phase: C4 — refactor the exact-local engine
+Current phase: C5 — split and simplify sparse pass 2
 Last updated: 2026-09-10
 
 ## Status board
@@ -12,8 +12,8 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IMPLEMENTATION COMPLETE — GPU GATE PENDING | Typed request/plans separate validation, array setup, batching, caches, diagnostics, and results. The big-JIT boundary now uses six dynamic PyTrees plus one frozen policy, with named host results and the original two-buffer donation contract. Fixed-input HLO/compile-count and paired warm GPU validation are next. |
-| C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
+| C4 Exact-local engine | COMPLETE — STRUCTURAL GPU PASS | Typed request/plans separate validation, array setup, batching, caches, diagnostics, and results. Fixed-input StableHLO is byte-identical, compilation count is unchanged, and paired GPU jobs `60544202`/`60544499` preserve quality with no material runtime or memory regression. |
+| C5 Sparse pass 2 | NOT STARTED — NEXT | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
 | C8 K-class/replay routing | NOT STARTED | Consume typed engine/controller boundaries. |
@@ -143,6 +143,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local bucket topology | Commit `3fa2447e` | Bucket contracts/builders 10/10, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Production buckets and shape-frequency/image-count summaries now have immutable contracts; diagnostic filtering remains downstream. |
 | 2026-09-10 | C4 exact-local static inputs | Commit `2e5f3a6c` | Static setup 9/9, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Big-JIT mask/window/x-half index arrays and disabled sentinels now travel as `LocalBigJitStaticInputs`. |
 | 2026-09-10 | C4 internal request context | Commit `42ab9b14` | Request/planner contracts 45/45 and every selected real `run_local_em_exact` case 21/21 passed. The compatibility entry point now composes all existing groups into one explicit `LocalEMRequest` before planning. |
+| 2026-09-10 | C4 completion gate | Slurm `60544202` and `60544499`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c4_samegpu_60b2b154_vs_af338706` | Both full arms completed 13 iterations and final-all-data with direct merged FSC-AUC `0.9999961`. Fixed-input StableHLO is byte-identical, fixed-input compile count is one per arm, exact-local time changed `+0.43%`, ledger time `+0.87%`, process wall `-2.10%`, and RSS `+0.09%`. Consolidated C4 tests passed 52/52 and the final CPU guard passed 16/16. |
 
 ## Decision log
 
@@ -2520,6 +2521,145 @@ Commit SHA and descriptive message: `6041093d` —
 Decision: accepted. C4 implementation is feature-complete; run the fixed-input
 HLO/compile-count checks and paired warm Slurm GPU quality/performance gate.
 
+### 2026-09-10 — C4 completion and compiled-boundary GPU gate
+
+Hypothesis: the complete exact-local component split retains the accepted
+algorithm, output contracts, compilation topology, and representative
+performance despite replacing the long big-JIT call with grouped PyTrees.
+
+Files changed: the C4 series from `6698527d` through `6041093d`, its focused
+tests, and this progress record. The public compatibility signature remains at
+`run_local_em_exact`; all production callers enter through typed
+`LocalEMRequest`, and the internal big-JIT boundary is eight arguments rather
+than 51 dynamic positional arguments plus 47 static keywords.
+
+Algorithmic invariants protected: no score, posterior, M-step, noise,
+projection, cache, batching, convergence, or finalization formula changed.
+The compiled function retains the same 28 dynamic tensor parameters after
+lowering and the same donor attributes on the two accumulator buffers. The six
+dynamic PyTrees contain only the pre-existing leaves; the frozen policy
+contains only the pre-existing static choices.
+
+Focused tests and exact results:
+
+- the consolidated C4 planning, setup, batching, cache, projection-cache,
+  big-JIT type/result, and diagnostics matrix passed 52/52 in `9.40 s`;
+- the final CPU fast guard passed 16/16 in `50.13 s`, after its expected
+  login-node CUDA discovery traceback;
+- preceding per-slice validation covered every selected real exact-local route
+  21/21 after each compiled-boundary or diagnostics change, the dedicated
+  big-JIT routes 10/10, and the targeted debug-result routes 6/6.
+
+GPU/Slurm jobs:
+
+- full same-allocation comparison `60544202`, completed `0:0` in `00:37:16`
+  on one Tesla V100-SXM2-32GB;
+- corrected compile-once ABBA kernel comparison `60544499`, completed `0:0`
+  in `00:00:57` on one Tesla V100-PCIE-16GB;
+- preliminary kernel job `60544491` failed during creation of the preferred
+  runtime root, before Python import or science, and is excluded. The corrected
+  launcher used its explicit portable scratch fallback.
+
+The full comparison ran clean detached control
+`af338706afea1aaad3ce3389b0ee1142670a5068` and candidate
+`60b2b154b652e73f22043b17d9696c846157901f` sequentially in one allocation.
+Both used the same fixture, seed, RELION binding, pinned CUDA library, and
+isolated compilation/runtime caches. Both tracked diff fingerprints were the
+empty SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+The portable artifact root is
+`$HOME/palmer_scratch/tmp/dense_em_refactor_c4_samegpu_60b2b154_vs_af338706`;
+the full launcher SHA-256 is
+`3200ae1cf398faa244c87b794296afdafb6df01b2bbb35c60e8b5fff1bfeb5a0`
+and the corrected kernel launcher SHA-256 is
+`6adca653bd0752d31ddb5091fa0aedceb4b1bd551f5ddf7536666c1d4a9cba5b`.
+
+Each full arm ran the requested command, changing only its worktree, output,
+and compile-log paths:
+
+```bash
+python -m scripts.run_multi_iter_parity \
+  --relion_dir relion_em_test_double_seeded \
+  --data_star _full_refinement_data_double_seeded/particles.star \
+  --iter 0 \
+  --max_iter 20 \
+  --output_dir "$RUN_ROOT/<arm>_output" \
+  --gt_volume "$HOME/pi_data/igg_1d/init_mask/backproj_0.01.mrc" \
+  --replay-override-max-iter 0 \
+  --compile_log "$RUN_ROOT/logs/<arm>_run_<job-id>.log"
+```
+
+Quality artifacts and deltas:
+
+| Measure | C3 control `af338706` | C4 candidate `60b2b154` | Candidate delta |
+|---|---:|---:|---:|
+| Completed numbered iterations | 13 | 13 | same |
+| Current sizes | `46,46,72,70,70,70,70,70,70,72,72,72,72` | same | same |
+| Final-all-data path | yes | yes | same |
+| Final merged FSC-AUC vs RELION | `0.9944551954` | `0.9944591962` | `+0.0000040008` |
+| Final merged correlation vs RELION, diagnostic | `0.9983336174` | `0.9983346770` | `+0.0000010597` |
+
+The two 310-field result archives have identical key order, shapes, and
+dtypes. Direct control/candidate FSC-AUC is `0.9999921` for half 1,
+`0.9999997` for half 2, and `0.9999961` merged; merged correlation is
+`0.9999994`, and the minimum non-DC merged FSC is `0.9999863`. The refactor
+therefore preserves both the decisive FSC/FSC-AUC evidence and the requested
+correlation diagnostic. The absolute RELION-facing FSC-AUC remains just below
+the independent program gate of `0.995`, as it did before this structural
+stage; C4 neither introduces nor attempts to tune that scientific gap.
+
+Performance artifacts and deltas:
+
+| Measure | Control | Candidate | Candidate delta |
+|---|---:|---:|---:|
+| Refinement ledger elapsed | `1011.399 s` | `1020.209 s` | `+0.87%` |
+| Exact-local EM time | `328.832 s` | `330.246 s` | `+0.43%` |
+| External process wall | `1101.89 s` | `1078.78 s` | `-2.10%` |
+| Peak RSS | `10,952,656 KiB` | `10,962,508 KiB` | `+0.09%` |
+| Transfer-to-host profile | `9.571 s` | `9.426 s` | `-1.51%` |
+
+All representative changes are inside the investigation thresholds, so there
+is no material algorithm-performance or memory regression.
+
+Compile/HLO observations: the fixed production invocation lowers to exactly
+431,231 bytes of StableHLO in each worktree, with identical operation counts,
+public tensor signature, donor attributes, and exact SHA-256
+`d77f045df3d478ceabf07fb6cf30ddfc64d1e62dc96a5a2a9c64d366ca37e7a4`.
+The compile-once ABBA test lowers once and compiles once per process in both
+arms. Median lowering changes `-0.60%` (`146.570` to `145.696 ms`) and median
+compilation changes `+0.57%` (`789.760` to `794.252 ms`). The 20 pooled warm
+calls per arm expose a `23.44 us` additive grouped-PyTree dispatch cost:
+`316.85 us` control versus `340.28 us` candidate. Its `7.40%` relative value
+is an artifact of the deliberately tiny three-image, size-six kernel; the
+representative 329-second exact-local workload changes only `+0.43%`. This
+small host-interface cost is recorded rather than hidden and can be revisited
+only if later profiles show many sub-millisecond buckets.
+
+The full logs contain fewer candidate compile matches (`9,264` versus `9,282`
+in the ledgers) and fewer unique logged signatures (`3,967` versus `3,972`).
+The candidate visits 41 semantic local big-JIT shape classes versus 40 control
+classes: all 40 control classes are present and the sole additional class is a
+`330`-image, `192`-rotation bucket. Fixed-input compile count and HLO are
+identical, total compilation is lower, bucket counts for all 16 exact-local
+half-steps are identical, and final maps are nearly identical. As in the C3
+gate, this one dynamic class is attributed to order-dependent trajectory
+variation rather than a new compiled route.
+
+Decision: accepted. C4 is complete with a structural GPU pass. The exact-local
+engine now has explicit typed ownership for host planning, arrays, batching,
+caches, projection resources/statistics, compiled inputs/results, and
+diagnostics while retaining JAX-native leaves and a compatibility façade.
+
+Next action: begin C5 by inventorying the sparse-pass-2 import graph and
+extracting neutral support-selection types/primitives to break the existing
+`significance`/`sparse_pass2_bucketed` cycle without changing either numerical
+kernel.
+
+Open risks: the compatibility façade intentionally retains its long historical
+signature until external callers migrate. The measured `23.44 us` PyTree
+dispatch cost and trajectory-dependent extra dynamic shape remain documented
+performance observations, not hidden regressions.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2545,5 +2685,7 @@ Open risks:
 
 ## Immediate next actions
 
-1. Run the fixed-input HLO/compile-count checks and paired warm Slurm GPU
-   quality/performance gate, then record the C4 closure decision.
+1. Inventory the C5 sparse-pass-2 import graph and define the first neutral
+   support-selection seam that breaks the existing import cycle.
+2. Extract types/planning separately from numerical kernels, keeping each
+   commit small and validating K=1 and K-class callers independently.
