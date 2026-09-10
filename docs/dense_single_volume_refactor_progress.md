@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IN PROGRESS — HOST INVENTORY COMPLETE | The 3,306-line host body is classified into five stages. First extract normalized execution-mode validation, then validated per-image inputs; keep the numerical and 98-argument JIT boundaries fixed until those seams pass. |
+| C4 Exact-local engine | IN PROGRESS — VALIDATION SEAMS EXTRACTED | The host body is classified into five stages. Immutable mode and per-image input plans now own scalar compatibility and host-array validation; derived geometry/window planning is next. Numerical and 98-argument JIT boundaries remain fixed. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -134,6 +134,8 @@ GPU identity and paired timing context.
 | 2026-09-10 | Complete C3 focused matrix | Ten diagnostics/schema/performance test files plus significance selection | 237 passed, 2 expected GPU-only skips in `132.97 s`; significance 12/12 passed. Final CPU fast guard passed 16/16 in `50.91 s`. |
 | 2026-09-10 | Final same-allocation C3 A/B | Slurm `60538896`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c3_samegpu_cfc22c31_vs_0f7b0337` | Completed `0:0` on one A100-PCIE-40GB. Both arms ran 13 iterations and final-all-data. Direct map FSC-AUC was `0.9992226`; candidate RELION FSC-AUC improved `+0.0004193`; ledger time improved `0.30%`, process wall improved `3.53%`, and RSS changed `+0.15%`. Fixed-input normalized StableHLO hashes matched exactly. |
 | 2026-09-10 | C3 restart lifecycle correction | Commit `13b97bfa`; Slurm `60539997`; `$HOME/palmer_scratch/tmp/recovar_em_test_iteration_started_fix_active_13b97bfa` | Focused lifecycle tests 10/10, replay/diagnostics selection 17/17, and CPU fast guard 16/16 passed. The active-diagnostics iteration-3 replay completed one iteration at size 70, wrote `parity_dump/iter_004.npz`, exited 0, and produced final correlation `0.9999999971` and FSC-AUC `0.9999993657` versus RELION. |
+| 2026-09-10 | C4 exact-local mode plan | Commit `6698527d` | Planner/contracts 32/32, real route selection 11/11, and CPU fast guard 16/16 passed. Scalar compatibility checks moved behind one immutable plan; no array or JIT boundary changed. |
+| 2026-09-10 | C4 exact-local input plan | Commit `5544838b` | Planner/contracts 43/43, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Per-image host validation preserves shapes, conversion dtypes, error order, and translation-center dtype. |
 
 ## Decision log
 
@@ -1881,6 +1883,58 @@ Decision: accepted. Next extract validation and normalization of per-image
 host inputs into a separate plan, preserving NumPy conversion dtype, shape
 checks, error order, and translation-prior validation.
 
+### 2026-09-10 — C4 exact-local validated input plan
+
+Hypothesis: per-image host validation can return one immutable plan without
+changing the arrays passed to scoring, posterior, reconstruction, or
+statistics code.
+
+Files changed: `local_em_planning.py`, the validation prelude in
+`local_em_engine.py`, and `test_local_em_planning.py`.
+
+`LocalEMInputPlan` now owns the validated image count, class log prior,
+int64 group IDs and inferred scale-group count, float64 external log
+normalizer/evidence, float64 reconstruction thresholds, and translation-prior
+centers in their original dtype. `plan_local_em_inputs` accepts four cohesive
+host objects: the layout plus the existing correction, posterior, and search
+groups. The legacy engine assigns the same local names from the plan, leaving
+all downstream statements unchanged.
+
+Behavior preserved includes the original validation order and messages,
+exclusive external normalizers, finite/non-negative reconstruction thresholds,
+explicit versus inferred scale-group sizing, and Python's existing
+`OverflowError` when an infinite scale-group count reaches `int()`.
+
+Focused tests and exact results:
+
+- planner plus existing request/result contracts: 43 passed in `2.96 s`;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `97.26 s`;
+- CPU fast guard: 16 passed in `50.78 s`;
+- both new/modified focused files pass Ruff format and lint checks, and the
+  legacy engine passes targeted lint with only its previously recorded
+  whole-file import debt excluded.
+
+Algorithmic and performance invariants: NumPy conversion dtypes and returned
+array identities are tested; no JAX array construction, synchronization,
+projection, posterior, bucket, M-step, cache, or finalization statement moved.
+The JIT boundary and calls are unchanged, so no GPU job is required for this
+host-only slice. The full C4 paired warm GPU gate remains required after the
+compiled boundary migration.
+
+Provenance: commit `5544838bb6a4aefebecb497cd6174f7e1cc8825d` on
+`dense_em_refactor`, empty tracked diff SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`,
+and all five required parity ancestors present. Existing untracked fixtures,
+editor settings, plots, and scratch outputs were not modified.
+
+Commit SHA and descriptive message: `5544838b` —
+`refactor: extract exact-local input validation`.
+
+Decision: accepted. Next extract the remaining derived geometry, precision,
+window, and accumulator-shape decisions into a read-only host plan, without
+moving allocation or changing projection/reconstruction operations.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -1906,15 +1960,14 @@ Open risks:
 
 ## Immediate next actions
 
-1. Inventory the current exact-local host stages and assign each statement to
-   validation/planning, cache preparation, bucket execution, host
-   postprocessing, or result finalization.
-2. Introduce the smallest cohesive request/state types needed by those host
-   stages; keep arrays in JAX-compatible PyTrees and paths/diagnostics outside
-   the compiled boundary.
-3. Extract one host stage per descriptive commit with focused exact-local tests
-   and preserve the current JIT signature until the host orchestration is
-   stable.
-4. Move remaining exact-local raw diagnostic payload gathering behind the C3
-   sink using the new C4 request/state objects, without dictionary bags or
-   long `**kwargs` adapters.
+1. Extract derived projection/reconstruction geometry, precision, Fourier
+   windows, and accumulator shapes into a read-only host plan; leave actual
+   array allocation in the engine.
+2. Extract effective microbatch caps and bucket topology, keeping x-half tail
+   and projection caps numerically and observably identical.
+3. Separate cache/projection preparation from output accumulator state, then
+   introduce the grouped dynamic PyTrees and frozen static policy at the big
+   JIT boundary one caller route at a time.
+4. Move exact-local diagnostic payload gathering behind the C3 sink using the
+   new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
+   GPU timing gates before closing C4.
