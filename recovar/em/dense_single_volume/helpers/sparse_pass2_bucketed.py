@@ -49,11 +49,18 @@ from recovar.em.dense_single_volume.helpers.adjoint import (
 )
 from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.compact_candidate_capture import (
+    BPrefContributionDumpComplete,
+    Pass2DumpComplete,
     compact_capture_requested_for_original_indices,
     compact_capture_requested_particle_count,
     maybe_capture_k1_production_bucket,
     maybe_capture_k1_production_bucket_chunked,
+    pass2_dump_progress,
+    raise_pass2_dump_complete,
     require_chunked_capture_capacity,
+    stop_after_bpref_contribution_dump,
+    write_sparse_npz,
+    write_sparse_npz_compressed,
 )
 from recovar.em.dense_single_volume.helpers.dtype_policy import DensePrecisionPolicy
 from recovar.em.dense_single_volume.helpers.env_flags import parse_env_int_set
@@ -336,71 +343,16 @@ class RelionWavgRectangle(NamedTuple):
     shell_indices: np.ndarray
 
 
-class Pass2DumpComplete(RuntimeError):
-    """Raised by explicit diagnostic runs after requested pass-2 dump files are written."""
-
-    def __init__(self, *, dump_count: int, current_size: int | None):
-        self.dump_count = int(dump_count)
-        self.current_size = None if current_size is None else int(current_size)
-        super().__init__(
-            "requested RECOVAR pass-2 dump target set was written "
-            f"(dump_count={self.dump_count}, current_size={self.current_size})"
-        )
-
-
-class BPrefContributionDumpComplete(RuntimeError):
-    """Raised after an explicitly targeted BPref diagnostic bundle is written."""
-
-    def __init__(
-        self,
-        *,
-        contribution_path: str | Path,
-        device_signature_path: str | Path | None,
-    ):
-        self.contribution_path = Path(contribution_path)
-        self.device_signature_path = (
-            None if device_signature_path is None else Path(device_signature_path)
-        )
-        message = (
-            "requested RECOVAR BPref contribution target was written "
-            f"(contribution_path={self.contribution_path}"
-        )
-        if self.device_signature_path is not None:
-            message += f", device_signature_path={self.device_signature_path}"
-        super().__init__(message + ")")
-
-
 def _maybe_stop_after_bpref_contribution_dump(
     *,
     contribution_path: str | Path,
     device_signature_path: str | Path | None,
 ) -> None:
-    """Stop an explicit diagnostic only after all requested files exist."""
+    """Compatibility wrapper for the diagnostics-owned stop policy."""
 
-    if _runtime_environment().get(_BPREF_CONTRIBUTION_STOP_AFTER_TARGET_ENV) != "1":
-        return
-    contribution_path = Path(contribution_path)
-    if not contribution_path.is_file():
-        raise RuntimeError(
-            "RECOVAR BPref contribution stop target is missing its contribution file: "
-            f"{contribution_path}"
-        )
-    device_dump_requested = bool(
-        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
-    )
-    resolved_device_path = (
-        None if device_signature_path is None else Path(device_signature_path)
-    )
-    if device_dump_requested and (
-        resolved_device_path is None or not resolved_device_path.is_file()
-    ):
-        raise RuntimeError(
-            "RECOVAR BPref contribution stop target is missing its requested "
-            f"device-signature file: {resolved_device_path}"
-        )
-    raise BPrefContributionDumpComplete(
+    stop_after_bpref_contribution_dump(
         contribution_path=contribution_path,
-        device_signature_path=resolved_device_path,
+        device_signature_path=device_signature_path,
     )
 
 
@@ -413,20 +365,12 @@ def _k_class_pass2_dump_progress(
 ) -> tuple[int, int]:
     """Return written and expected file counts for a K-class dump target set."""
 
-    target_indices = {int(value) for value in target_original_indices}
-    target_classes = {int(value) for value in target_classes_one_based}
-    if not target_indices:
-        raise ValueError("K-class pass-2 dump completion requires at least one target particle")
-    if not target_classes or min(target_classes) < 1:
-        raise ValueError("K-class pass-2 dump completion requires positive one-based classes")
-    size_label = -1 if current_size is None else int(current_size)
-    root = Path(dump_dir)
-    expected_paths = [
-        root / f"pass2_orig{original_index:06d}_class{class_one_based:03d}_cs{size_label:03d}.npz"
-        for original_index in sorted(target_indices)
-        for class_one_based in sorted(target_classes)
-    ]
-    return sum(path.is_file() for path in expected_paths), len(expected_paths)
+    return pass2_dump_progress(
+        dump_dir=dump_dir,
+        original_indices=target_original_indices,
+        classes_one_based=target_classes_one_based,
+        current_size=current_size,
+    )
 
 
 def _k1_pass2_dump_progress(
@@ -437,16 +381,11 @@ def _k1_pass2_dump_progress(
 ) -> tuple[int, int]:
     """Return written and expected file counts for a K=1 dump target set."""
 
-    target_indices = {int(value) for value in target_original_indices}
-    if not target_indices:
-        raise ValueError("K=1 pass-2 dump completion requires at least one target particle")
-    size_label = -1 if current_size is None else int(current_size)
-    root = Path(dump_dir)
-    expected_paths = [
-        root / f"pass2_orig{original_index:06d}_cs{size_label:03d}.npz"
-        for original_index in sorted(target_indices)
-    ]
-    return sum(path.is_file() for path in expected_paths), len(expected_paths)
+    return pass2_dump_progress(
+        dump_dir=dump_dir,
+        original_indices=target_original_indices,
+        current_size=current_size,
+    )
 
 
 def _original_indices_for_local(experiment_dataset, local_indices) -> np.ndarray:
@@ -750,7 +689,7 @@ def flush_bpref_device_panel_accumulator(*, iteration: int, half: int) -> None:
             raise RuntimeError(f"No RECOVAR device panel accumulator exists for {key}")
         data_accumulator, weight_accumulator = accumulators
         class_index = int(metadata["class_index"])
-        np.savez(
+        write_sparse_npz(
             output
             / (
                 f"recovar_device_panel_native_it{int(iteration):03d}_h{int(half)}"
@@ -994,7 +933,7 @@ def _maybe_dump_native_half_mstep(
     path = Path(dump_dir)
     path.mkdir(parents=True, exist_ok=True)
     run_id = _runtime_environment().get("RECOVAR_SPARSE_PASS2_NATIVE_DUMP_RUN_ID", "unset")
-    np.savez_compressed(
+    write_sparse_npz_compressed(
         path
         / (
             f"native_half_mstep_it{context_iteration:03d}_h{context_half}"
@@ -1247,7 +1186,7 @@ def _maybe_dump_bpref_contribution_rows(
             f"bpref_contribution_rows_it{context_iteration:03d}_h{context_half}"
             f"_call{call_idx:06d}_dump{dump_idx:06d}_cs{int(current_size):03d}.npz"
         )
-    np.savez(
+    write_sparse_npz(
         contribution_path,
         magic=np.asarray("RECOVAR_BPREF_CONTRIBUTION_ROWS"),
         schema=np.asarray("recovar-bpref-contribution-rows-v3"),
@@ -1567,7 +1506,7 @@ def _maybe_dump_bpref_contribution_rows(
         device_path.mkdir(parents=True, exist_ok=True)
         contribution_sha256 = _sha256_file(contribution_path)
         device_signature_path = device_path / f"{contribution_path.stem}.device.npz"
-        np.savez(
+        write_sparse_npz(
             device_signature_path,
             magic=np.asarray("RECOVAR_DEVICE_SCATTER_SIGNATURE"),
             schema=np.asarray("recovar-device-scatter-signature-v1"),
@@ -9049,7 +8988,7 @@ def _maybe_dump_k1_bpref_rotation_mass(
         f"bpref_membership_it{context_iteration:03d}_h{context_half}"
         f"_dump{dump_index:06d}_cs{int(current_size):03d}.npz"
     )
-    np.savez(
+    write_sparse_npz(
         output,
         schema=np.asarray("recovar-bpref-rotation-mass-v2"),
         iteration=np.int32(context_iteration),
@@ -9339,7 +9278,7 @@ def _maybe_dump_pass2_bucket(
                 dump_dir,
                 f"pass2_orig{original_idx:06d}_cs{(-1 if current_size is None else int(current_size)):03d}.npz",
             )
-            np.savez_compressed(
+            write_sparse_npz_compressed(
                 out_path,
                 schema=np.asarray("recovar.em.k1_pass2_selected_rotations.v1"),
                 iteration=np.int64(context_iteration),
@@ -9563,7 +9502,7 @@ def _maybe_dump_pass2_bucket(
                 "raw_operand_highres_xi2_half": np.float32(raw_highres_np[row]),
                 "relion_raw_diff2": selected_raw_diff2,
             }
-        np.savez_compressed(
+        write_sparse_npz_compressed(
             out_path,
             iteration=np.int64(context_iteration),
             half=np.int64(context_half),
@@ -9975,7 +9914,7 @@ def _maybe_dump_norm_residual_inputs(
                     np.sum(rectangle_pixels[valid_rectangle], dtype=np.float64)
                 ),
             )
-        np.savez_compressed(out_path, **payload)
+        write_sparse_npz_compressed(out_path, **payload)
     return int(target_rows.size)
 
 
@@ -10314,7 +10253,7 @@ def _write_chunked_scale_aa_dump(
                     dtype=np.complex64,
                 ),
             )
-        np.savez_compressed(out_path, **payload)
+        write_sparse_npz_compressed(out_path, **payload)
     return int(target_rows.size)
 
 
@@ -10557,7 +10496,7 @@ def _maybe_dump_k_class_pass2_bucket(
             f"pass2_orig{original_idx:06d}_class{int(class_index) + 1:03d}_cs"
             f"{(-1 if current_size is None else int(current_size)):03d}.npz",
         )
-        np.savez_compressed(
+        write_sparse_npz_compressed(
             out_path,
             iteration=np.int64(context_iteration),
             half=np.int64(context_half),
@@ -14405,7 +14344,7 @@ def compute_pass2_stats_sparse_bucketed(
                             int(chunked_scale_aa_dump_count),
                             "None" if current_size is None else str(int(current_size)),
                         )
-                        raise Pass2DumpComplete(
+                        raise_pass2_dump_complete(
                             dump_count=chunked_scale_aa_dump_count,
                             current_size=current_size,
                         )
@@ -14919,7 +14858,7 @@ def compute_pass2_stats_sparse_bucketed(
                     "None" if current_size is None else str(int(current_size)),
                 )
                 if completed_dump_count == expected_dump_count:
-                    raise Pass2DumpComplete(
+                    raise_pass2_dump_complete(
                         dump_count=completed_dump_count,
                         current_size=current_size,
                     )
@@ -15445,7 +15384,7 @@ def compute_pass2_stats_sparse_bucketed(
                     int(norm_residual_dump_count),
                     "None" if current_size is None else str(int(current_size)),
                 )
-                raise Pass2DumpComplete(
+                raise_pass2_dump_complete(
                     dump_count=norm_residual_dump_count,
                     current_size=current_size,
                 )
@@ -15657,7 +15596,7 @@ def compute_pass2_stats_sparse_bucketed(
                     norm_dump_dir,
                     f"recovar_wavg_norm_it{context_iteration:03d}_half{context_half}.npz",
                 )
-                np.savez_compressed(
+                write_sparse_npz_compressed(
                     norm_dump_path,
                     schema=np.asarray("recovar-k1-wavg-direct-norm-v1"),
                     one_based_iteration=np.int64(context_iteration),
@@ -17969,7 +17908,7 @@ def compute_k_class_pass2_stats_sparse_fused(
                     "None" if current_size is None else str(int(current_size)),
                 )
                 if completed_dump_count == expected_dump_count:
-                    raise Pass2DumpComplete(
+                    raise_pass2_dump_complete(
                         dump_count=completed_dump_count,
                         current_size=current_size,
                     )

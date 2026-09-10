@@ -14,5 +14,7 @@ from .events import TraceSpec as TraceSpec
 from .parity import PARITY_DIAGNOSTICS as PARITY_DIAGNOSTICS
 from .parity import ParityDiagnostics as ParityDiagnostics
 from .sinks import NULL_DIAGNOSTICS as NULL_DIAGNOSTICS
+from .sinks import NPZ_DIAGNOSTICS as NPZ_DIAGNOSTICS
 from .sinks import DiagnosticsSink as DiagnosticsSink
+from .sinks import NpzDiagnostics as NpzDiagnostics
 from .sinks import NullDiagnostics as NullDiagnostics

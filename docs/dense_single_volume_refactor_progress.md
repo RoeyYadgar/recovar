@@ -1386,7 +1386,7 @@ Provenance: parent HEAD `cbeb7cee28b3d62500d588e67198d8f2baf1d4e3`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: extract significance diagnostics`.
+Commit SHA and descriptive message: `752bfcf6` — `refactor: extract significance diagnostics`.
 
 Decision: accepted.
 
@@ -1396,6 +1396,57 @@ exceptions into the sparse diagnostics adapter.
 Open risks: payload assembly remains in the compatibility capture helpers; a
 later C5 split can replace their long legacy signatures with grouped sparse
 request types without mixing that engine refactor into C3.
+
+### 2026-09-10 — C3 sparse/BPref serialization and stop adapters
+
+Hypothesis: All sparse-pass persistence and termination can cross named
+diagnostics adapters while numerical helper signatures and payload contents
+remain unchanged.
+
+Files changed: `diagnostics/sinks.py`, `diagnostics/sparse_capture.py`,
+`helpers/sparse_pass2_bucketed.py`, focused tests, and this ledger.
+
+Algorithmic invariants protected: all eleven existing sparse/BPref write sites
+retain their paths, compression choice, payload fields, conversions, and call
+positions. `NpzDiagnostics` has no algorithm return channel. Pass-2 and BPref
+completion exceptions are defined and raised by the diagnostics adapter while
+legacy helper names remain compatible. The numerical helper now contains no
+direct `np.save*`, stop-exception class, or direct `raise Pass2DumpComplete`.
+
+Focused tests and exact results: shared NPZ writer 4/4; sparse stop/progress
+3/3 with 174 deselected; K-class target-set progress 2/2 with 246 deselected;
+BPref membership and norm/residual artifact routes 7/7 with one unrelated test
+deselected. One pre-existing assertion expects the explicitly float64
+deterministic reduction to return float32; it fails unchanged because the
+parent implementation returns `norm_reduction_dtype` and was not edited.
+
+CPU fast guard: the significance checkpoint passed 16/16; rerun after the
+controller sites are extracted.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured in this host-only extraction.
+
+Performance artifacts and deltas: not measured in this host-only extraction.
+
+Compile/memory observations: no JIT signature, return layout, or requested
+kernel value changed; artifact serialization remains after existing host
+materialization points.
+
+Provenance: parent HEAD `752bfcf647b1a41361e249daa269ebf63749aa12`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: extract sparse diagnostics adapters`.
+
+Decision: accepted.
+
+Next action: extract all remaining direct controller serialization and add a
+cross-module structural ratchet.
+
+Open risks: sparse payload assembly still has legacy long signatures pending
+the C5 request-type split; invasive bucket prioritization must be moved behind
+an explicitly labeled route before C3 closes.
 
 ## Per-slice update template
 

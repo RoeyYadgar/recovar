@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
 from typing import Protocol
+
+import numpy as np
 
 from .events import (
     ConvergenceUpdated,
@@ -66,5 +70,33 @@ class NullDiagnostics:
         pass
 
 
+class NpzDiagnostics:
+    """Host serializer shared by schema-specific diagnostic adapters."""
+
+    __slots__ = ()
+
+    def write_fields(
+        self,
+        path: str | Path,
+        /,
+        *,
+        compressed: bool,
+        **payload: Any,
+    ) -> None:
+        writer = np.savez_compressed if compressed else np.savez
+        writer(path, **payload)
+
+    def write_payload(
+        self,
+        path: str | Path,
+        payload: dict[str, Any],
+        /,
+        *,
+        compressed: bool,
+    ) -> None:
+        self.write_fields(path, compressed=compressed, **payload)
+
+
 NO_TRACE = TraceSpec.none()
 NULL_DIAGNOSTICS = NullDiagnostics()
+NPZ_DIAGNOSTICS = NpzDiagnostics()

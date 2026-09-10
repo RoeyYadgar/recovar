@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 
 import numpy as np
 
 from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
+
+from .sinks import NPZ_DIAGNOSTICS
 
 SCHEMA = "recovar-k1-production-candidate-bucket-v2"
 CAPTURE_DIR_ENV = "RECOVAR_COMPACT_CANDIDATE_CAPTURE_DIR"
@@ -24,10 +27,115 @@ MAX_PARTICLES_PER_RAW_SHARD = 256
 MAX_CANDIDATES_PER_RAW_SHARD = 1_000_000
 MAX_CHUNKED_CAPTURE_INPUT_BYTES = 256 * 1024**2
 _capture_counter = 0
+logger = logging.getLogger(__name__)
 
 
 class CompactCaptureError(RuntimeError):
     pass
+
+
+class Pass2DumpComplete(RuntimeError):
+    """Raised by invasive runs after requested pass-2 files are durable."""
+
+    def __init__(self, *, dump_count: int, current_size: int | None):
+        self.dump_count = int(dump_count)
+        self.current_size = None if current_size is None else int(current_size)
+        super().__init__(
+            "requested RECOVAR pass-2 dump target set was written "
+            f"(dump_count={self.dump_count}, current_size={self.current_size})"
+        )
+
+
+class BPrefContributionDumpComplete(RuntimeError):
+    """Raised after a targeted BPref diagnostic bundle is durable."""
+
+    def __init__(
+        self,
+        *,
+        contribution_path: str | Path,
+        device_signature_path: str | Path | None,
+    ):
+        self.contribution_path = Path(contribution_path)
+        self.device_signature_path = None if device_signature_path is None else Path(device_signature_path)
+        message = f"requested RECOVAR BPref contribution target was written (contribution_path={self.contribution_path}"
+        if self.device_signature_path is not None:
+            message += f", device_signature_path={self.device_signature_path}"
+        super().__init__(message + ")")
+
+
+def stop_after_bpref_contribution_dump(
+    *,
+    contribution_path: str | Path,
+    device_signature_path: str | Path | None,
+) -> None:
+    """Apply the explicit invasive stop after all requested files exist."""
+
+    if _runtime_environment().get("RECOVAR_BPREF_CONTRIBUTION_STOP_AFTER_TARGET") != "1":
+        return
+    contribution_path = Path(contribution_path)
+    if not contribution_path.is_file():
+        raise RuntimeError(
+            f"RECOVAR BPref contribution stop target is missing its contribution file: {contribution_path}"
+        )
+    device_dump_requested = bool(_runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip())
+    resolved_device_path = None if device_signature_path is None else Path(device_signature_path)
+    if device_dump_requested and (resolved_device_path is None or not resolved_device_path.is_file()):
+        raise RuntimeError(
+            "RECOVAR BPref contribution stop target is missing its requested "
+            f"device-signature file: {resolved_device_path}"
+        )
+    raise BPrefContributionDumpComplete(
+        contribution_path=contribution_path,
+        device_signature_path=resolved_device_path,
+    )
+
+
+def pass2_dump_progress(
+    *,
+    dump_dir: str | Path,
+    original_indices,
+    current_size: int | None,
+    classes_one_based=None,
+) -> tuple[int, int]:
+    """Return written and expected counts for a targeted pass-2 artifact set."""
+
+    targets = {int(value) for value in original_indices}
+    if not targets:
+        raise ValueError("pass-2 dump completion requires at least one target particle")
+    size_label = -1 if current_size is None else int(current_size)
+    root = Path(dump_dir)
+    if classes_one_based is None:
+        expected_paths = [
+            root / f"pass2_orig{original_index:06d}_cs{size_label:03d}.npz" for original_index in sorted(targets)
+        ]
+    else:
+        classes = {int(value) for value in classes_one_based}
+        if not classes or min(classes) < 1:
+            raise ValueError("K-class pass-2 dump completion requires positive one-based classes")
+        expected_paths = [
+            root / (f"pass2_orig{original_index:06d}_class{class_one_based:03d}_cs{size_label:03d}.npz")
+            for original_index in sorted(targets)
+            for class_one_based in sorted(classes)
+        ]
+    return sum(path.is_file() for path in expected_paths), len(expected_paths)
+
+
+def raise_pass2_dump_complete(*, dump_count: int, current_size: int | None) -> None:
+    """Terminate an explicitly invasive pass-2 diagnostic run."""
+
+    raise Pass2DumpComplete(dump_count=dump_count, current_size=current_size)
+
+
+def write_sparse_npz(path, **payload) -> None:
+    """Serialize an uncompressed sparse/BPref schema on the host."""
+
+    NPZ_DIAGNOSTICS.write_fields(path, compressed=False, **payload)
+
+
+def write_sparse_npz_compressed(path, **payload) -> None:
+    """Serialize a compressed sparse/BPref schema on the host."""
+
+    NPZ_DIAGNOSTICS.write_fields(path, compressed=True, **payload)
 
 
 def _sha256_file(path: Path) -> str:
@@ -903,7 +1011,7 @@ def maybe_capture_k1_production_bucket(
         shard_original = original_indices[row_indices]
         fragment_suffix = ""
         if len(fragments) == 1 and int(particle_fragment_count[0]) > 1:
-            fragment_suffix = f"_frag{int(particle_fragment_index[0]):03d}" f"of{int(particle_fragment_count[0]):03d}"
+            fragment_suffix = f"_frag{int(particle_fragment_index[0]):03d}of{int(particle_fragment_count[0]):03d}"
         path = capture_dir / (
             f"raw_k1_it{int(iteration):03d}_h{int(half)}_rank{rank:03d}_"
             f"call{call_index:06d}_shard{shard_index:03d}_"

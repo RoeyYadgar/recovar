@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 
+import numpy as np
 import pytest
 
 from recovar.em.dense_single_volume.diagnostics import (
@@ -12,6 +13,7 @@ from recovar.em.dense_single_volume.diagnostics import (
     IterationStarted,
     MapsUpdated,
     MstepAccumulated,
+    NPZ_DIAGNOSTICS,
     TraceKind,
     TraceSpec,
 )
@@ -59,3 +61,17 @@ def test_lifecycle_payload_is_frozen_and_does_not_transform_values():
     assert event.result is result
     with pytest.raises(FrozenInstanceError):
         event.half = 0
+
+
+def test_npz_diagnostics_writes_explicit_payload_without_schema_changes(tmp_path):
+    path = tmp_path / "capture.npz"
+    NPZ_DIAGNOSTICS.write_payload(
+        path,
+        {"count": np.int32(3), "values": np.array([1.0, 2.0], dtype=np.float64)},
+        compressed=True,
+    )
+
+    with np.load(path, allow_pickle=False) as capture:
+        assert capture.files == ["count", "values"]
+        assert capture["count"].dtype == np.int32
+        assert capture["values"].dtype == np.float64

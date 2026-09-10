@@ -198,9 +198,7 @@ def test_relion_corr_img_squares_rfloat_ctf_before_xfloat_cast():
     )
     assert np.any(expected != rejected_float_path)
 
-    actual = np.asarray(
-        _relion_cuda_corr_img_from_rfloat_ctf(inverse_noise, ctf_rfloat)
-    )
+    actual = np.asarray(_relion_cuda_corr_img_from_rfloat_ctf(inverse_noise, ctf_rfloat))
     np.testing.assert_array_equal(actual, expected)
 
 
@@ -270,8 +268,7 @@ def test_relion_corr_img_converts_noise_units_after_native_xfloat_product():
         dtype=np.float32,
     )
     rejected_early_conversion = np.asarray(
-        np.asarray(1.0 / recovar_noise_variance, dtype=np.float32).astype(np.float64)
-        * (ctf_rfloat * ctf_rfloat),
+        np.asarray(1.0 / recovar_noise_variance, dtype=np.float32).astype(np.float64) * (ctf_rfloat * ctf_rfloat),
         dtype=np.float32,
     )
     rejected_early_conversion = np.asarray(
@@ -293,9 +290,7 @@ def test_relion_corr_img_converts_noise_units_after_native_xfloat_product():
 
 def test_relion_pixel_correction_divides_by_rfloat_ctf_before_xfloat_cast():
     scale = np.asarray([[1.0]], dtype=np.float32)
-    ctf_rfloat = np.asarray(
-        [[0.07354116995482596, 0.1265216380265534]], dtype=np.float64
-    )
+    ctf_rfloat = np.asarray([[0.07354116995482596, 0.1265216380265534]], dtype=np.float64)
     initial = np.asarray(1.0 / scale, dtype=np.float32)
     expected = np.asarray(
         initial.astype(np.float64) / ctf_rfloat,
@@ -307,17 +302,13 @@ def test_relion_pixel_correction_divides_by_rfloat_ctf_before_xfloat_cast():
     )
     assert np.any(expected != rejected_float_path)
 
-    actual = np.asarray(
-        _relion_cuda_pixel_correction_from_rfloat_ctf(scale, ctf_rfloat)
-    )
+    actual = np.asarray(_relion_cuda_pixel_correction_from_rfloat_ctf(scale, ctf_rfloat))
     np.testing.assert_array_equal(actual, expected)
 
 
 def test_relion_pixel_correction_preserves_double_accelerator_precision():
     scale = np.asarray([[1.0000000123]], dtype=np.float64)
-    ctf_rfloat = np.asarray(
-        [[0.07354116995482596, 0.1265216380265534]], dtype=np.float64
-    )
+    ctf_rfloat = np.asarray([[0.07354116995482596, 0.1265216380265534]], dtype=np.float64)
     expected = (1.0 / scale) / ctf_rfloat
 
     actual = np.asarray(
@@ -359,10 +350,11 @@ def test_k_class_pass2_dump_stop_is_env_gated_diagnostic_only():
 
     source = inspect.getsource(sparse_pass2_bucketed)
 
-    assert "class Pass2DumpComplete" in source
-    assert 'RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET' in source
+    assert "class Pass2DumpComplete" not in source
+    assert "RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET" in source
     assert "if bucket_dump_count:" in source
-    assert "raise Pass2DumpComplete" in source
+    assert "raise Pass2DumpComplete" not in source
+    assert "raise_pass2_dump_complete(" in source
 
 
 def test_k1_pass2_dump_progress_requires_complete_target_set(tmp_path):
@@ -769,14 +761,12 @@ def test_select_active_noise_rows_matches_separate_gathers() -> None:
     n_rot = 4
     n_pixels = 5
     shape = (batch, n_rot, n_pixels)
-    proj = (
-        rng.standard_normal(shape).astype(np.float32)
-        + 1j * rng.standard_normal(shape).astype(np.float32)
-    ).astype(np.complex64)
+    proj = (rng.standard_normal(shape).astype(np.float32) + 1j * rng.standard_normal(shape).astype(np.float32)).astype(
+        np.complex64
+    )
     proj_abs2 = np.abs(proj).astype(np.float32) ** 2
     summed = (
-        rng.standard_normal(shape).astype(np.float32)
-        + 1j * rng.standard_normal(shape).astype(np.float32)
+        rng.standard_normal(shape).astype(np.float32) + 1j * rng.standard_normal(shape).astype(np.float32)
     ).astype(np.complex64)
     ctf_probs = rng.random(shape, dtype=np.float32)
     active_indices = np.asarray([0, 5, 11, 2, 5], dtype=np.int32)
@@ -1040,10 +1030,7 @@ def test_single_class_sparse_pass2_can_coalesce_small_bucket_tail(monkeypatch):
     n_fine_trans = 116
     counts = [16] * 12 + [32] * 7 + [64] * 5 + [128] * 3 + [256]
     per_image = {
-        "oversampled_rots": [
-            np.zeros((int(count), 3, 3), dtype=np.float32)
-            for count in counts
-        ],
+        "oversampled_rots": [np.zeros((int(count), 3, 3), dtype=np.float32) for count in counts],
     }
 
     baseline = _bucket_pass2_inputs(
@@ -1166,41 +1153,35 @@ def test_score_only_sparse_pass_uses_larger_default_bucket_budget(monkeypatch):
 
     device_memory = 80 * 1024**3
     n_score_pixels = 652
-    assert (
-        _max_hypotheses_per_microbatch_for_pass(
-            score_only=True,
-            use_window=True,
-            has_external_normalization=False,
-            conservative_dump_execution=False,
-            n_score_pixels=n_score_pixels,
-            device_memory_bytes=device_memory,
-        )
-        > _max_hypotheses_per_microbatch_for_pass(
-            score_only=False,
-            use_window=True,
-            has_external_normalization=False,
-            conservative_dump_execution=False,
-            n_score_pixels=n_score_pixels,
-            device_memory_bytes=device_memory,
-        )
+    assert _max_hypotheses_per_microbatch_for_pass(
+        score_only=True,
+        use_window=True,
+        has_external_normalization=False,
+        conservative_dump_execution=False,
+        n_score_pixels=n_score_pixels,
+        device_memory_bytes=device_memory,
+    ) > _max_hypotheses_per_microbatch_for_pass(
+        score_only=False,
+        use_window=True,
+        has_external_normalization=False,
+        conservative_dump_execution=False,
+        n_score_pixels=n_score_pixels,
+        device_memory_bytes=device_memory,
     )
-    assert (
-        _max_hypotheses_per_microbatch_for_pass(
-            score_only=True,
-            use_window=True,
-            has_external_normalization=False,
-            conservative_dump_execution=False,
-            n_score_pixels=n_score_pixels * 2,
-            device_memory_bytes=device_memory,
-        )
-        < _max_hypotheses_per_microbatch_for_pass(
-            score_only=True,
-            use_window=True,
-            has_external_normalization=False,
-            conservative_dump_execution=False,
-            n_score_pixels=n_score_pixels,
-            device_memory_bytes=device_memory,
-        )
+    assert _max_hypotheses_per_microbatch_for_pass(
+        score_only=True,
+        use_window=True,
+        has_external_normalization=False,
+        conservative_dump_execution=False,
+        n_score_pixels=n_score_pixels * 2,
+        device_memory_bytes=device_memory,
+    ) < _max_hypotheses_per_microbatch_for_pass(
+        score_only=True,
+        use_window=True,
+        has_external_normalization=False,
+        conservative_dump_execution=False,
+        n_score_pixels=n_score_pixels,
+        device_memory_bytes=device_memory,
     )
 
     monkeypatch.setenv("RECOVAR_SPARSE_PASS2_SCORE_ONLY_MAX_HYPOTHESES", "12345")
@@ -1311,12 +1292,7 @@ def test_fused_k_class_sparse_pass2_reserves_extra_headroom(monkeypatch):
     assert 3_000_000 <= low_resolution_cap <= 3_400_000
     assert low_resolution_cap // (4 * 24_576) == 33
     per_class_candidates = low_resolution_cap // 4
-    estimated_two_gather_bytes = (
-        per_class_candidates
-        * 652
-        * np.dtype(np.complex64).itemsize
-        * 2
-    )
+    estimated_two_gather_bytes = per_class_candidates * 652 * np.dtype(np.complex64).itemsize * 2
     assert estimated_two_gather_bytes <= 8 * 1024**3
 
     for n_classes in (1, 2, 4):
@@ -1330,12 +1306,7 @@ def test_fused_k_class_sparse_pass2_reserves_extra_headroom(monkeypatch):
             n_score_pixels=652,
             device_memory_bytes=device_memory,
         )
-        estimated_two_gather_bytes = (
-            (class_aware_cap // n_classes)
-            * 652
-            * np.dtype(np.complex64).itemsize
-            * 2
-        )
+        estimated_two_gather_bytes = (class_aware_cap // n_classes) * 652 * np.dtype(np.complex64).itemsize * 2
         assert estimated_two_gather_bytes <= 0.10 * device_memory
 
     monkeypatch.setenv("RECOVAR_SPARSE_PASS2_MAX_HYPOTHESES", "12345")
@@ -1451,11 +1422,15 @@ def test_sparse_pass2_memory_budgets_auto_scale_with_device_memory(monkeypatch):
         )
         >= 13
     )
-    assert 17 <= _max_images_for_translation_tile(
-        (256, 256),
-        116,
-        max_tile_bytes=_max_translation_tile_bytes_for_pass(large_gpu, fused_k_class=True),
-    ) <= 22
+    assert (
+        17
+        <= _max_images_for_translation_tile(
+            (256, 256),
+            116,
+            max_tile_bytes=_max_translation_tile_bytes_for_pass(large_gpu, fused_k_class=True),
+        )
+        <= 22
+    )
 
     monkeypatch.setenv("RECOVAR_SPARSE_PASS2_MAX_TRANSLATION_TILE_BYTES", "123456")
     monkeypatch.setenv("RECOVAR_SPARSE_PASS2_MAX_PROJECTION_GATHER_BYTES", "345678")
@@ -2139,13 +2114,13 @@ def test_sparse_pass2_residual_terms_fused_matches_legacy_nonfinite_masks(monkey
     n_pixels = 7
     n_shells = 4
     batch_size = 3
-    proj_half_np = (
-        rng.standard_normal((n_rows, n_pixels)) + 1j * rng.standard_normal((n_rows, n_pixels))
-    ).astype(np.complex64)
+    proj_half_np = (rng.standard_normal((n_rows, n_pixels)) + 1j * rng.standard_normal((n_rows, n_pixels))).astype(
+        np.complex64
+    )
     proj_abs2_np = np.abs(proj_half_np).astype(np.float32) ** 2
-    summed_masked_np = (
-        rng.standard_normal((n_rows, n_pixels)) + 1j * rng.standard_normal((n_rows, n_pixels))
-    ).astype(np.complex64)
+    summed_masked_np = (rng.standard_normal((n_rows, n_pixels)) + 1j * rng.standard_normal((n_rows, n_pixels))).astype(
+        np.complex64
+    )
     ctf_probs_np = rng.random((n_rows, n_pixels), dtype=np.float32)
 
     ctf_probs_np[0, 0] = 0.0
@@ -2682,10 +2657,9 @@ def test_later_soft_posterior_scoped_fused_signature_fixture(
     )
     window_indices_np = np.asarray([1, 12, 36], dtype=np.int32)
     actual_counts = np.asarray([3, 3], dtype=np.int32)
-    initial_data_np = (
-        np.linspace(-1.0e-4, 1.0e-4, volume_size, dtype=np.float32)
-        * np.complex64(1.0 + 0.25j)
-    ).astype(np.complex64)
+    initial_data_np = (np.linspace(-1.0e-4, 1.0e-4, volume_size, dtype=np.float32) * np.complex64(1.0 + 0.25j)).astype(
+        np.complex64
+    )
     initial_weight_np = np.linspace(1.0e-5, 2.0e-4, volume_size, dtype=np.float32)
 
     frozen_sources = {
@@ -2811,8 +2785,7 @@ def test_later_soft_posterior_scoped_fused_signature_fixture(
     ctf2_over_nv_64 = ctf2_over_nv_np.astype(np.float64)
     canonical_rows = (
         np.einsum("brt,btn->brn", probs_64, shifted_128, optimize=False),
-        np.sum(probs_64, axis=-1, dtype=np.float64)[..., None]
-        * ctf2_over_nv_64[:, None, :],
+        np.sum(probs_64, axis=-1, dtype=np.float64)[..., None] * ctf2_over_nv_64[:, None, :],
     )
     ordinary_rows_np = tuple(np.asarray(value) for value in ordinary_rows)
     sequential_rows_np = tuple(np.asarray(value) for value in sequential_rows)
@@ -2830,9 +2803,7 @@ def test_later_soft_posterior_scoped_fused_signature_fixture(
         return {
             "rel_l1": float(np.sum(difference, dtype=np.float64) / canonical_l1),
             "max_abs": float(np.max(difference)),
-            "max_row_rel_l1": float(
-                np.max(np.sum(difference, axis=-1, dtype=np.float64) / row_denominator)
-            ),
+            "max_row_rel_l1": float(np.max(np.sum(difference, axis=-1, dtype=np.float64) / row_denominator)),
         }
 
     canonical_row_metrics = {
@@ -2855,11 +2826,7 @@ def test_later_soft_posterior_scoped_fused_signature_fixture(
         return product / (1.0 - product)
 
     fp32_coefficient = _gamma(2 * n_translations + 2, u_float32)
-    tf32_coefficient = (
-        (1.0 + u_tf32) ** 2
-        * (1.0 + _gamma(n_translations + 1, u_float32))
-        - 1.0
-    )
+    tf32_coefficient = (1.0 + u_tf32) ** 2 * (1.0 + _gamma(n_translations + 1, u_float32)) - 1.0
     abs_weighted_real = np.einsum(
         "brt,btn->brn",
         np.abs(probs_64),
@@ -2874,10 +2841,7 @@ def test_later_soft_posterior_scoped_fused_signature_fixture(
     )
     fp32_data_bound = fp32_coefficient * np.hypot(abs_weighted_real, abs_weighted_imag)
     tf32_data_bound = tf32_coefficient * np.hypot(abs_weighted_real, abs_weighted_imag)
-    abs_weight_terms = (
-        np.sum(np.abs(probs_64), axis=-1)[..., None]
-        * np.abs(ctf2_over_nv_64[:, None, :])
-    )
+    abs_weight_terms = np.sum(np.abs(probs_64), axis=-1)[..., None] * np.abs(ctf2_over_nv_64[:, None, :])
     fp32_weight_bound = fp32_coefficient * abs_weight_terms
     bound_slack = 1.10
 
@@ -2886,21 +2850,11 @@ def test_later_soft_posterior_scoped_fused_signature_fixture(
         absolute_slack = 8.0 * np.finfo(np.float32).eps * np.finfo(np.float32).tiny
         return bool(np.all(error <= bound_slack * bound + absolute_slack))
 
-    a_data_fp32_compatible = _within_bound(
-        ordinary_rows_np[0], canonical_rows[0], fp32_data_bound
-    )
-    a_data_tf32_compatible = _within_bound(
-        ordinary_rows_np[0], canonical_rows[0], tf32_data_bound
-    )
-    b_data_fp32_compatible = _within_bound(
-        sequential_rows_np[0], canonical_rows[0], fp32_data_bound
-    )
-    a_weight_fp32_compatible = _within_bound(
-        ordinary_rows_np[1], canonical_rows[1], fp32_weight_bound
-    )
-    b_weight_fp32_compatible = _within_bound(
-        sequential_rows_np[1], canonical_rows[1], fp32_weight_bound
-    )
+    a_data_fp32_compatible = _within_bound(ordinary_rows_np[0], canonical_rows[0], fp32_data_bound)
+    a_data_tf32_compatible = _within_bound(ordinary_rows_np[0], canonical_rows[0], tf32_data_bound)
+    b_data_fp32_compatible = _within_bound(sequential_rows_np[0], canonical_rows[0], fp32_data_bound)
+    a_weight_fp32_compatible = _within_bound(ordinary_rows_np[1], canonical_rows[1], fp32_weight_bound)
+    b_weight_fp32_compatible = _within_bound(sequential_rows_np[1], canonical_rows[1], fp32_weight_bound)
     if a_data_fp32_compatible:
         reduction_classification = "A-and-B-fp32-order-compatible"
     elif a_data_tf32_compatible:
@@ -3251,12 +3205,15 @@ def test_sparse_pass2_projection_cache_estimate_accounts_for_projection_dtype():
         projection_complex_dtype=jnp.complex128,
         include_abs2=True,
     ) == n_rot * n_half * (np.dtype(np.complex128).itemsize + np.dtype(np.float64).itemsize)
-    assert _projection_cache_transient_bytes(
-        n_rot,
-        n_half,
-        projection_complex_dtype=jnp.complex128,
-        include_abs2=False,
-    ) == n_rot * n_half * np.dtype(np.complex128).itemsize
+    assert (
+        _projection_cache_transient_bytes(
+            n_rot,
+            n_half,
+            projection_complex_dtype=jnp.complex128,
+            include_abs2=False,
+        )
+        == n_rot * n_half * np.dtype(np.complex128).itemsize
+    )
 
 
 def test_sparse_pass2_projection_cache_budget_accounts_for_k_classes():
@@ -3328,8 +3285,7 @@ def test_fused_k_class_sparse_pass2_uses_coarse_tail_bucket_quantum(monkeypatch)
     def per_class_inputs():
         return {
             "oversampled_rots": [
-                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-                for count in counts
+                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts
             ],
         }
 
@@ -3363,10 +3319,7 @@ def test_single_class_sparse_pass2_bucket_quantum_can_coarsen_pathological_tail(
     n_fine_trans = 116
     counts = [1812, 4461, 9728, 12801, 23041, 45057, 76800]
     per_image_inputs = {
-        "oversampled_rots": [
-            np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-            for count in counts
-        ],
+        "oversampled_rots": [np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts],
     }
 
     default_buckets = _bucket_pass2_inputs(
@@ -3430,32 +3383,16 @@ def test_sparse_pass2_auto_projection_cap_prevents_one_image_tail_oversize(monke
 
 def _minimal_per_image_inputs(rotation_counts, n_fine_trans):
     oversampled_rots = [
-        np.broadcast_to(np.eye(3, dtype=np.float32), (int(count), 3, 3)).copy()
-        for count in rotation_counts
+        np.broadcast_to(np.eye(3, dtype=np.float32), (int(count), 3, 3)).copy() for count in rotation_counts
     ]
     return {
         "oversampled_rots": oversampled_rots,
         "oversampled_mstep_rots": oversampled_rots,
-        "oversampled_rot_indices": [
-            np.arange(int(count), dtype=np.int64)
-            for count in rotation_counts
-        ],
-        "unique_rot": [
-            np.arange(int(count), dtype=np.int32)
-            for count in rotation_counts
-        ],
-        "parent_map": [
-            np.arange(int(count), dtype=np.int32)
-            for count in rotation_counts
-        ],
-        "log_prior": [
-            np.zeros(int(count), dtype=np.float32)
-            for count in rotation_counts
-        ],
-        "candidate_mask": [
-            np.ones((int(count), n_fine_trans), dtype=bool)
-            for count in rotation_counts
-        ],
+        "oversampled_rot_indices": [np.arange(int(count), dtype=np.int64) for count in rotation_counts],
+        "unique_rot": [np.arange(int(count), dtype=np.int32) for count in rotation_counts],
+        "parent_map": [np.arange(int(count), dtype=np.int32) for count in rotation_counts],
+        "log_prior": [np.zeros(int(count), dtype=np.float32) for count in rotation_counts],
+        "candidate_mask": [np.ones((int(count), n_fine_trans), dtype=bool) for count in rotation_counts],
     }
 
 
@@ -3548,8 +3485,7 @@ def test_fused_k_class_sparse_pass2_projection_cap_does_not_fragment_buckets(mon
     def per_class_inputs():
         return {
             "oversampled_rots": [
-                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-                for count in counts
+                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts
             ],
         }
 
@@ -3585,8 +3521,7 @@ def test_fused_k_class_sparse_pass2_budget_caps_real_score_tensors(monkeypatch):
     def per_class_inputs():
         return {
             "oversampled_rots": [
-                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-                for count in counts
+                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts
             ],
         }
 
@@ -3615,8 +3550,7 @@ def test_fused_k_class_sparse_pass2_can_chunk_small_buckets_larger(monkeypatch):
     def per_class_inputs():
         return {
             "oversampled_rots": [
-                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-                for count in counts
+                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts
             ],
         }
 
@@ -3637,21 +3571,9 @@ def test_fused_k_class_sparse_pass2_can_chunk_small_buckets_larger(monkeypatch):
         small_bucket_max_images_per_microbatch=19,
     )
 
-    baseline_small_chunks = [
-        len(bucket["image_indices"])
-        for bucket in baseline
-        if int(bucket["bucket_size"]) <= 128
-    ]
-    hybrid_small_chunks = [
-        len(bucket["image_indices"])
-        for bucket in hybrid
-        if int(bucket["bucket_size"]) <= 128
-    ]
-    hybrid_large_chunks = [
-        len(bucket["image_indices"])
-        for bucket in hybrid
-        if int(bucket["bucket_size"]) > 128
-    ]
+    baseline_small_chunks = [len(bucket["image_indices"]) for bucket in baseline if int(bucket["bucket_size"]) <= 128]
+    hybrid_small_chunks = [len(bucket["image_indices"]) for bucket in hybrid if int(bucket["bucket_size"]) <= 128]
+    hybrid_large_chunks = [len(bucket["image_indices"]) for bucket in hybrid if int(bucket["bucket_size"]) > 128]
 
     assert max(baseline_small_chunks) == 8
     assert max(hybrid_small_chunks) == 19
@@ -3668,8 +3590,7 @@ def test_fused_k_class_sparse_pass2_can_coalesce_small_bucket_tail(monkeypatch):
     def per_class_inputs():
         return {
             "oversampled_rots": [
-                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-                for count in counts
+                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts
             ],
         }
 
@@ -3704,8 +3625,7 @@ def test_fused_k_class_sparse_pass2_can_coalesce_high_bucket_tail(monkeypatch):
     def per_class_inputs():
         return {
             "oversampled_rots": [
-                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy()
-                for count in counts
+                np.broadcast_to(np.eye(3, dtype=np.float32), (count, 3, 3)).copy() for count in counts
             ],
         }
 
@@ -4009,12 +3929,10 @@ def test_compact_pair_global_log_z_normalization_matches_dense_valid_pairs():
     dense_safe_log_z, dense_probs, dense_best_score, dense_best_argmax, dense_max_post = (
         _normalize_pass2_bucket_with_log_z(jnp.asarray(dense_scores), global_log_z)
     )
-    safe_log_z, pair_probs, best_log_score, best_pair_argmax, max_posterior = (
-        _normalize_pass2_pairs_with_log_z(
-            jnp.asarray(pair_scores),
-            jnp.asarray(arrays["pair_mask"]),
-            global_log_z,
-        )
+    safe_log_z, pair_probs, best_log_score, best_pair_argmax, max_posterior = _normalize_pass2_pairs_with_log_z(
+        jnp.asarray(pair_scores),
+        jnp.asarray(arrays["pair_mask"]),
+        global_log_z,
     )
 
     np.testing.assert_allclose(np.asarray(safe_log_z), np.asarray(dense_safe_log_z), rtol=1e-6, atol=1e-6)
@@ -4286,17 +4204,15 @@ def test_compact_pair_weighted_rotation_and_image_sums_match_separate_helpers(mo
         fused_combined_ctf_probs,
         fused_combined_probs_sum_t,
         fused_combined_translation_posterior,
-    ) = (
-        _compact_pair_weighted_rotation_and_image_sums(
-            jnp.asarray(pair_probs),
-            jnp.asarray(arrays["local_rotation_row"]),
-            jnp.asarray(arrays["translation_idx"]),
-            jnp.asarray(arrays["pair_mask"]),
-            jnp.asarray(shifted_recon),
-            jnp.asarray(shifted_noise),
-            jnp.asarray(ctf2_over_nv),
-            n_rotation_rows=n_rot,
-        )
+    ) = _compact_pair_weighted_rotation_and_image_sums(
+        jnp.asarray(pair_probs),
+        jnp.asarray(arrays["local_rotation_row"]),
+        jnp.asarray(arrays["translation_idx"]),
+        jnp.asarray(arrays["pair_mask"]),
+        jnp.asarray(shifted_recon),
+        jnp.asarray(shifted_noise),
+        jnp.asarray(ctf2_over_nv),
+        n_rotation_rows=n_rot,
     )
     np.testing.assert_allclose(np.asarray(fused_combined_summed), np.asarray(separate_summed), rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(
@@ -4696,20 +4612,11 @@ def test_relion_fine_mstep_prune_mode_override_beats_env(monkeypatch):
 
 def test_k_class_fused_prune_mode_allows_explicit_env_override(monkeypatch):
     monkeypatch.delenv("RECOVAR_SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE", raising=False)
-    assert (
-        _k_class_fused_relion_fine_mstep_prune_mode_override(relion_fine_mstep_prune=False)
-        is None
-    )
-    assert (
-        _k_class_fused_relion_fine_mstep_prune_mode_override(relion_fine_mstep_prune=True)
-        == "joint"
-    )
+    assert _k_class_fused_relion_fine_mstep_prune_mode_override(relion_fine_mstep_prune=False) is None
+    assert _k_class_fused_relion_fine_mstep_prune_mode_override(relion_fine_mstep_prune=True) == "joint"
 
     monkeypatch.setenv("RECOVAR_SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE", "none")
-    assert (
-        _k_class_fused_relion_fine_mstep_prune_mode_override(relion_fine_mstep_prune=True)
-        is None
-    )
+    assert _k_class_fused_relion_fine_mstep_prune_mode_override(relion_fine_mstep_prune=True) is None
 
 
 def test_weighted_image_power_shells_uses_per_image_support_mass():
@@ -4964,9 +4871,14 @@ def test_k1_relion_fine_mstep_prune_keeps_unweighted_high_shell_image_power(monk
     )
 
     monkeypatch.setenv("RECOVAR_SPARSE_PASS2_MAX_PROJECTION_GATHER_BYTES", str(1024**3))
+
     def prune_everything(probs, *, adaptive_fraction):
         del adaptive_fraction
-        return jnp.zeros_like(probs), jnp.zeros(probs.shape[0], dtype=jnp.int32), jnp.zeros(probs.shape[0], dtype=jnp.int32)
+        return (
+            jnp.zeros_like(probs),
+            jnp.zeros(probs.shape[0], dtype=jnp.int32),
+            jnp.zeros(probs.shape[0], dtype=jnp.int32),
+        )
 
     monkeypatch.setattr(bucketed_mod, "_relion_pass2_reconstruction_probs", prune_everything)
     pruned = compute_pass2_stats_sparse(
@@ -5076,17 +4988,12 @@ def _make_late_iter_sparse_kclass_inputs(*, n_classes=4, n_images=8, n_rot=512, 
         per_image_inputs_by_class.append(
             {
                 "oversampled_rots": [
-                    np.broadcast_to(np.eye(3, dtype=np.float32), (n_rot, 3, 3)).copy()
-                    for _ in range(n_images)
+                    np.broadcast_to(np.eye(3, dtype=np.float32), (n_rot, 3, 3)).copy() for _ in range(n_images)
                 ],
                 "oversampled_rot_indices": [
-                    np.arange(n_rot, dtype=np.int64) + class_index * 10_000
-                    for _ in range(n_images)
+                    np.arange(n_rot, dtype=np.int64) + class_index * 10_000 for _ in range(n_images)
                 ],
-                "log_prior": [
-                    np.linspace(-1.0, 1.0, n_rot, dtype=np.float32)
-                    for _ in range(n_images)
-                ],
+                "log_prior": [np.linspace(-1.0, 1.0, n_rot, dtype=np.float32) for _ in range(n_images)],
                 "candidate_mask": masks,
             }
         )
@@ -5110,8 +5017,7 @@ def test_compact_pair_plan_reports_late_iter_candidate_reduction(monkeypatch):
         max_images_per_microbatch=1000,
     )
     compact_inputs_by_class = [
-        _prepare_per_image_compact_candidate_pairs(per_image_inputs)
-        for per_image_inputs in per_image_inputs_by_class
+        _prepare_per_image_compact_candidate_pairs(per_image_inputs) for per_image_inputs in per_image_inputs_by_class
     ]
     compact_buckets = _bucket_sparse_k_class_compact_pair_inputs(
         compact_inputs_by_class,
@@ -5163,10 +5069,7 @@ def test_compact_pair_prepare_cap_can_tighten_but_not_raise_dense_cap():
 def test_compact_pair_bucketing_can_coalesce_high_pair_tail(monkeypatch):
     monkeypatch.delenv("RECOVAR_LOCAL_BUCKET_QUANTUM", raising=False)
     counts = [4096] * 20 + [8192] * 2 + [12288] * 3 + [16384] * 2
-    compact_inputs_by_class = tuple(
-        {"pair_counts": np.asarray(counts, dtype=np.int64)}
-        for _ in range(4)
-    )
+    compact_inputs_by_class = tuple({"pair_counts": np.asarray(counts, dtype=np.int64)} for _ in range(4))
 
     baseline = _bucket_sparse_k_class_compact_pair_inputs(
         compact_inputs_by_class,
@@ -5217,10 +5120,7 @@ def test_compact_pair_tail_coalescing_keeps_executed_chunks_under_hypothesis_cap
     ]
     n_classes = 4
     max_hypotheses = 10_045_744
-    compact_inputs_by_class = tuple(
-        {"pair_counts": np.asarray(counts, dtype=np.int64)}
-        for _ in range(n_classes)
-    )
+    compact_inputs_by_class = tuple({"pair_counts": np.asarray(counts, dtype=np.int64)} for _ in range(n_classes))
 
     baseline = _bucket_sparse_k_class_compact_pair_inputs(
         compact_inputs_by_class,
@@ -5931,9 +5831,7 @@ def test_prepare_bucket_io_routes_direct_score_translation_through_relion_cuda(
         direct_score_calls[0]["pixel_indices"],
         np.asarray(window_spec.score_indices, dtype=np.int32),
     )
-    np.testing.assert_array_equal(
-        direct_score_calls[0]["angles"], np.asarray(translation_angles)
-    )
+    np.testing.assert_array_equal(direct_score_calls[0]["angles"], np.asarray(translation_angles))
     assert direct_score_calls[0]["image_shape"] == IMAGE_SHAPE
     np.testing.assert_array_equal(
         np.asarray(result[7]),
@@ -6287,18 +6185,24 @@ def test_exact_raw_diff2_cache_budget_admission_and_fallback(monkeypatch):
     assert _exact_raw_diff2_cache_limit_bytes(0, 40 * gib, 20 * gib) == 0
     assert _exact_raw_diff2_cache_limit_bytes(80 * gib, 0, 20 * gib) == 0
     assert _exact_raw_diff2_cache_limit_bytes(80 * gib, 40 * gib, 0) == 0
-    assert _exact_raw_diff2_cache_limit_bytes(
-        80 * gib,
-        40 * gib,
-        20 * gib,
-        max_cache_bytes=128 * mib,
-    ) == 128 * mib
-    assert _exact_raw_diff2_cache_limit_bytes(
-        80 * gib,
-        40 * gib,
-        20 * gib,
-        max_cache_bytes=0,
-    ) == 0
+    assert (
+        _exact_raw_diff2_cache_limit_bytes(
+            80 * gib,
+            40 * gib,
+            20 * gib,
+            max_cache_bytes=128 * mib,
+        )
+        == 128 * mib
+    )
+    assert (
+        _exact_raw_diff2_cache_limit_bytes(
+            80 * gib,
+            40 * gib,
+            20 * gib,
+            max_cache_bytes=0,
+        )
+        == 0
+    )
 
     estimated = _exact_raw_diff2_cache_estimated_bytes(2, 131_072, 116)
     assert estimated == 116 * mib
@@ -6340,8 +6244,7 @@ def test_half_translation_phase_table_matches_generic_translate_images():
     image_shape = (16, 16)
     n_half = image_shape[0] * (image_shape[1] // 2 + 1)
     weighted_half = jnp.asarray(
-        rng.normal(size=(3, n_half)).astype(np.float32)
-        + 1j * rng.normal(size=(3, n_half)).astype(np.float32),
+        rng.normal(size=(3, n_half)).astype(np.float32) + 1j * rng.normal(size=(3, n_half)).astype(np.float32),
         dtype=jnp.complex64,
     )
     translations = jnp.asarray(rng.normal(size=(5, 2)).astype(np.float32))
@@ -6532,7 +6435,14 @@ def test_full_support_fine_rotation_override_reuses_shared_arrays():
         fine_rotation_parent_override=fine_parent,
     )
 
-    for key in ("oversampled_rots", "parent_map", "oversampled_rot_indices", "unique_rot", "log_prior", "candidate_mask"):
+    for key in (
+        "oversampled_rots",
+        "parent_map",
+        "oversampled_rot_indices",
+        "unique_rot",
+        "log_prior",
+        "candidate_mask",
+    ):
         assert per_image[key][0] is per_image[key][1]
         assert per_image[key][1] is per_image[key][2]
     np.testing.assert_array_equal(per_image["oversampled_rot_indices"][0], np.arange(6, dtype=np.int64))
@@ -7191,9 +7101,7 @@ def test_sparse_pass2_rotation_chunking_matches_unchunked_windowed_path(
     shards_by_half = {}
     for path in tmp_path.glob("raw_k1_*.npz"):
         with np.load(path, allow_pickle=False) as shard:
-            shards_by_half[int(shard["half"])] = {
-                name: np.asarray(shard[name]) for name in shard.files
-            }
+            shards_by_half[int(shard["half"])] = {name: np.asarray(shard[name]) for name in shard.files}
     assert set(shards_by_half) == {1, 2}
     unchunked_capture = shards_by_half[1]
     chunked_capture = shards_by_half[2]
@@ -7337,12 +7245,8 @@ def test_sparse_pass2_rotation_chunking_matches_unchunked_windowed_path(
         rtol=1e-6,
         atol=1e-6,
     )
-    pruned_rotation_mass = np.sum(
-        np.asarray(unchunked_pruned[6].rotation_posterior_sums)
-    )
-    unpruned_rotation_mass = np.sum(
-        np.asarray(unchunked[6].rotation_posterior_sums)
-    )
+    pruned_rotation_mass = np.sum(np.asarray(unchunked_pruned[6].rotation_posterior_sums))
+    unpruned_rotation_mass = np.sum(np.asarray(unchunked[6].rotation_posterior_sums))
     if winner_take_all:
         # Winner-take-all leaves one unit-weight candidate per image, so
         # subsequent significant-weight pruning cannot reduce total mass.
@@ -7436,8 +7340,7 @@ def test_exact_raw_diff2_cache_matches_fallback_bitwise_and_removes_recompute(mo
         noise_variance=jnp.ones(IMAGE_SIZE, dtype=jnp.float32),
         translations=jnp.array([[0.0, 0.0], [1.0, 0.0]], dtype=jnp.float32),
         significant_sample_indices=[
-            np.asarray([parent * 2 + image_idx for parent in range(8)], dtype=np.int32)
-            for image_idx in range(n_images)
+            np.asarray([parent * 2 + image_idx for parent in range(8)], dtype=np.int32) for image_idx in range(n_images)
         ],
         nside_level=1,
         disc_type="linear_interp",
@@ -7536,6 +7439,7 @@ def test_sparse_pass2_rotation_chunking_applies_to_relion_x_half_mstep_with_nonm
         capture_contribution,
     )
     if shadow_only:
+
         def resolve_shadow_modes(**kwargs):
             active = bool(kwargs["contribution_diagnostics_active"])
             return {
@@ -7652,9 +7556,7 @@ def test_sparse_pass2_rotation_chunking_applies_to_relion_x_half_mstep_with_nonm
     assert np.asarray(contribution["reconstruction_probs"]).shape == expected_candidate_shape
     assert np.asarray(contribution["reconstruction_mask"]).shape == expected_candidate_shape
     assert np.asarray(contribution["summed"]).shape[:2] == expected_candidate_shape[:2]
-    assert np.asarray(contribution["ctf_probs"]).shape == np.asarray(
-        contribution["summed"]
-    ).shape
+    assert np.asarray(contribution["ctf_probs"]).shape == np.asarray(contribution["summed"]).shape
     assert np.asarray(contribution["rotations"]).shape == (
         n_images,
         captured_rotation_count,
@@ -8174,9 +8076,10 @@ def test_fused_sparse_k_class_pass2_matches_existing_two_pass_path(monkeypatch):
     assert compact.profile_summary["sparse_kclass_compact_buckets"] is True
     assert compact.profile_summary["sparse_kclass_compact_slot_ratio"] <= 1.0
     assert compact.profile_summary["sparse_kclass_valid_pair_candidates"] > 0
-    assert compact.profile_summary["sparse_kclass_rectangular_pair_candidates"] > compact.profile_summary[
-        "sparse_kclass_valid_pair_candidates"
-    ]
+    assert (
+        compact.profile_summary["sparse_kclass_rectangular_pair_candidates"]
+        > compact.profile_summary["sparse_kclass_valid_pair_candidates"]
+    )
     assert compact.profile_summary["sparse_kclass_valid_pair_reduction"] > 1.0
 
     monkeypatch.setattr(
@@ -8373,9 +8276,7 @@ def test_fused_sparse_k_class_pass2_matches_existing_two_pass_path(monkeypatch):
         >= rectangular_active_prematmul.profile_summary["sparse_kclass_rectangular_mstep_active_rows"]
     )
     assert rectangular_active_prematmul.profile_summary["sparse_kclass_rectangular_mstep_active_ratio"] <= 1.0
-    assert rectangular_active_prematmul.profile_summary[
-        "sparse_kclass_rectangular_mstep_padded_active_ratio"
-    ] <= 1.0
+    assert rectangular_active_prematmul.profile_summary["sparse_kclass_rectangular_mstep_padded_active_ratio"] <= 1.0
     monkeypatch.delenv("RECOVAR_SPARSE_KCLASS_RECTANGULAR_ACTIVE_PREMATMUL", raising=False)
     monkeypatch.delenv("RECOVAR_SPARSE_KCLASS_RECTANGULAR_ACTIVE_PREMATMUL_MAX_GROUPED_DENSE_RATIO", raising=False)
     monkeypatch.delenv("RECOVAR_SPARSE_KCLASS_RECTANGULAR_ACTIVE_ROWS", raising=False)
@@ -8945,11 +8846,7 @@ def test_compact_pair_tail_coalesced_execution_matches_uncoalesced(monkeypatch):
     fine_rotations = np.repeat(np.eye(3, dtype=np.float32)[None], 64, axis=0)
     fine_parent = np.repeat(np.arange(8, dtype=np.int64), 8)
     fine_translations = np.asarray(
-        [
-            [float(dx), float(dy)]
-            for dx in (0.0, 0.25, 0.5, 0.75)
-            for dy in (0.0, 0.5, 1.0, 1.5)
-        ],
+        [[float(dx), float(dy)] for dx in (0.0, 0.25, 0.5, 0.75) for dy in (0.0, 0.5, 1.0, 1.5)],
         dtype=np.float32,
     )
     fine_translation_parent = np.repeat(np.arange(n_coarse_trans, dtype=np.int32), 4)
@@ -9039,9 +8936,10 @@ def test_compact_pair_tail_coalesced_execution_matches_uncoalesced(monkeypatch):
         monkeypatch.setenv("RECOVAR_SPARSE_KCLASS_COMPACT_PAIR_TAIL_COALESCE_MIN_BUCKET_SIZE", "16")
         coalesced = _run_sparse_k_class_adaptive_pass2(**kwargs)
 
-        assert coalesced.profile_summary["sparse_kclass_compact_pair_buckets"] < uncoalesced.profile_summary[
-            "sparse_kclass_compact_pair_buckets"
-        ]
+        assert (
+            coalesced.profile_summary["sparse_kclass_compact_pair_buckets"]
+            < uncoalesced.profile_summary["sparse_kclass_compact_pair_buckets"]
+        )
         assert uncoalesced.profile_summary["sparse_kclass_compact_pair_tail_coalesce_max_images"] == 0
         assert coalesced.profile_summary["sparse_kclass_compact_pair_tail_coalesce_max_images"] == 4
         assert coalesced.profile_summary["sparse_kclass_compact_pair_tail_coalesce_max_inflation"] == pytest.approx(
