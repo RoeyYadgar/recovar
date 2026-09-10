@@ -47,6 +47,15 @@ from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
 from recovar.em.dense_single_volume.local_backprojection import (
     compute_local_weighted_sums,
 )
+from recovar.em.dense_single_volume.local_big_jit_types import (
+    LocalBigJitBucketInputs,
+    LocalBigJitImageInputs,
+    LocalBigJitMstepAccumulators,
+    LocalBigJitNoiseAccumulators,
+    LocalBigJitPolicy,
+    LocalBigJitProjectionInputs,
+    LocalBigJitSharedInputs,
+)
 
 
 def _apply_integer_pre_shifts(images, shifts):
@@ -595,157 +604,19 @@ def _project_local_half_spectrum(
     # Ft_y and Ft_ctf are loop-carried M-step accumulators.  Donating them
     # lets XLA update multi-GB full-Nyquist BPref buffers in place instead of
     # allocating a same-sized output for every local-search bucket.
-    donate_argnums=(4, 5),
-    static_argnames=(
-        "mask_mode",
-        "score_with_masked_images",
-        "apply_integer_pre_shift",
-        "apply_fourier_pre_shift",
-        "half_spectrum_scoring",
-        "use_float64_scoring",
-        "use_float64_normalization",
-        "use_window",
-        "reconstruct_significant_only",
-        "adaptive_fraction",
-        "max_significants",
-        "image_shape",
-        "proj_volume_shape",
-        "recon_volume_shape",
-        "disc_type",
-        "projection_half_volume",
-        "projection_max_r",
-        "mstep_max_r",
-        "use_compact_relion_projector_projection",
-        "use_relion_projection_cache",
-        "relion_projector_output_size",
-        "projection_relion_texture_interp",
-        "projection_force_jax",
-        "mstep_subtract_ctf_projection",
-        "mstep_relion_x_half",
-        "disable_adjoint_y",
-        "disable_adjoint_ctf",
-        "accumulate_noise",
-        "accumulate_scale_correction",
-        "return_noise_split",
-        "return_mstep_tensors",
-        "return_deferred_mstep_inputs",
-        "return_deferred_noise_inputs",
-        "n_shells",
-        "norm_current_size",
-        "include_unweighted_norm_high_shell",
-        "source_faithful_spectrum_norm",
-        "has_normalization_log_z",
-        "has_normalization_log_evidence",
-        "has_reconstruction_probability_threshold",
-        "score_only",
-        "use_relion_projector",
-        "relion_projector_r_max",
-        "projection_padding_factor",
-        "return_debug_arrays",
-        "return_debug_scores",
-        "return_debug_operands",
-    ),
+    donate_argnums=(2,),
+    static_argnames=("policy",),
 )
 def run_local_bucket_big_jit(
-    batch,
-    ctf_params,
-    mean_for_proj,
-    relion_projector_half,
-    Ft_y,
-    Ft_ctf,
-    noise_wsum,
-    noise_img_power,
-    noise_a2,
-    noise_xa,
-    noise_scale_xa,
-    noise_scale_aa,
-    noise_sigma2_offset,
-    noise_sumw,
-    image_mask,
-    integer_pre_shifts,
-    fourier_pre_shifts,
-    image_corrections,
-    image_only_corrections,
-    scale_corrections,
-    translation_sqdist_ang,
-    noise_variance_half,
-    translation_phases_half,
-    relion_score_translation_angles,
-    half_weights,
-    norm_half_weights,
-    window_indices,
-    recon_window_indices,
-    mstep_recon_window_indices,
-    shell_indices_half,
-    shell_indices_noise,
-    noise_variance_for_noise,
-    scale_correction_pixel_mask,
-    projection_pixel_indices,
-    projection_score_take_indices,
-    projection_recon_take_indices,
-    relion_projection_cache,
-    relion_projection_cache_id_map,
-    local_rotation_ids_for_projection_cache,
-    local_rotations,
-    local_mstep_rotations,
-    rotation_log_prior,
-    translation_log_prior,
-    rotation_mask,
-    sample_mask,
-    valid_image_mask,
-    group_ids,
-    normalization_log_z,
-    normalization_log_evidence,
-    reconstruction_probability_threshold,
+    image_inputs: LocalBigJitImageInputs,
+    projection_inputs: LocalBigJitProjectionInputs,
+    mstep_accumulators: LocalBigJitMstepAccumulators,
+    noise_accumulators: LocalBigJitNoiseAccumulators,
+    shared_inputs: LocalBigJitSharedInputs,
+    bucket_inputs: LocalBigJitBucketInputs,
     config,
     *,
-    mask_mode: str,
-    score_with_masked_images: bool,
-    apply_integer_pre_shift: bool,
-    apply_fourier_pre_shift: bool,
-    half_spectrum_scoring: bool,
-    use_float64_scoring: bool,
-    use_float64_normalization: bool,
-    use_window: bool,
-    reconstruct_significant_only: bool,
-    adaptive_fraction: float,
-    max_significants: int,
-    image_shape,
-    proj_volume_shape,
-    recon_volume_shape,
-    disc_type: str,
-    projection_half_volume: bool,
-    projection_max_r,
-    mstep_max_r,
-    use_compact_relion_projector_projection: bool,
-    use_relion_projection_cache: bool,
-    relion_projector_output_size: int,
-    projection_relion_texture_interp: bool,
-    projection_force_jax: bool,
-    mstep_subtract_ctf_projection: bool,
-    mstep_relion_x_half: bool,
-    disable_adjoint_y: bool,
-    disable_adjoint_ctf: bool,
-    accumulate_noise: bool,
-    accumulate_scale_correction: bool,
-    return_noise_split: bool,
-    return_mstep_tensors: bool,
-    return_deferred_mstep_inputs: bool,
-    return_deferred_noise_inputs: bool,
-    n_shells: int,
-    norm_current_size: int | None,
-    include_unweighted_norm_high_shell: bool,
-    source_faithful_spectrum_norm: bool = False,
-    has_normalization_log_z: bool,
-    has_normalization_log_evidence: bool,
-    has_reconstruction_probability_threshold: bool,
-    score_only: bool = False,
-    use_relion_projector: bool = False,
-    relion_projector_r_max: int = 0,
-    projection_padding_factor: int = 1,
-    return_debug_arrays: bool = False,
-    return_debug_scores: bool = False,
-    return_debug_operands: bool = False,
+    policy: LocalBigJitPolicy,
 ):
     """Run one exact-local bucket in a single compiled numeric boundary.
 
@@ -754,6 +625,109 @@ def run_local_bucket_big_jit(
     score/probability tensors and, for targeted operand dumps, the already
     computed projection/preprocessing operands.
     """
+
+    batch = image_inputs.images
+    ctf_params = image_inputs.ctf_params
+    integer_pre_shifts = image_inputs.integer_pre_shifts
+    fourier_pre_shifts = image_inputs.fourier_pre_shifts
+    image_corrections = image_inputs.image_corrections
+    image_only_corrections = image_inputs.image_only_corrections
+    scale_corrections = image_inputs.scale_corrections
+    translation_sqdist_ang = image_inputs.translation_sqdist_ang
+    group_ids = image_inputs.group_ids
+
+    mean_for_proj = projection_inputs.mean
+    relion_projector_half = projection_inputs.relion_projector_half
+    projection_pixel_indices = projection_inputs.pixel_indices
+    projection_score_take_indices = projection_inputs.score_take_indices
+    projection_recon_take_indices = projection_inputs.reconstruction_take_indices
+    relion_projection_cache = projection_inputs.cache
+    relion_projection_cache_id_map = projection_inputs.cache_id_map
+
+    Ft_y = mstep_accumulators.y
+    Ft_ctf = mstep_accumulators.ctf
+    noise_wsum = noise_accumulators.wsum
+    noise_img_power = noise_accumulators.image_power
+    noise_a2 = noise_accumulators.a2
+    noise_xa = noise_accumulators.xa
+    noise_scale_xa = noise_accumulators.scale_xa
+    noise_scale_aa = noise_accumulators.scale_aa
+    noise_sigma2_offset = noise_accumulators.sigma2_offset
+    noise_sumw = noise_accumulators.sumw
+
+    image_mask = shared_inputs.image_mask
+    noise_variance_half = shared_inputs.noise_variance_half
+    translation_phases_half = shared_inputs.translation_phases_half
+    relion_score_translation_angles = shared_inputs.relion_score_translation_angles
+    half_weights = shared_inputs.half_weights
+    norm_half_weights = shared_inputs.norm_half_weights
+    window_indices = shared_inputs.score_window_indices
+    recon_window_indices = shared_inputs.reconstruction_window_indices
+    mstep_recon_window_indices = shared_inputs.mstep_reconstruction_window_indices
+    shell_indices_half = shared_inputs.shell_indices_half
+    shell_indices_noise = shared_inputs.shell_indices_noise
+    noise_variance_for_noise = shared_inputs.noise_variance_for_noise
+    scale_correction_pixel_mask = shared_inputs.scale_correction_pixel_mask
+
+    local_rotation_ids_for_projection_cache = bucket_inputs.rotation_ids
+    local_rotations = bucket_inputs.rotations
+    local_mstep_rotations = bucket_inputs.mstep_rotations
+    rotation_log_prior = bucket_inputs.rotation_log_prior
+    translation_log_prior = bucket_inputs.translation_log_prior
+    rotation_mask = bucket_inputs.rotation_mask
+    sample_mask = bucket_inputs.sample_mask
+    valid_image_mask = bucket_inputs.valid_image_mask
+    normalization_log_z = bucket_inputs.normalization_log_z
+    normalization_log_evidence = bucket_inputs.normalization_log_evidence
+    reconstruction_probability_threshold = bucket_inputs.reconstruction_probability_threshold
+
+    mask_mode = policy.mask_mode
+    score_with_masked_images = policy.score_with_masked_images
+    apply_integer_pre_shift = policy.apply_integer_pre_shift
+    apply_fourier_pre_shift = policy.apply_fourier_pre_shift
+    half_spectrum_scoring = policy.half_spectrum_scoring
+    use_float64_scoring = policy.use_float64_scoring
+    use_float64_normalization = policy.use_float64_normalization
+    use_window = policy.use_window
+    reconstruct_significant_only = policy.reconstruct_significant_only
+    adaptive_fraction = policy.adaptive_fraction
+    max_significants = policy.max_significants
+    image_shape = policy.image_shape
+    proj_volume_shape = policy.projection_volume_shape
+    recon_volume_shape = policy.reconstruction_volume_shape
+    disc_type = policy.disc_type
+    projection_half_volume = policy.projection_half_volume
+    projection_max_r = policy.projection_max_r
+    mstep_max_r = policy.mstep_max_r
+    use_compact_relion_projector_projection = policy.use_compact_relion_projector_projection
+    use_relion_projection_cache = policy.use_relion_projection_cache
+    relion_projector_output_size = policy.relion_projector_output_size
+    projection_relion_texture_interp = policy.projection_relion_texture_interp
+    projection_force_jax = policy.projection_force_jax
+    mstep_subtract_ctf_projection = policy.mstep_subtract_ctf_projection
+    mstep_relion_x_half = policy.mstep_relion_x_half
+    disable_adjoint_y = policy.disable_adjoint_y
+    disable_adjoint_ctf = policy.disable_adjoint_ctf
+    accumulate_noise = policy.accumulate_noise
+    accumulate_scale_correction = policy.accumulate_scale_correction
+    return_noise_split = policy.return_noise_split
+    return_mstep_tensors = policy.return_mstep_tensors
+    return_deferred_mstep_inputs = policy.return_deferred_mstep_inputs
+    return_deferred_noise_inputs = policy.return_deferred_noise_inputs
+    n_shells = policy.n_shells
+    norm_current_size = policy.norm_current_size
+    include_unweighted_norm_high_shell = policy.include_unweighted_norm_high_shell
+    source_faithful_spectrum_norm = policy.source_faithful_spectrum_norm
+    has_normalization_log_z = policy.has_normalization_log_z
+    has_normalization_log_evidence = policy.has_normalization_log_evidence
+    has_reconstruction_probability_threshold = policy.has_reconstruction_probability_threshold
+    score_only = policy.score_only
+    use_relion_projector = policy.use_relion_projector
+    relion_projector_r_max = policy.relion_projector_r_max
+    projection_padding_factor = policy.projection_padding_factor
+    return_debug_arrays = policy.return_debug_arrays
+    return_debug_scores = policy.return_debug_scores
+    return_debug_operands = policy.return_debug_operands
 
     if score_only and (
         (not disable_adjoint_y)
