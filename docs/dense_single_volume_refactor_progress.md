@@ -1250,7 +1250,7 @@ Provenance: parent HEAD `cc89423dfda7853853d23d4eb7b876e9bbfa1123`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: relocate controller diagnostics`.
+Commit SHA and descriptive message: `b29e5ea0` — `refactor: relocate controller diagnostics`.
 
 Decision: accepted.
 
@@ -1258,6 +1258,49 @@ Next action: relocate compact candidate capture and extract the two dense
 engine schemas into the diagnostics package.
 
 Open risks: ten inline controller serialization sites remain to be extracted.
+
+### 2026-09-10 — C3 compact sparse capture module boundary
+
+Hypothesis: Atomic compact-candidate capture and validation can move out of
+`helpers/` without changing the mutable diagnostic controls used by tests and
+legacy tools.
+
+Files changed: `diagnostics/sparse_capture.py`, the legacy helper alias, and
+this ledger.
+
+Algorithmic invariants protected: the 1,032-line capture, shard validation,
+atomic-write, and manifest implementation is moved mechanically. The legacy
+module name aliases the implementation module so monkeypatched counters and
+capacity limits retain write-through behavior. Sparse numerical callers are
+unchanged.
+
+Focused tests and exact results: `test_compact_candidate_capture.py`, 17/17
+passed. The first facade implementation was revised after focused tests
+correctly showed that copied exports did not preserve mutable module state.
+
+CPU fast guard: deferred until direct sparse serialization is extracted.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured; implementation move only.
+
+Performance artifacts and deltas: not measured; numerical caller is unchanged.
+
+Compile/memory observations: disabled-capture tests prove the adapter returns
+before array conversion; no JIT signature changed.
+
+Provenance: parent HEAD `b29e5ea0c5a1c581a4d15fd76cd76a118f82bcfa`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: relocate compact sparse capture`.
+
+Decision: accepted after compatibility revision.
+
+Next action: extract dense-engine CC/noise schemas and significance schemas.
+
+Open risks: the sparse engine still contains its older BPref, membership,
+operand, and residual serialization families.
 
 ## Per-slice update template
 
