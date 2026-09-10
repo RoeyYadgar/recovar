@@ -126,10 +126,14 @@ from recovar.em.dense_single_volume.local_debug import (
     parse_debug_noise_component_dump_request,
     parse_debug_score_dump_request,
 )
+from recovar.em.dense_single_volume.local_em_planning import plan_local_em_modes
 from recovar.em.dense_single_volume.local_em_types import (
     LocalEMOutputSpec,
     LocalEMRequest,
+    LocalEMRequestedOutputs,
     LocalEMResult,
+    LocalReconstructionSettings,
+    LocalScoringSettings,
 )
 from recovar.em.dense_single_volume.local_layout import (
     LocalBucketSpec,
@@ -1952,25 +1956,33 @@ def run_local_em_exact(
     dump silently overwrites the earlier one at the same path.
     """
 
-    score_only = bool(score_only)
-    include_unweighted_norm_high_shell = bool(include_unweighted_norm_high_shell)
-    source_faithful_spectrum_norm = bool(source_faithful_spectrum_norm)
-    relion_exact_score_translation = bool(relion_exact_score_translation)
-    if relion_exact_score_translation and not half_spectrum_scoring:
-        raise ValueError("exact RELION score translation requires half_spectrum_scoring=True")
-    if score_only:
-        if not (disable_adjoint_y and disable_adjoint_ctf):
-            raise ValueError("score_only exact-local EM requires both adjoints disabled")
-        if accumulate_noise:
-            raise ValueError("score_only exact-local EM does not support noise accumulation")
-        if mstep_subtract_ctf_projection:
-            raise ValueError("score_only exact-local EM does not support residual M-step subtraction")
-        if return_half_volume_accumulators:
-            raise ValueError("score_only exact-local EM does not return half-volume accumulators")
-
-    return_profile = bool(
-        return_profile or return_reconstruction_probability_values or return_reconstruction_sample_indices
+    mode_plan = plan_local_em_modes(
+        scoring=LocalScoringSettings(
+            half_spectrum_scoring=half_spectrum_scoring,
+            relion_exact_score_translation=relion_exact_score_translation,
+        ),
+        reconstruction=LocalReconstructionSettings(
+            mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
+            mstep_relion_x_half=mstep_relion_x_half,
+            disable_adjoint_y=disable_adjoint_y,
+            disable_adjoint_ctf=disable_adjoint_ctf,
+            include_unweighted_norm_high_shell=include_unweighted_norm_high_shell,
+            source_faithful_spectrum_norm=source_faithful_spectrum_norm,
+            score_only=score_only,
+        ),
+        outputs=LocalEMRequestedOutputs(
+            accumulate_noise=accumulate_noise,
+            return_half_volume_accumulators=return_half_volume_accumulators,
+            return_profile=return_profile,
+            return_reconstruction_probability_values=return_reconstruction_probability_values,
+            return_reconstruction_sample_indices=return_reconstruction_sample_indices,
+        ),
     )
+    score_only = mode_plan.score_only
+    include_unweighted_norm_high_shell = mode_plan.include_unweighted_norm_high_shell
+    source_faithful_spectrum_norm = mode_plan.source_faithful_spectrum_norm
+    relion_exact_score_translation = mode_plan.relion_exact_score_translation
+    return_profile = mode_plan.return_profile
     overall_t0 = time.time()
     image_shape = experiment_dataset.image_shape
     volume_shape = experiment_dataset.volume_shape
