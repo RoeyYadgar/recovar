@@ -151,6 +151,8 @@ from recovar.em.dense_single_volume.local_em_planning import (
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
     LocalExecutionSettings,
+    LocalEMDiagnostics,
+    LocalEMInputs,
     LocalEMOutputSpec,
     LocalEMRequest,
     LocalEMRequestedOutputs,
@@ -1624,10 +1626,48 @@ def run_local_em_exact(
         return_reconstruction_sample_indices=return_reconstruction_sample_indices,
         return_significant_counts=return_significant_counts,
     )
-    mode_plan = plan_local_em_modes(
+    correction_inputs = LocalCorrectionInputs(
+        image_corrections=image_corrections,
+        scale_corrections=scale_corrections,
+        group_ids=group_ids,
+        scale_correction_group_count=scale_correction_group_count,
+        scale_correction_data_vs_prior=scale_correction_data_vs_prior,
+        image_pre_shifts=image_pre_shifts,
+    )
+    posterior_inputs = LocalPosteriorInputs(
+        normalization_log_z=normalization_log_z,
+        class_log_prior=class_log_prior,
+        normalization_log_evidence=normalization_log_evidence,
+        translation_prior_centers=translation_prior_centers,
+    )
+    local_request = LocalEMRequest(
+        inputs=LocalEMInputs(
+            experiment_dataset=experiment_dataset,
+            mean=mean,
+            mean_variance=mean_variance,
+            noise_variance=noise_variance,
+            local_layout=local_layout,
+            disc_type=disc_type,
+            relion_projector_half=relion_projector_half,
+            relion_projector_r_max=relion_projector_r_max,
+        ),
+        search=search_settings,
+        execution=execution_settings,
         scoring=scoring_settings,
+        projection=projection_settings,
+        corrections=correction_inputs,
+        posterior=posterior_inputs,
         reconstruction=reconstruction_settings,
         outputs=requested_outputs,
+        diagnostics=LocalEMDiagnostics(
+            iteration=debug_iteration,
+            pass_label=debug_pass_label,
+        ),
+    )
+    mode_plan = plan_local_em_modes(
+        scoring=local_request.scoring,
+        reconstruction=local_request.reconstruction,
+        outputs=local_request.outputs,
     )
     score_only = mode_plan.score_only
     include_unweighted_norm_high_shell = mode_plan.include_unweighted_norm_high_shell
@@ -1636,9 +1676,9 @@ def run_local_em_exact(
     return_profile = mode_plan.return_profile
     overall_t0 = time.time()
     geometry_plan = plan_local_em_geometry(
-        experiment_dataset=experiment_dataset,
-        local_layout=local_layout,
-        search=search_settings,
+        experiment_dataset=local_request.inputs.experiment_dataset,
+        local_layout=local_request.inputs.local_layout,
+        search=local_request.search,
     )
     image_shape = geometry_plan.image_shape
     volume_shape = geometry_plan.volume_shape
@@ -1648,18 +1688,10 @@ def run_local_em_exact(
     n_half = geometry_plan.n_half
     n_trans = geometry_plan.n_translations
     input_plan = plan_local_em_inputs(
-        local_layout=local_layout,
-        corrections=LocalCorrectionInputs(
-            group_ids=group_ids,
-            scale_correction_group_count=scale_correction_group_count,
-        ),
-        posterior=LocalPosteriorInputs(
-            normalization_log_z=normalization_log_z,
-            class_log_prior=class_log_prior,
-            normalization_log_evidence=normalization_log_evidence,
-            translation_prior_centers=translation_prior_centers,
-        ),
-        search=search_settings,
+        local_layout=local_request.inputs.local_layout,
+        corrections=local_request.corrections,
+        posterior=local_request.posterior,
+        search=local_request.search,
     )
     n_images = input_plan.n_images
     class_log_prior = input_plan.class_log_prior
