@@ -1716,7 +1716,7 @@ on `dense_em_refactor`; the main tracked tree was clean before this
 documentation closeout. Pre-existing fixture, plot, editor, and scratch paths
 were not staged or modified.
 
-Commit SHA and descriptive message: pending — `docs: complete C3 diagnostics ledger`.
+Commit SHA and descriptive message: `3c142cc6` — `docs: complete C3 diagnostics ledger`.
 
 Decision: C3 is complete with a structural GPU pass. The null route is
 observational, preserves the requested quality trajectory and artifact
