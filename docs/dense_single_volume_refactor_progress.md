@@ -139,6 +139,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local geometry plan | Commit `344eae0f` | Planner/contracts 45/45, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Derived dimensions moved to a lightweight immutable plan; JAX-backed precision, window, and accumulator setup remains in the engine. |
 | 2026-09-10 | C4 exact-local array setup | Commit `1b9ca28b` | Setup/planner/contracts 53/53, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Precision, reconstruction/accumulator shapes, Fourier windows, x-half adjoint metadata, and projection mode moved together with original ordering. |
 | 2026-09-10 | C4 exact-local microbatch policy | Commit `b0d8b75a` | All 18 focused cap tests passed. GPU-memory defaults, explicit overrides, score-only bounds, planned floors, and x-half tail/projection caps moved intact to `local_em_batch_planning.py`; engine compatibility names remain. |
+| 2026-09-10 | C4 exact-local staged cap plan | Commit `7727bde6` | Route/cap tests 21/21, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. One `LocalExecutionSettings` object now feeds immutable x-half route and generic/tail/projection cap plans. |
 
 ## Decision log
 
@@ -2100,6 +2101,56 @@ Decision: accepted. Next compose this policy and
 `bucket_local_hypothesis_layout` behind an immutable plan, leaving diagnostic
 target-only filtering explicit until it moves behind the diagnostics sink.
 
+### 2026-09-10 — C4 exact-local staged microbatch plan
+
+Hypothesis: one grouped `LocalExecutionSettings` value can replace the inline
+cap argument list while preserving the distinct generic, x-half-tail, and
+x-half-projection stages and their logs.
+
+Files changed: `local_em_batch_planning.py`, `local_em_engine.py`, and new
+`test_local_em_batch_planning.py`.
+
+`LocalMicrobatchRoute` records whether the call is a RELION-projector x-half
+M-step, whether its reconstruction grid is full BPref or current-size BPref,
+and the resolved auto-boost factor. `LocalMicrobatchPlan` records the initial,
+tail-capped, and final effective caps plus the projection row-pixel target when
+that cap fires. The engine therefore retains readable logs for every reduction
+without recomputing or obscuring a cap.
+
+Algorithmic invariants protected: the same policy helpers execute in the same
+order; explicit user caps, automatic high-memory behavior, score-only allocator
+probing, indivisible rotation neighborhoods, and projection-pixel budgets are
+unchanged. `bucket_local_hypothesis_layout`, diagnostic filtering, bucket
+ordering, arrays, and the compiled call remain untouched.
+
+Focused tests and exact results:
+
+- new route/cap plan plus all selected legacy cap cases: 21 passed and 358
+  deselected in `7.43 s`;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `80.89 s` using the warm writable CPU compilation cache;
+- CPU fast guard: 16 passed in `51.64 s`, with the expected login-node CUDA
+  discovery traceback before its CPU-only test process;
+- new planning/test files pass Ruff format/lint, and the engine passes the
+  established targeted lint scope.
+
+GPU validation remains deferred until the compiled boundary changes. This
+slice adds two small frozen objects once per exact-local call and changes no
+bucket topology, kernel argument, HLO, compile shape, or numerical operation.
+
+Provenance: code commit
+`7727bde6bf4b90316163898bfa668a76b7493b7e` on `dense_em_refactor`;
+pre-commit dirty diff SHA-256
+`7f554e0029827296e7f2f36f2f71e3c156207454feafbd264c22f6a58e09a811`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `7727bde6` —
+`refactor: plan exact-local microbatch caps`.
+
+Decision: accepted. Next add an immutable bucket-topology summary around the
+existing builder; diagnostic target-only filtering remains a separate view.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2125,8 +2176,8 @@ Open risks:
 
 ## Immediate next actions
 
-1. Extract effective microbatch caps and bucket topology, keeping x-half tail
-   and projection caps numerically and observably identical.
+1. Add an immutable bucket-topology summary around the existing builder while
+   keeping diagnostic target-only filtering as a separate view.
 2. Separate cache/projection preparation from output accumulator state, then
    introduce the grouped dynamic PyTrees and frozen static policy at the big
    JIT boundary one caller route at a time.
