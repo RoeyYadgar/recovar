@@ -1832,6 +1832,55 @@ HEAD `af338706` on `dense_em_refactor`, empty tracked diff SHA-256
 with all five required parity ancestors present. Pre-existing fixture, editor,
 plot, and scratch paths remain untracked and out of scope.
 
+### 2026-09-10 — C4 exact-local mode plan
+
+Hypothesis: scalar execution-mode validation can move out of the 3,306-line
+engine body without changing validation behavior, output selection, or any
+array/JIT boundary.
+
+Files changed: new `local_em_planning.py`, the scalar-validation prelude in
+`local_em_engine.py`, and focused `test_local_em_planning.py` coverage.
+
+The new immutable `LocalEMModePlan` is resolved from three existing cohesive
+groups: `LocalScoringSettings`, `LocalReconstructionSettings`, and
+`LocalEMRequestedOutputs`. It normalizes the same five values previously
+normalized inline, preserves the exact-translation and score-only validation
+order/messages, and centralizes implicit profile selection for probability or
+sample-index capture. The public compatibility signature and typed
+`LocalEMRequest` adapter are unchanged.
+
+Algorithmic invariants protected: no array is inspected or constructed by the
+planner; no precision, projection, window, microbatch, bucket, cache,
+posterior, M-step, noise, result, or diagnostic route changed. The
+98-argument `run_local_bucket_big_jit` boundary and all of its call sites are
+byte-for-byte unchanged.
+
+Focused tests and exact results:
+
+- new planner plus existing request/result contracts: 32 passed in `8.48 s`;
+- real score-only, half-volume, x-half, deferred packed-M-step, windowed, and
+  fused/split exact-local cases: 11 passed and 365 deselected in `57.26 s`;
+- CPU fast guard: 16 passed in `53.34 s`.
+
+The two new files pass Ruff formatting and lint checks. The touched legacy
+engine passes targeted Ruff checks when its existing whole-file import debt is
+excluded. Its Ruff commit hooks were skipped deliberately because the current
+formatter would rewrite roughly 800 unrelated lines, violating the small-commit
+rule; no formatter output was retained.
+
+GPU validation: not required for this scalar host-only extraction. It removes
+inline branches but adds no operation to an iteration, changes no compiled
+input, and cannot affect HLO, compile count, memory, or numerical performance.
+The next GPU comparison remains the C4 paired warm-timing gate after the host
+stages and grouped JIT boundary are complete.
+
+Commit SHA and descriptive message: `6698527d` —
+`refactor: extract exact-local mode planning`.
+
+Decision: accepted. Next extract validation and normalization of per-image
+host inputs into a separate plan, preserving NumPy conversion dtype, shape
+checks, error order, and translation-prior validation.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
