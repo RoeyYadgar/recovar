@@ -119,15 +119,13 @@ from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
     plan_local_cache_route,
 )
 from recovar.em.dense_single_volume.local_debug import (
-    current_size_matches_request,
-    iteration_matches_request,
-    maybe_write_debug_fused_posterior_dump,
-    maybe_write_debug_noise_component_dump,
-    maybe_write_debug_score_dump,
     noise_split_diagnostics_requested,
-    parse_debug_fused_posterior_dump_request,
-    parse_debug_noise_component_dump_request,
-    parse_debug_score_dump_request,
+)
+from recovar.em.dense_single_volume.local_diagnostics import (
+    LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV,
+    LOCAL_SCORE_DUMP_OPERANDS_ENV,
+    LOCAL_SCORE_DUMP_TARGET_ONLY_ENV,
+    LocalDiagnosticsSession,
 )
 from recovar.em.dense_single_volume.local_em_array_setup import (
     make_local_em_precision,
@@ -311,9 +309,6 @@ EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM = 512
 EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM_ENV = "RECOVAR_EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM"
 EXACT_LOCAL_DEFER_PACKED_MSTEP_ENV = "RECOVAR_EXACT_LOCAL_DEFER_PACKED_MSTEP"
 EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV = "RECOVAR_EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP"
-LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV = "RECOVAR_LOCAL_SCORE_DUMP_FORCE_SPLIT"
-LOCAL_SCORE_DUMP_OPERANDS_ENV = "RECOVAR_LOCAL_SCORE_DUMP_OPERANDS"
-LOCAL_SCORE_DUMP_TARGET_ONLY_ENV = "RECOVAR_LOCAL_SCORE_DUMP_TARGET_ONLY"
 EXACT_LOCAL_SPARSE_ADJOINT_TARGET_ROWS_ENV = "RECOVAR_EXACT_LOCAL_SPARSE_ADJOINT_TARGET_ROWS"
 EXACT_LOCAL_PROGRESS_CHUNKS_ENV = "RECOVAR_EXACT_LOCAL_PROGRESS_CHUNKS"
 EXACT_LOCAL_PROGRESS_SECONDS_ENV = "RECOVAR_EXACT_LOCAL_PROGRESS_SECONDS"
@@ -337,34 +332,6 @@ def _local_mstep_rotations(bucket: LocalBucketSpec) -> np.ndarray:
     if rotations is None:
         rotations = bucket.local_rotations
     return np.asarray(rotations)
-
-
-def _bucket_contains_debug_target(experiment_dataset, image_indices, pending_targets: set[int] | None) -> bool:
-    if not pending_targets:
-        return False
-    original_indices = np.asarray(
-        experiment_dataset.original_image_indices_from_local(image_indices),
-        dtype=np.int64,
-    )
-    return any(int(original_idx) in pending_targets for original_idx in original_indices.tolist())
-
-
-def _filter_buckets_to_debug_targets(
-    experiment_dataset,
-    bucket_specs: list[LocalBucketSpec],
-    pending_targets: set[int],
-) -> list[LocalBucketSpec]:
-    if not pending_targets:
-        return bucket_specs
-    return [
-        bucket
-        for bucket in bucket_specs
-        if _bucket_contains_debug_target(
-            experiment_dataset,
-            bucket.image_indices,
-            pending_targets,
-        )
-    ]
 
 
 @dataclass
@@ -1476,38 +1443,10 @@ def run_local_em_exact(
     normalization_log_evidence_np = input_plan.normalization_log_evidence
     reconstruction_probability_threshold_np = input_plan.reconstruction_probability_threshold
     translation_prior_centers_np = input_plan.translation_prior_centers
-    (
-        debug_score_dump_dir,
-        debug_score_dump_targets,
-        debug_score_dump_current_sizes,
-        debug_score_dump_iterations,
-    ) = parse_debug_score_dump_request()
-    (
-        debug_fused_posterior_dump_dir,
-        debug_fused_posterior_dump_targets,
-        debug_fused_posterior_dump_current_sizes,
-        debug_fused_posterior_dump_iterations,
-    ) = parse_debug_fused_posterior_dump_request()
-    (
-        debug_noise_dump_dir,
-        debug_noise_dump_targets,
-        debug_noise_dump_current_sizes,
-        debug_noise_dump_iterations,
-    ) = parse_debug_noise_component_dump_request()
-    debug_score_dump_filter_matches = (
-        debug_score_dump_dir is not None
-        and current_size_matches_request(debug_score_dump_current_sizes, current_size)
-        and iteration_matches_request(debug_score_dump_iterations, debug_iteration)
-    )
-    debug_fused_posterior_dump_filter_matches = (
-        debug_fused_posterior_dump_dir is not None
-        and current_size_matches_request(debug_fused_posterior_dump_current_sizes, current_size)
-        and iteration_matches_request(debug_fused_posterior_dump_iterations, debug_iteration)
-    )
-    debug_noise_dump_filter_matches = (
-        debug_noise_dump_dir is not None
-        and current_size_matches_request(debug_noise_dump_current_sizes, current_size)
-        and iteration_matches_request(debug_noise_dump_iterations, debug_iteration)
+    local_diagnostics = LocalDiagnosticsSession.from_environment(
+        current_size=current_size,
+        iteration=debug_iteration,
+        pass_label=debug_pass_label,
     )
     bpref_contribution_capture_active = _exact_local_bpref_contribution_capture_for_call(
         current_size=current_size,
@@ -1515,9 +1454,9 @@ def run_local_em_exact(
         score_only=score_only,
         mstep_relion_x_half=mstep_relion_x_half,
     )
-    debug_score_dump_operands = bool(debug_score_dump_filter_matches and _env_flag(LOCAL_SCORE_DUMP_OPERANDS_ENV))
-    debug_score_dump_force_split = bool(debug_score_dump_filter_matches and _env_flag(LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV))
-    debug_score_dump_big_jit = bool(debug_score_dump_filter_matches and not debug_score_dump_force_split)
+    debug_score_dump_operands = local_diagnostics.score_operands
+    debug_score_dump_force_split = local_diagnostics.score_force_split
+    debug_score_dump_big_jit = local_diagnostics.score_big_jit
     config = ForwardModelConfig.from_dataset(
         experiment_dataset,
         disc_type=disc_type,
@@ -1623,7 +1562,7 @@ def run_local_em_exact(
     noise_sumw = jnp.asarray(0.0, dtype=precision_policy.score_real_dtype)
     return_noise_split = noise_split_diagnostics_requested()
     require_materialized_recon_projection = bool(
-        mstep_subtract_ctf_projection or debug_noise_dump_filter_matches or return_noise_split
+        mstep_subtract_ctf_projection or local_diagnostics.noise.enabled_for_call or return_noise_split
     )
     can_defer_local_noise_projection = (
         relion_projector_half is None
@@ -1802,47 +1741,19 @@ def run_local_em_exact(
     total_local_rotations = bucket_plan.total_local_rotations
     bucket_summary = bucket_plan.summary
     timing.bucket_build_s += time.time() - bucket_build_t0
-    debug_target_only_targets: set[int] = set()
-    if debug_score_dump_filter_matches:
-        debug_target_only_targets.update(debug_score_dump_targets)
-    if debug_fused_posterior_dump_filter_matches:
-        debug_target_only_targets.update(debug_fused_posterior_dump_targets)
-    debug_score_dump_target_only = bool(
-        score_only
-        and debug_target_only_targets
-        # ``score_only`` also implements the science-critical local parent
-        # pass that supplies pass-2 support.  Filtering it merely because a
-        # dump target is configured makes the diagnostic change refinement
-        # results.  Keep target-only execution as an explicit opt-in for
-        # standalone diagnostics.
-        and _env_flag(LOCAL_SCORE_DUMP_TARGET_ONLY_ENV)
-    )
-    debug_target_only_original_bucket_count = bucket_summary.bucket_count
-    debug_target_only_original_image_count = bucket_summary.image_count
-    debug_target_only_original_rotations = total_local_rotations
-    if debug_score_dump_target_only:
+    # ``score_only`` also implements the science-critical local parent pass
+    # supplying pass-2 support. Target-only execution remains an explicit
+    # invasive diagnostic opt-in resolved by the diagnostic session.
+    if local_diagnostics.target_only_enabled(score_only=score_only):
         filter_t0 = time.time()
-        bucket_specs = _filter_buckets_to_debug_targets(
+        bucket_specs, bucket_summary, total_local_rotations = local_diagnostics.filter_target_only_buckets(
             experiment_dataset,
             bucket_specs,
-            debug_target_only_targets,
+            bucket_summary,
+            total_local_rotations,
+            score_only=score_only,
         )
         timing.bucket_build_s += time.time() - filter_t0
-        total_local_rotations = int(
-            sum(int(np.sum(bucket.actual_rotation_counts, dtype=np.int64)) for bucket in bucket_specs)
-        )
-        bucket_summary = summarize_local_buckets(bucket_specs)
-        target_only_images = bucket_summary.image_count
-        logger.info(
-            "Exact local debug target-only: keeping %d/%d buckets and %d/%d images "
-            "for requested original ids %s; unset %s to retain the full score-only computation",
-            len(bucket_specs),
-            debug_target_only_original_bucket_count,
-            target_only_images,
-            debug_target_only_original_image_count,
-            sorted(int(target) for target in debug_target_only_targets),
-            LOCAL_SCORE_DUMP_TARGET_ONLY_ENV,
-        )
     if bucket_summary.bucket_count:
         logger.info(
             "Exact local bucketing: %d images -> %d buckets "
@@ -1980,7 +1891,7 @@ def run_local_em_exact(
         mode=mode_plan,
         constraints=LocalCacheRouteConstraints(
             bpref_contribution_capture_active=bpref_contribution_capture_active,
-            debug_noise_dump_requested=debug_noise_dump_dir is not None,
+            debug_noise_dump_requested=local_diagnostics.noise.configured,
         ),
     )
     significant_backprojection_candidate = cache_route.significant_backprojection_candidate
@@ -2118,18 +2029,13 @@ def run_local_em_exact(
         timing.batch_fetch_s += time.time() - fetch_t0
         bucket = _reorder_bucket_to_indices(bucket, fetched_indices)
         batch_size = int(bucket.image_indices.shape[0])
-        debug_fused_posterior_bucket_matches = (
-            debug_fused_posterior_dump_filter_matches
-            and _bucket_contains_debug_target(
-                experiment_dataset,
-                bucket.image_indices,
-                debug_fused_posterior_dump_targets,
-            )
-        )
-        debug_score_dump_bucket_matches = debug_score_dump_filter_matches and _bucket_contains_debug_target(
+        debug_fused_posterior_bucket_matches = local_diagnostics.fused_bucket_matches(
             experiment_dataset,
             bucket.image_indices,
-            debug_score_dump_targets,
+        )
+        debug_score_dump_bucket_matches = local_diagnostics.score_bucket_matches(
+            experiment_dataset,
+            bucket.image_indices,
         )
         use_big_jit_buckets_for_bucket = bool(
             use_big_jit_buckets and not (debug_score_dump_force_split and debug_score_dump_bucket_matches)
@@ -2568,8 +2474,8 @@ def run_local_em_exact(
                 reconstruction_sample_mask_unpadded = reconstruction_sample_mask[:unpadded_batch_size]
                 reconstruction_rotation_mask_unpadded = reconstruction_rotation_mask[:unpadded_batch_size]
                 n_significant_samples_unpadded = n_significant_samples[:unpadded_batch_size]
-                if fused_debug_bucket_matches and debug_fused_posterior_dump_targets:
-                    debug_fused_posterior_dump_targets = maybe_write_debug_fused_posterior_dump(
+                if fused_debug_bucket_matches and local_diagnostics.fused_posterior.pending_targets:
+                    local_diagnostics.emit_fused_posterior(
                         experiment_dataset=experiment_dataset,
                         local_layout=local_layout,
                         bucket=unpadded_bucket,
@@ -2582,15 +2488,9 @@ def run_local_em_exact(
                         reconstruction_sample_mask=reconstruction_sample_mask_unpadded,
                         reconstruction_rotation_mask=reconstruction_rotation_mask_unpadded,
                         n_significant_samples=n_significant_samples_unpadded,
-                        current_size=current_size,
-                        debug_iteration=debug_iteration,
-                        dump_dir=debug_fused_posterior_dump_dir,
-                        pending_targets=debug_fused_posterior_dump_targets,
-                        requested_current_sizes=debug_fused_posterior_dump_current_sizes,
-                        requested_iterations=debug_fused_posterior_dump_iterations,
                     )
-                if score_debug_bucket_matches and debug_score_dump_targets:
-                    debug_score_dump_targets = maybe_write_debug_score_dump(
+                if score_debug_bucket_matches and local_diagnostics.score.pending_targets:
+                    local_diagnostics.emit_score(
                         experiment_dataset=experiment_dataset,
                         local_layout=local_layout,
                         bucket=unpadded_bucket,
@@ -2603,9 +2503,6 @@ def run_local_em_exact(
                         reconstruction_sample_mask=reconstruction_sample_mask_unpadded,
                         reconstruction_rotation_mask=reconstruction_rotation_mask_unpadded,
                         n_significant_samples=n_significant_samples_unpadded,
-                        current_size=current_size,
-                        debug_iteration=debug_iteration,
-                        debug_pass_label=debug_pass_label,
                         shifted_score_split=debug_shifted_score_split,
                         shifted_recon_split=debug_shifted_recon_split,
                         ctf2_over_nv_score=debug_ctf2_over_nv_score,
@@ -2613,10 +2510,6 @@ def run_local_em_exact(
                         proj_weighted=debug_proj_weighted,
                         proj_for_noise=debug_proj_for_noise,
                         proj_abs2_weighted=None,
-                        dump_dir=debug_score_dump_dir,
-                        pending_targets=debug_score_dump_targets,
-                        requested_current_sizes=debug_score_dump_current_sizes,
-                        requested_iterations=debug_score_dump_iterations,
                     )
 
             pack_t0 = time.time()
@@ -3241,7 +3134,7 @@ def run_local_em_exact(
                     best_log_score,
                     max_posterior,
                 )
-            debug_fused_posterior_dump_targets = maybe_write_debug_fused_posterior_dump(
+            local_diagnostics.emit_fused_posterior(
                 experiment_dataset=experiment_dataset,
                 local_layout=local_layout,
                 bucket=bucket,
@@ -3254,12 +3147,6 @@ def run_local_em_exact(
                 reconstruction_sample_mask=reconstruction_sample_mask,
                 reconstruction_rotation_mask=reconstruction_rotation_mask,
                 n_significant_samples=n_significant_samples,
-                current_size=current_size,
-                debug_iteration=debug_iteration,
-                dump_dir=debug_fused_posterior_dump_dir,
-                pending_targets=debug_fused_posterior_dump_targets,
-                requested_current_sizes=debug_fused_posterior_dump_current_sizes,
-                requested_iterations=debug_fused_posterior_dump_iterations,
             )
             fused_elapsed = time.time() - fused_t0
             timing.fused_score_mstep_s += fused_elapsed
@@ -3308,7 +3195,7 @@ def run_local_em_exact(
                     best_log_score,
                     max_posterior,
                 )
-            debug_fused_posterior_dump_targets = maybe_write_debug_fused_posterior_dump(
+            local_diagnostics.emit_fused_posterior(
                 experiment_dataset=experiment_dataset,
                 local_layout=local_layout,
                 bucket=bucket,
@@ -3321,12 +3208,6 @@ def run_local_em_exact(
                 reconstruction_sample_mask=reconstruction_sample_mask,
                 reconstruction_rotation_mask=reconstruction_rotation_mask,
                 n_significant_samples=n_significant_samples,
-                current_size=current_size,
-                debug_iteration=debug_iteration,
-                dump_dir=debug_fused_posterior_dump_dir,
-                pending_targets=debug_fused_posterior_dump_targets,
-                requested_current_sizes=debug_fused_posterior_dump_current_sizes,
-                requested_iterations=debug_fused_posterior_dump_iterations,
             )
             fused_elapsed = time.time() - fused_t0
             timing.fused_score_mstep_s += fused_elapsed
@@ -3385,7 +3266,7 @@ def run_local_em_exact(
                     best_log_score,
                     max_posterior,
                 )
-            debug_fused_posterior_dump_targets = maybe_write_debug_fused_posterior_dump(
+            local_diagnostics.emit_fused_posterior(
                 experiment_dataset=experiment_dataset,
                 local_layout=local_layout,
                 bucket=bucket,
@@ -3398,12 +3279,6 @@ def run_local_em_exact(
                 reconstruction_sample_mask=reconstruction_sample_mask,
                 reconstruction_rotation_mask=reconstruction_rotation_mask,
                 n_significant_samples=n_significant_samples,
-                current_size=current_size,
-                debug_iteration=debug_iteration,
-                dump_dir=debug_fused_posterior_dump_dir,
-                pending_targets=debug_fused_posterior_dump_targets,
-                requested_current_sizes=debug_fused_posterior_dump_current_sizes,
-                requested_iterations=debug_fused_posterior_dump_iterations,
             )
             fused_elapsed = time.time() - fused_t0
             timing.fused_score_mstep_s += fused_elapsed
@@ -3466,7 +3341,7 @@ def run_local_em_exact(
                     best_log_score,
                     max_posterior,
                 )
-            debug_fused_posterior_dump_targets = maybe_write_debug_fused_posterior_dump(
+            local_diagnostics.emit_fused_posterior(
                 experiment_dataset=experiment_dataset,
                 local_layout=local_layout,
                 bucket=bucket,
@@ -3479,12 +3354,6 @@ def run_local_em_exact(
                 reconstruction_sample_mask=reconstruction_sample_mask,
                 reconstruction_rotation_mask=reconstruction_rotation_mask,
                 n_significant_samples=n_significant_samples,
-                current_size=current_size,
-                debug_iteration=debug_iteration,
-                dump_dir=debug_fused_posterior_dump_dir,
-                pending_targets=debug_fused_posterior_dump_targets,
-                requested_current_sizes=debug_fused_posterior_dump_current_sizes,
-                requested_iterations=debug_fused_posterior_dump_iterations,
             )
             fused_elapsed = time.time() - fused_t0
             timing.fused_score_mstep_s += fused_elapsed
@@ -3584,7 +3453,7 @@ def run_local_em_exact(
                 _block_until_ready(reconstruction_probs, reconstruction_rotation_mask, n_significant_samples)
             timing.significance_s += time.time() - significance_t0
 
-            debug_score_dump_targets = maybe_write_debug_score_dump(
+            local_diagnostics.emit_score(
                 experiment_dataset=experiment_dataset,
                 local_layout=local_layout,
                 bucket=bucket,
@@ -3597,9 +3466,6 @@ def run_local_em_exact(
                 reconstruction_sample_mask=reconstruction_sample_mask,
                 reconstruction_rotation_mask=reconstruction_rotation_mask,
                 n_significant_samples=n_significant_samples,
-                current_size=current_size,
-                debug_iteration=debug_iteration,
-                debug_pass_label=debug_pass_label,
                 shifted_score_split=shifted_score.reshape(batch_size, n_trans, -1),
                 shifted_recon_split=shifted_recon_split,
                 ctf2_over_nv_score=ctf2_over_nv_score,
@@ -3607,10 +3473,6 @@ def run_local_em_exact(
                 proj_weighted=proj_weighted,
                 proj_for_noise=proj_for_noise,
                 proj_abs2_weighted=None,
-                dump_dir=debug_score_dump_dir,
-                pending_targets=debug_score_dump_targets,
-                requested_current_sizes=debug_score_dump_current_sizes,
-                requested_iterations=debug_score_dump_iterations,
             )
 
             mstep_t0 = time.time()
@@ -3956,14 +3818,14 @@ def run_local_em_exact(
             if defer_packed_mstep_reduction:
                 if packed_reconstruction_probs is None:
                     raise RuntimeError("packed posterior rows are required for deferred local noise accumulation")
-                if debug_noise_dump_dir is not None and debug_noise_dump_targets:
+                if local_diagnostics.noise.configured and local_diagnostics.noise.pending_targets:
                     summed_masked_noise = compute_local_weighted_sums(reconstruction_probs, shifted_noise_split)
                     ctf_probs_for_debug = (
                         ctf_probs
                         if ctf_probs is not None
                         else compute_local_ctf_sums(reconstruction_probs, ctf2_over_nv_recon)
                     )
-                    debug_noise_dump_targets = maybe_write_debug_noise_component_dump(
+                    local_diagnostics.emit_noise(
                         experiment_dataset=experiment_dataset,
                         bucket=bucket,
                         support_mass=support_mass,
@@ -3976,18 +3838,12 @@ def run_local_em_exact(
                         shell_indices_half=shell_indices_half,
                         shell_indices_noise=shell_indices_noise,
                         n_shells=n_shells,
-                        current_size=current_size,
-                        debug_iteration=debug_iteration,
                         reconstruction_sample_mask=reconstruction_sample_mask,
                         n_significant_samples=n_significant_samples,
-                        dump_dir=debug_noise_dump_dir,
-                        pending_targets=debug_noise_dump_targets,
-                        requested_current_sizes=debug_noise_dump_current_sizes,
-                        requested_iterations=debug_noise_dump_iterations,
                     )
             else:
                 summed_masked_noise = compute_local_weighted_sums(reconstruction_probs, shifted_noise_split)
-                debug_noise_dump_targets = maybe_write_debug_noise_component_dump(
+                local_diagnostics.emit_noise(
                     experiment_dataset=experiment_dataset,
                     bucket=bucket,
                     support_mass=support_mass,
@@ -4000,14 +3856,8 @@ def run_local_em_exact(
                     shell_indices_half=shell_indices_half,
                     shell_indices_noise=shell_indices_noise,
                     n_shells=n_shells,
-                    current_size=current_size,
-                    debug_iteration=debug_iteration,
                     reconstruction_sample_mask=reconstruction_sample_mask,
                     n_significant_samples=n_significant_samples,
-                    dump_dir=debug_noise_dump_dir,
-                    pending_targets=debug_noise_dump_targets,
-                    requested_current_sizes=debug_noise_dump_current_sizes,
-                    requested_iterations=debug_noise_dump_iterations,
                 )
                 packed_summed_masked_noise = jnp.take_along_axis(
                     summed_masked_noise,
@@ -4302,20 +4152,7 @@ def run_local_em_exact(
         )
     timing.stats_finalize_s += time.time() - stats_finalize_t0
 
-    if debug_score_dump_filter_matches and debug_score_dump_targets and debug_score_dump_iterations is None:
-        logger.warning(
-            "Requested local score dump indices were not observed in this dataset view: %s",
-            sorted(debug_score_dump_targets),
-        )
-    if (
-        debug_fused_posterior_dump_filter_matches
-        and debug_fused_posterior_dump_targets
-        and debug_fused_posterior_dump_iterations is None
-    ):
-        logger.warning(
-            "Requested fused posterior dump indices were not observed in this dataset view: %s",
-            sorted(debug_fused_posterior_dump_targets),
-        )
+    local_diagnostics.warn_for_unobserved_targets()
 
     if reconstruct_significant_only:
         logger.info(

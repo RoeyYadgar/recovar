@@ -4681,13 +4681,14 @@ def test_exact_local_relion_x_half_windowed_mstep_uses_fftw_indices_and_current_
 
 
 def test_exact_local_fused_posterior_missing_warning_respects_filters():
-    from recovar.em.dense_single_volume import local_em_engine
+    from recovar.em.dense_single_volume.local_diagnostics import LocalDiagnosticsSession
 
-    src = inspect.getsource(local_em_engine.run_local_em_exact)
-    assert "debug_fused_posterior_dump_filter_matches = (" in src
-    assert "current_size_matches_request(debug_fused_posterior_dump_current_sizes, current_size)" in src
-    assert "iteration_matches_request(debug_fused_posterior_dump_iterations, debug_iteration)" in src
-    assert ("debug_fused_posterior_dump_filter_matches\n        and debug_fused_posterior_dump_targets") in src
+    request_src = inspect.getsource(LocalDiagnosticsSession._request)
+    warning_src = inspect.getsource(LocalDiagnosticsSession.warn_for_unobserved_targets)
+    assert "current_size_matches_request(requested_current_sizes, current_size)" in request_src
+    assert "iteration_matches_request(requested_iterations, iteration)" in request_src
+    assert "self.fused_posterior.enabled_for_call" in warning_src
+    assert "self.fused_posterior.pending_targets" in warning_src
 
 
 def test_local_score_debug_dump_records_attempted_pose_metadata(tmp_path):
@@ -8023,8 +8024,8 @@ def test_local_fused_posterior_debug_does_not_request_scores_without_score_dump(
     assert "return_big_jit_debug_scores = bool(score_debug_bucket_matches)" in src
     assert "return_debug_scores=return_big_jit_debug_scores" in src
     assert "if return_big_jit_debug_scores" in src
-    assert "if fused_debug_bucket_matches and debug_fused_posterior_dump_targets:" in src
-    assert "if score_debug_bucket_matches and debug_score_dump_targets:" in src
+    assert "if fused_debug_bucket_matches and local_diagnostics.fused_posterior.pending_targets:" in src
+    assert "if score_debug_bucket_matches and local_diagnostics.score.pending_targets:" in src
 
 
 def test_local_big_jit_windowed_translation_slices_before_tiling():
