@@ -140,6 +140,7 @@ from recovar.em.dense_single_volume.local_debug import (
     iteration_matches_request,
     maybe_write_debug_score_dump,
 )
+from recovar.em.dense_single_volume import local_em_batch_planning
 from recovar.em.dense_single_volume.local_em_engine import (
     EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV,
     EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV,
@@ -1590,9 +1591,7 @@ def test_exact_local_processed_half_cache_respects_memory_guard(monkeypatch):
 
 
 def _force_exact_local_standard_gpu_default(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-
-    monkeypatch.setattr(local_em_engine, "_visible_gpu_memory_bytes", lambda: None)
+    monkeypatch.setattr(local_em_batch_planning, "_visible_gpu_memory_bytes", lambda: None)
 
 
 def test_exact_local_microbatch_default_matches_profiled_256_window(monkeypatch):
@@ -1603,11 +1602,9 @@ def test_exact_local_microbatch_default_matches_profiled_256_window(monkeypatch)
 
 
 def test_exact_local_microbatch_high_memory_gpu_default(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-
     monkeypatch.delenv(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, raising=False)
-    monkeypatch.setattr(local_em_engine, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
+    monkeypatch.setattr(local_em_batch_planning, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
 
     assert (
         _exact_local_max_hypotheses_per_microbatch(
@@ -1621,12 +1618,10 @@ def test_exact_local_microbatch_high_memory_gpu_default(monkeypatch):
 
 
 def test_exact_local_score_only_cap_covers_100k_parent_tile(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-
     monkeypatch.delenv(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV, raising=False)
-    monkeypatch.setattr(local_em_engine, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
+    monkeypatch.setattr(local_em_batch_planning, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
 
     rotation_counts = np.asarray([198], dtype=np.int32)
     layout = LocalHypothesisLayout(
@@ -1665,12 +1660,10 @@ def test_exact_local_score_only_cap_covers_100k_parent_tile(monkeypatch):
 
 
 def test_exact_local_score_only_cap_preserves_smaller_bucket_shape(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-
     monkeypatch.delenv(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV, raising=False)
-    monkeypatch.setattr(local_em_engine, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
+    monkeypatch.setattr(local_em_batch_planning, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
 
     rotation_counts = np.asarray([198], dtype=np.int32)
     layout = LocalHypothesisLayout(
@@ -1708,11 +1701,9 @@ def test_exact_local_score_only_cap_preserves_smaller_bucket_shape(monkeypatch):
 
 
 def test_exact_local_xhalf_full_bpref_uses_conservative_high_memory_cap(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-
     monkeypatch.delenv(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, raising=False)
-    monkeypatch.setattr(local_em_engine, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
+    monkeypatch.setattr(local_em_batch_planning, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
 
     high_memory_cap = _exact_local_max_hypotheses_per_microbatch(
         None,
@@ -1734,11 +1725,9 @@ def test_exact_local_xhalf_full_bpref_uses_conservative_high_memory_cap(monkeypa
 
 
 def test_exact_local_xhalf_current_bpref_uses_conservative_high_memory_cap(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-
     monkeypatch.delenv(EXACT_LOCAL_TARGET_ROW_PIXELS_ENV, raising=False)
     monkeypatch.delenv(EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV, raising=False)
-    monkeypatch.setattr(local_em_engine, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
+    monkeypatch.setattr(local_em_batch_planning, "_visible_gpu_memory_bytes", lambda: 80 * 1024**3)
 
     high_memory_cap = _exact_local_max_hypotheses_per_microbatch(
         None,
