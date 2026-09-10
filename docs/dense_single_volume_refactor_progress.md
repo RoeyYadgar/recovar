@@ -2,7 +2,7 @@
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
 Current phase: C3 — extract diagnostics and parity capture
-Last updated: 2026-09-09
+Last updated: 2026-09-10
 
 ## Status board
 
@@ -11,7 +11,7 @@ Last updated: 2026-09-09
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
-| C3 Diagnostics extraction | READY | Begin with the null sink and stable lifecycle payloads, then move one serialization family at a time without changing artifact schemas. |
+| C3 Diagnostics extraction | IN PROGRESS | The typed lifecycle/trace contract and zero-work null sink are implemented; migrate parity timing/capture next, then the remaining serialization families. |
 | C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
@@ -1091,6 +1091,46 @@ before C2; candidate C2 improves the paired control by `0.0004093`, so this is
 retained as an independent scientific-quality issue rather than a refactor
 regression. C3 may now begin from the immutable runtime and diagnostics-plan
 boundary.
+
+### 2026-09-10 — C3 typed diagnostics seam
+
+Hypothesis: A named observer protocol, immutable lifecycle payloads, and an
+empty `TraceSpec` can establish the diagnostics boundary without inspecting,
+materializing, synchronizing, or selecting production values.
+
+Files changed: `diagnostics/events.py`, `diagnostics/sinks.py`, diagnostics
+exports, and focused unit coverage.
+
+Algorithmic invariants protected: lifecycle construction retains object
+identity; sink methods return `None`; the production singleton requests no
+extra kernel values; no controller or numerical caller is changed in this
+slice.
+
+Focused tests and exact results: `test_diagnostics_sinks.py`, 3/3 passed.
+
+CPU fast guard: deferred until the first production caller migration.
+
+GPU/Slurm job IDs: not required for this type-only slice.
+
+Quality artifacts and deltas: not measured; no algorithmic caller changed.
+
+Performance artifacts and deltas: not measured; no algorithmic caller changed.
+
+Compile/memory observations: no JAX code or call boundary changed.
+
+Provenance: parent HEAD `748ab20dc4b821c9f53cd43f924c56181ea1a395`
+on `dense_em_refactor`; the tracked tree was clean and pre-existing untracked
+fixture, plot, editor, and scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: define diagnostics sink contract`.
+
+Decision: accepted.
+
+Next action: implement parity/timing as explicit sink objects while retaining
+the legacy module API and exact NPZ schema.
+
+Open risks: lifecycle calls are not yet wired, and capture families still own
+their legacy module state until subsequent slices migrate them.
 
 ## Per-slice update template
 
