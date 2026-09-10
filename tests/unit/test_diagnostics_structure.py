@@ -51,3 +51,13 @@ def test_iteration_lifecycle_uses_one_explicit_sink_and_null_fast_path():
         "iteration_finished",
     ):
         assert f"diagnostics.{method}(" in loop_source
+
+
+def test_iteration_start_precedes_and_does_not_read_current_size_planning():
+    loop_source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
+    started_at = loop_source.index("diagnostics.iteration_started(")
+    planning_at = loop_source.index("# --- Determine current_size")
+
+    assert started_at < planning_at
+    assert "current_size=int(cs)" not in loop_source[started_at:planning_at]
+    assert iteration_loop._numbered_relion_iteration(3, 0) == 4

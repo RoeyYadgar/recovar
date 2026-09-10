@@ -54,7 +54,10 @@ class TraceSpec:
 class IterationStarted:
     iteration: int
     relion_iteration: int
-    current_size: int
+    # Current-size planning is part of the iteration and has not run when this
+    # event is emitted.  Keep the field optional for compatibility with sinks
+    # that may attach a size when emitting the event at a later boundary.
+    current_size: int | None = None
 
 
 @dataclass(frozen=True)

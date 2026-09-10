@@ -5597,7 +5597,6 @@ def _run_relion_iteration_loop(
                 IterationStarted(
                     iteration=iteration,
                     relion_iteration=numbered_relion_iteration,
-                    current_size=int(cs),
                 )
             )
 

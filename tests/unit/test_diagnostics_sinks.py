@@ -34,7 +34,7 @@ def test_null_diagnostics_has_no_trace_or_payload_side_effects():
     value = _MustNotMaterialize()
 
     assert NULL_DIAGNOSTICS.trace_spec.is_empty
-    assert NULL_DIAGNOSTICS.iteration_started(IterationStarted(1, 4, 64)) is None
+    assert NULL_DIAGNOSTICS.iteration_started(IterationStarted(1, 4)) is None
     assert NULL_DIAGNOSTICS.half_scored(HalfScored(1, 0, value)) is None
     assert NULL_DIAGNOSTICS.mstep_accumulated(MstepAccumulated(1, 0, value)) is None
     assert NULL_DIAGNOSTICS.maps_updated(MapsUpdated(1, (value,), (value,))) is None
@@ -64,6 +64,12 @@ def test_lifecycle_payload_is_frozen_and_does_not_transform_values():
     assert event.result is result
     with pytest.raises(FrozenInstanceError):
         event.half = 0
+
+
+def test_iteration_start_does_not_require_size_planning():
+    event = IterationStarted(iteration=0, relion_iteration=4)
+
+    assert event.current_size is None
 
 
 def test_npz_diagnostics_writes_explicit_payload_without_schema_changes(tmp_path):
