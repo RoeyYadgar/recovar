@@ -11,6 +11,8 @@ from .events import MapsUpdated as MapsUpdated
 from .events import MstepAccumulated as MstepAccumulated
 from .events import TraceKind as TraceKind
 from .events import TraceSpec as TraceSpec
+from .parity import PARITY_DIAGNOSTICS as PARITY_DIAGNOSTICS
+from .parity import ParityDiagnostics as ParityDiagnostics
 from .sinks import NULL_DIAGNOSTICS as NULL_DIAGNOSTICS
 from .sinks import DiagnosticsSink as DiagnosticsSink
 from .sinks import NullDiagnostics as NullDiagnostics

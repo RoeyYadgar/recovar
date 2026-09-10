@@ -28,7 +28,6 @@ from recovar import cuda_backproject as _cuda_backproject_diagnostics
 from recovar import utils
 from recovar.core import fourier_transform_utils
 from recovar.data_io import cryoem_dataset
-from recovar.em.dense_single_volume import parity_dump as _parity_dump
 from recovar.em.dense_single_volume.batch_planning import (
     _estimate_relion_em_batch_sizes,
     _image_backend,
@@ -36,6 +35,7 @@ from recovar.em.dense_single_volume.batch_planning import (
 )
 from recovar.em.dense_single_volume.dense_em_types import DenseEMInputs
 from recovar.em.dense_single_volume.diagnostics.config import diagnostic_environment_overrides
+from recovar.em.dense_single_volume.diagnostics.parity import PARITY_DIAGNOSTICS as _parity_dump
 from recovar.em.dense_single_volume.em_engine import (
     dense_em_request_from_legacy_kwargs,
     run_dense_em,

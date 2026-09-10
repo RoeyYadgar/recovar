@@ -1122,7 +1122,7 @@ Provenance: parent HEAD `748ab20dc4b821c9f53cd43f924c56181ea1a395`
 on `dense_em_refactor`; the tracked tree was clean and pre-existing untracked
 fixture, plot, editor, and scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: define diagnostics sink contract`.
+Commit SHA and descriptive message: `15c53424` — `refactor: define diagnostics sink contract`.
 
 Decision: accepted.
 
@@ -1131,6 +1131,49 @@ the legacy module API and exact NPZ schema.
 
 Open risks: lifecycle calls are not yet wired, and capture families still own
 their legacy module state until subsequent slices migrate them.
+
+### 2026-09-10 — C3 parity and timing sink extraction
+
+Hypothesis: Moving parity state, payload construction, and NPZ serialization
+behind one typed adapter can leave the controller's call sequence and the
+legacy import surface unchanged.
+
+Files changed: `diagnostics/parity.py`, the `parity_dump.py` compatibility
+facade, diagnostics exports, `iteration_loop.py`, and this ledger.
+
+Algorithmic invariants protected: the moved implementation retains the same
+module state dictionaries, activation checks, timing semantics, payload keys,
+dtypes, downsampling, filenames, exception shielding, and call positions. The
+controller now references the singleton adapter; it does not pass a sink into
+JIT code and receives no value from diagnostic calls.
+
+Focused tests and exact results: `test_parity_dump_timing.py` plus
+`test_diagnostics_sinks.py`, 9/9 passed.
+
+CPU fast guard: scheduled after controller serialization extraction.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured in this schema-preserving move.
+
+Performance artifacts and deltas: not measured in this schema-preserving move.
+
+Compile/memory observations: numerical call signatures and JIT inputs are
+unchanged; the parity adapter's `TraceSpec` is empty.
+
+Provenance: parent HEAD `15c5342449eb5b6f980fb0788dbe1570a6b3d171`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: extract parity diagnostics sink`.
+
+Decision: accepted.
+
+Next action: extract inline controller NPZ schemas, then migrate the dense and
+local engine capture adapters.
+
+Open risks: the compatibility implementation retains its historical process
+singleton until the C7 `RefinementSession` owns the run-wide sink.
 
 ## Per-slice update template
 
