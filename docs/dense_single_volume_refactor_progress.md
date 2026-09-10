@@ -12,7 +12,7 @@ Last updated: 2026-09-10
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | IN PROGRESS — SETUP COMPONENTS EXTRACTED | Immutable host plans and a JAX-aware array component own validation and setup. Memory-aware microbatch/x-half cap policy now has a dedicated module; composing it with bucket topology is next. The 98-argument JIT boundary remains fixed. |
+| C4 Exact-local engine | IN PROGRESS — PLANNING EXTRACTED | Immutable host/array plans own validation and setup; staged memory caps, production bucket topology, and shape summaries now live in `local_em_batch_planning.py`. Cache/preparation state is next. The 98-argument JIT boundary remains fixed. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -140,6 +140,7 @@ GPU identity and paired timing context.
 | 2026-09-10 | C4 exact-local array setup | Commit `1b9ca28b` | Setup/planner/contracts 53/53, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Precision, reconstruction/accumulator shapes, Fourier windows, x-half adjoint metadata, and projection mode moved together with original ordering. |
 | 2026-09-10 | C4 exact-local microbatch policy | Commit `b0d8b75a` | All 18 focused cap tests passed. GPU-memory defaults, explicit overrides, score-only bounds, planned floors, and x-half tail/projection caps moved intact to `local_em_batch_planning.py`; engine compatibility names remain. |
 | 2026-09-10 | C4 exact-local staged cap plan | Commit `7727bde6` | Route/cap tests 21/21, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. One `LocalExecutionSettings` object now feeds immutable x-half route and generic/tail/projection cap plans. |
+| 2026-09-10 | C4 exact-local bucket topology | Commit `3fa2447e` | Bucket contracts/builders 10/10, every selected real `run_local_em_exact` case 21/21, and CPU fast guard 16/16 passed. Production buckets and shape-frequency/image-count summaries now have immutable contracts; diagnostic filtering remains downstream. |
 
 ## Decision log
 
@@ -2151,6 +2152,61 @@ Commit SHA and descriptive message: `7727bde6` —
 Decision: accepted. Next add an immutable bucket-topology summary around the
 existing builder; diagnostic target-only filtering remains a separate view.
 
+### 2026-09-10 — C4 exact-local bucket topology plan
+
+Hypothesis: the existing bucket builder can remain the sole implementation
+while an immutable wrapper makes production topology and log metadata explicit.
+
+Files changed: `local_em_batch_planning.py`, `local_em_engine.py`, and
+`test_local_em_batch_planning.py`.
+
+`LocalBucketPlan` stores the production `LocalBucketSpec` sequence as a tuple,
+its total unpadded local-rotation count, and a `LocalBucketSummary`.
+`summarize_local_buckets` centralizes bucket count, image count, padded-rotation
+min/median/mean/max, images-per-bucket median/max, and the six most frequent
+shape classes. The engine converts the tuple once to its legacy working list.
+
+Diagnostic target-only filtering is deliberately downstream: the production
+plan is created first, its original counts are retained for diagnostics, and a
+filtered summary is computed only when the explicit invasive diagnostic is
+active. This avoids making a debug view part of the scientific bucket planner.
+
+Algorithmic invariants protected: `bucket_local_hypothesis_layout` still builds
+every array and determines order, padding, image membership, and shape classes.
+The effective cap and unify setting are supplied from the same grouped
+execution object. No cache eligibility, projection, preprocessing, posterior,
+M-step, accumulator, or compiled boundary changed.
+
+Focused tests and exact results:
+
+- topology summaries, plan wrapping, and existing bucket-builder cases: 10
+  passed and 371 deselected in `7.60 s`;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `81.07 s` using the warm writable CPU compilation cache;
+- CPU fast guard: 16 passed in `51.30 s`, with its expected login-node CUDA
+  discovery traceback before CPU-only execution;
+- modified/new planning and test files pass Ruff format/lint; the engine passes
+  the established targeted lint scope.
+
+GPU validation remains deferred to the C4 compiled-boundary gate. The plan
+adds only a shallow tuple/list conversion and scalar summary once per local
+call; bucket arrays, shape classes, JIT inputs, and numerical work are
+unchanged. End-to-end timing will measure this host overhead in the paired C4
+run.
+
+Provenance: code commit
+`3fa2447e1cea5dbf2c80e8f7bc588d2509266079` on `dense_em_refactor`;
+pre-commit dirty diff SHA-256
+`11409d14dba8980344b1c4d5551b00b61a9d184ce559cb00aed0d1a88a26edb6`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `3fa2447e` —
+`refactor: plan exact-local bucket topology`.
+
+Decision: accepted. Next separate cache/projection preparation from mutable
+output accumulator state.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2176,11 +2232,9 @@ Open risks:
 
 ## Immediate next actions
 
-1. Add an immutable bucket-topology summary around the existing builder while
-   keeping diagnostic target-only filtering as a separate view.
-2. Separate cache/projection preparation from output accumulator state, then
+1. Separate cache/projection preparation from output accumulator state, then
    introduce the grouped dynamic PyTrees and frozen static policy at the big
    JIT boundary one caller route at a time.
-3. Move exact-local diagnostic payload gathering behind the C3 sink using the
+2. Move exact-local diagnostic payload gathering behind the C3 sink using the
    new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
    GPU timing gates before closing C4.
