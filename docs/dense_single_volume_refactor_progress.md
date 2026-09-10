@@ -2400,6 +2400,71 @@ Commit SHA and descriptive message: `ea79ca42` —
 Decision: accepted. Next replace the long compiled call with grouped dynamic
 PyTrees and one frozen static policy, preserving accumulator donation.
 
+### 2026-09-10 — C4 grouped big-JIT boundary and named results
+
+Hypothesis: the exact-local compiled boundary can expose cohesive JAX PyTrees
+and a hashable policy without changing the kernel body, donated buffers, or
+route-dependent compiled outputs.
+
+Files changed: new `local_big_jit_types.py`, `local_big_jit.py`,
+`local_em_engine.py`, and new `test_local_big_jit_types.py`.
+
+The prior boundary had 51 positional dynamic arguments and 47 static keyword
+arguments. It now has six named dynamic bundles, the existing forward-model
+configuration, and one frozen `LocalBigJitPolicy`. Images/corrections,
+projection resources, donated M-step accumulators, noise accumulators,
+call-wide Fourier arrays, and bucket hypotheses each have their own immutable
+PyTree. The engine constructs these values next to their owning data.
+
+The compiled function still returns its route-specific tuple internally, but
+the engine immediately converts it to one `LocalBigJitResult`. This removes
+three positional unpack schemas from orchestration and names optional M-step,
+deferred, and debug outputs. No optional output is made into a JAX leaf unless
+its existing static route returns it.
+
+Algorithmic invariants protected: the JIT body and all numerical statements
+are unchanged. `LocalBigJitMstepAccumulators` is the sole donated argument and
+has exactly the same two leaves (`Ft_y`, `Ft_ctf`) as the former donated
+positions. `None` sample-mask structure, static policy distinctions, output
+tuple order inside the compiled function, and all post-kernel branches are
+preserved.
+
+Focused tests and exact results:
+
+- grouped-signature/PyTree contracts: 3 passed in `6.45 s`;
+- every selected real `run_local_em_exact` route after grouping: 21 passed and
+  355 deselected in `100.81 s` on the first compilation of the new boundary;
+- ten dedicated big-JIT equivalence and source-contract cases passed in
+  `38.52 s`;
+- named-result route contracts: 5 passed in `6.89 s`;
+- every selected real exact-local route after named result conversion: 21
+  passed and 355 deselected in `79.29 s` with the warm CPU cache;
+- six targeted split/big-JIT debug-output cases passed in `33.77 s` (one
+  expected gimbal-lock warning);
+- CPU fast guard passed 16/16 after both slices (`50.29 s` and `50.78 s`), each
+  after the expected login-node CUDA discovery traceback;
+- new boundary/type/tests pass Ruff format and lint; the engine passes the
+  established targeted lint scope.
+
+GPU timing, compile-count, and HLO-operation validation remain required before
+C4 closes. Grouping changes the Python/JAX cache key and parameter tree, so a
+one-time recompilation is expected; it does not add kernel operations.
+
+Provenance:
+
+- `851934770eefee1b48a1bf137ac19cf54c0b63e1` —
+  `refactor: group exact-local big-jit inputs`; committed patch SHA-256
+  `e8f5e0423914aacbf7a69d88d62912052bd224eab821767ed5ea1045f298582d`;
+- `e83cefec04c0807fec213159450adb1399884c27` —
+  `refactor: name exact-local big-jit results`; committed patch SHA-256
+  `e8c5fbd549054a3e0d0574ecc9deb0fd45b24898fc0b0d1befc947bd28d7560a`.
+
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Decision: accepted. Next move exact-local diagnostic route resolution and
+payload emission out of the algorithmic loop using the C3 sink boundary.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2425,8 +2490,6 @@ Open risks:
 
 ## Immediate next actions
 
-1. Introduce grouped dynamic PyTrees and a frozen static policy at the big-JIT
-   boundary, preserving the exact accumulator donation set and result routes.
-2. Move exact-local diagnostic payload gathering behind the C3 sink using the
+1. Move exact-local diagnostic payload gathering behind the C3 sink using the
    new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
    GPU timing gates before closing C4.
