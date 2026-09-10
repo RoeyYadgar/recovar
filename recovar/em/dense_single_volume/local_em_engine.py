@@ -169,6 +169,24 @@ from recovar.em.dense_single_volume.local_layout import (
     LocalHypothesisLayout,
     _exact_bucket_rotation_size,
 )
+from recovar.em.dense_single_volume.local_projection_cache import (  # noqa: F401
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB,
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS,
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV,
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS,
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV,
+    LocalRelionProjectionCache as _LocalRelionProjectionCache,
+    LocalRelionProjectionCacheStats,
+    _build_exact_local_relion_projection_cache_for_buckets,
+    _disabled_relion_projection_cache,
+    _exact_local_relion_projection_cache_capacity_rows,
+    _exact_local_relion_projection_cache_chunk_rows,
+    _exact_local_relion_projection_cache_max_groups,
+    _plan_exact_local_relion_projection_cache_groups,
+    _sort_buckets_for_relion_projection_cache,
+    plan_local_relion_projection_cache,
+)
 from recovar.em.dense_single_volume.local_score_pass import (
     compute_reconstruction_support,
     compute_reconstruction_support_from_threshold,
@@ -283,14 +301,6 @@ EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM = 512
 EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM_ENV = "RECOVAR_EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM"
 EXACT_LOCAL_DEFER_PACKED_MSTEP_ENV = "RECOVAR_EXACT_LOCAL_DEFER_PACKED_MSTEP"
 EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV = "RECOVAR_EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP"
-EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB = 0.0
-EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB_ENV = "RECOVAR_EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB"
-EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS = 64_000_000
-EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV = (
-    "RECOVAR_EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS"
-)
-EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS = 64
-EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV = "RECOVAR_EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS"
 LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV = "RECOVAR_LOCAL_SCORE_DUMP_FORCE_SPLIT"
 LOCAL_SCORE_DUMP_OPERANDS_ENV = "RECOVAR_LOCAL_SCORE_DUMP_OPERANDS"
 LOCAL_SCORE_DUMP_TARGET_ONLY_ENV = "RECOVAR_LOCAL_SCORE_DUMP_TARGET_ONLY"
@@ -374,18 +384,6 @@ class _LocalProjectionBlock:
     proj_for_noise: jnp.ndarray | None
 
 
-@dataclass
-class _LocalRelionProjectionCache:
-    projections: jnp.ndarray
-    id_map: jnp.ndarray
-    enabled: bool
-    row_count: int = 0
-    id_map_row_count: int = 0
-    n_projection_pixels: int = 0
-    estimated_gb: float = 0.0
-    build_s: float = 0.0
-
-
 def _packed_noise_projection_chunk_rows(n_recon_pixels: int, *, batch_size: int = 1) -> int:
     """Return packed local noise-projection rows per chunk."""
 
@@ -436,237 +434,6 @@ def _optional_nonnegative_int_env(name: str) -> int | None:
 
 def _env_flag(name: str) -> bool:
     return _runtime_environment().get(name, "").strip().lower() in _TRUE_ENV_VALUES
-
-
-def _optional_nonnegative_float_env(name: str, default: float) -> float:
-    raw = _runtime_environment().get(name, "").strip()
-    if not raw:
-        return float(default)
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a non-negative float, got {raw!r}") from exc
-    if value < 0.0 or not np.isfinite(value):
-        raise ValueError(f"{name} must be a non-negative finite float, got {raw!r}")
-    return value
-
-
-def _exact_local_relion_projection_cache_chunk_rows(n_projection_pixels: int) -> int:
-    target = int(
-        _runtime_environment().get(
-            EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV,
-            EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS,
-        )
-    )
-    if target <= 0:
-        raise ValueError(f"{EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV} must be positive")
-    return max(1, int(target) // max(1, int(n_projection_pixels)))
-
-
-def _disabled_relion_projection_cache() -> _LocalRelionProjectionCache:
-    return _LocalRelionProjectionCache(
-        projections=jnp.zeros((1, 1), dtype=jnp.complex64),
-        id_map=jnp.zeros((1,), dtype=jnp.int32),
-        enabled=False,
-    )
-
-
-def _exact_local_relion_projection_cache_capacity_rows(n_projection_pixels: int) -> tuple[int, float]:
-    max_gb = _optional_nonnegative_float_env(
-        EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB_ENV,
-        EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB,
-    )
-    if max_gb <= 0.0 or int(n_projection_pixels) <= 0:
-        return 0, float(max_gb)
-    bytes_per_row = int(n_projection_pixels) * np.dtype(np.complex64).itemsize
-    return int((max_gb * 1e9) // max(1, bytes_per_row)), float(max_gb)
-
-
-def _bucket_valid_rotation_ids(bucket: LocalBucketSpec) -> np.ndarray:
-    ids = np.asarray(bucket.local_rotation_ids, dtype=np.int64)
-    mask = np.asarray(bucket.local_rotation_mask, dtype=bool) & (ids >= 0)
-    if not np.any(mask):
-        return np.zeros(0, dtype=np.int64)
-    return np.unique(ids[mask])
-
-
-def _bucket_rotation_id_center(bucket: LocalBucketSpec) -> int:
-    ids = _bucket_valid_rotation_ids(bucket)
-    if ids.size == 0:
-        return -1
-    return int(np.median(ids))
-
-
-def _sort_buckets_for_relion_projection_cache(bucket_specs: list[LocalBucketSpec]) -> list[LocalBucketSpec]:
-    return sorted(
-        bucket_specs,
-        key=lambda bucket: (
-            int(bucket.bucket_rotation_count),
-            _bucket_rotation_id_center(bucket),
-            int(bucket.image_indices[0]) if int(bucket.image_indices.shape[0]) else -1,
-        ),
-    )
-
-
-def _exact_local_relion_projection_cache_max_groups() -> int:
-    raw = _runtime_environment().get(
-        EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV,
-        str(EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS),
-    )
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV} must be positive") from exc
-    if value <= 0:
-        raise ValueError(f"{EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV} must be positive")
-    return value
-
-
-def _plan_exact_local_relion_projection_cache_groups(
-    bucket_specs: list[LocalBucketSpec],
-    *,
-    cache_row_capacity: int,
-) -> list[tuple[int, int, int]]:
-    """Greedily group consecutive buckets under a compact projection-cache row cap."""
-
-    if cache_row_capacity <= 0 or not bucket_specs:
-        return []
-
-    groups: list[tuple[int, int, int]] = []
-    start = 0
-    active_ids: set[int] = set()
-    for bucket_index, bucket in enumerate(bucket_specs):
-        bucket_ids = set(int(x) for x in _bucket_valid_rotation_ids(bucket).tolist())
-        if len(bucket_ids) > cache_row_capacity:
-            logger.info(
-                "Exact local RELION projection cache disabled: one bucket needs %d rows, cap is %d",
-                len(bucket_ids),
-                cache_row_capacity,
-            )
-            return []
-        if active_ids and len(active_ids | bucket_ids) > cache_row_capacity:
-            groups.append((start, bucket_index, len(active_ids)))
-            start = bucket_index
-            active_ids = set(bucket_ids)
-        else:
-            active_ids |= bucket_ids
-    if active_ids or start < len(bucket_specs):
-        groups.append((start, len(bucket_specs), len(active_ids)))
-    return groups
-
-
-def _build_exact_local_relion_projection_cache_for_buckets(
-    bucket_specs: list[LocalBucketSpec],
-    relion_projector_half,
-    *,
-    image_shape,
-    n_projection_pixels: int,
-    relion_projector_r_max: int,
-    projection_padding_factor: int,
-    projection_relion_texture_interp: bool | None,
-    projection_pixel_indices,
-    projection_relion_acc_double_floorf_quirk: bool = False,
-    projector_output_size: int,
-    cache_row_capacity: int,
-    max_global_rotation_id: int,
-    group_index: int,
-    n_groups: int,
-) -> _LocalRelionProjectionCache:
-    """Precompute compact RELION projections for one bounded bucket group."""
-
-    if cache_row_capacity <= 0 or not bucket_specs:
-        return _disabled_relion_projection_cache()
-
-    ids_parts = []
-    rotation_parts = []
-    for bucket in bucket_specs:
-        ids = np.asarray(bucket.local_rotation_ids, dtype=np.int64)
-        mask = np.asarray(bucket.local_rotation_mask, dtype=bool) & (ids >= 0)
-        if not np.any(mask):
-            continue
-        ids_parts.append(ids[mask])
-        rotation_parts.append(np.asarray(bucket.local_rotations, dtype=np.float32)[mask])
-    if not ids_parts:
-        return _disabled_relion_projection_cache()
-
-    valid_ids = np.concatenate(ids_parts, axis=0)
-    valid_rotations = np.concatenate(rotation_parts, axis=0)
-    unique_ids, first_positions = np.unique(valid_ids, return_index=True)
-    row_count = int(unique_ids.size)
-    if row_count > int(cache_row_capacity):
-        raise RuntimeError(
-            "internal projection-cache planner error: group has "
-            f"{row_count} rows but capacity is {int(cache_row_capacity)}"
-        )
-    id_map_row_count = int(max(max_global_rotation_id + 1, int(np.max(valid_ids)) + 1))
-    estimated_gb = float(cache_row_capacity * n_projection_pixels * np.dtype(np.complex64).itemsize / 1e9)
-
-    cache_t0 = time.time()
-    cache_rotations = valid_rotations[first_positions]
-    id_map = np.zeros(id_map_row_count, dtype=np.int32)
-    id_map[unique_ids] = np.arange(row_count, dtype=np.int32)
-
-    chunk_rows = _exact_local_relion_projection_cache_chunk_rows(n_projection_pixels)
-    host_cache = np.empty((cache_row_capacity, n_projection_pixels), dtype=np.complex64)
-    logger.info(
-        "Exact local RELION projection cache group %d/%d build: rows=%d capacity=%d "
-        "id_map_rows=%d projection_pixels=%d estimated=%.2f GB chunk_rows=%d buckets=%d",
-        int(group_index) + 1,
-        int(n_groups),
-        row_count,
-        int(cache_row_capacity),
-        id_map_row_count,
-        n_projection_pixels,
-        estimated_gb,
-        int(chunk_rows),
-        len(bucket_specs),
-    )
-    for start in range(0, row_count, chunk_rows):
-        stop = min(row_count, start + chunk_rows)
-        proj_chunk, _ = _compute_relion_projector_projections_block(
-            relion_projector_half,
-            jnp.asarray(cache_rotations[start:stop], dtype=jnp.float32),
-            image_shape,
-            r_max=int(relion_projector_r_max),
-            padding_factor=int(projection_padding_factor),
-            return_abs2=False,
-            centered_rows=True,
-            dense_scale=True,
-            relion_texture_interp=projection_relion_texture_interp,
-            relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
-            projector_output_size=int(projector_output_size) if int(projector_output_size) > 0 else None,
-            pixel_indices=projection_pixel_indices,
-        )
-        _block_until_ready(proj_chunk)
-        host_cache[start:stop] = np.asarray(proj_chunk, dtype=np.complex64)
-        del proj_chunk
-
-    projections = jnp.asarray(host_cache)
-    id_map_jnp = jnp.asarray(id_map, dtype=jnp.int32)
-    _block_until_ready(projections, id_map_jnp)
-    build_s = time.time() - cache_t0
-    logger.info(
-        "Exact local RELION projection cache group %d/%d ready: rows=%d capacity=%d "
-        "id_map_rows=%d projection_pixels=%d estimated=%.2f GB build=%.1fs",
-        int(group_index) + 1,
-        int(n_groups),
-        row_count,
-        int(cache_row_capacity),
-        id_map_row_count,
-        n_projection_pixels,
-        estimated_gb,
-        build_s,
-    )
-    return _LocalRelionProjectionCache(
-        projections=projections,
-        id_map=id_map_jnp,
-        enabled=True,
-        row_count=row_count,
-        id_map_row_count=id_map_row_count,
-        n_projection_pixels=n_projection_pixels,
-        estimated_gb=estimated_gb,
-        build_s=build_s,
-    )
 
 
 def _adjoint_slice_volume_maybe_windowed_row_chunks(
@@ -2220,16 +1987,8 @@ def run_local_em_exact(
     big_jit_projection_recon_take_arg = jnp.zeros((1,), dtype=jnp.int32)
     big_jit_relion_projector_output_size = 0
     relion_projection_cache = _disabled_relion_projection_cache()
-    relion_projection_cache_groups: list[tuple[int, int, int]] = []
     relion_projection_cache_group_cursor = 0
-    relion_projection_cache_capacity_rows = 0
-    relion_projection_cache_cap_gb = 0.0
-    relion_projection_cache_groups_built = 0
-    relion_projection_cache_total_build_s = 0.0
-    relion_projection_cache_max_rows = 0
-    relion_projection_cache_max_estimated_gb = 0.0
-    relion_projection_cache_n_projection_pixels = 0
-    relion_projection_cache_id_map_rows = 0
+    relion_projection_cache_stats = LocalRelionProjectionCacheStats()
     if use_relion_projector:
         if relion_projector_r_max is None:
             raise ValueError("relion_projector_r_max is required when relion_projector_half is provided")
@@ -2257,46 +2016,13 @@ def run_local_em_exact(
                 big_jit_projection_pixel_indices_arg = jnp.asarray(window_spec.projection_indices, dtype=jnp.int32)
                 big_jit_projection_score_take_arg = jnp.asarray(window_spec.score_projection_take, dtype=jnp.int32)
                 big_jit_projection_recon_take_arg = jnp.asarray(window_spec.recon_projection_take, dtype=jnp.int32)
-    if use_big_jit_buckets and compact_relion_projector_big_jit and not score_only:
-        requested_cache_rows, relion_projection_cache_cap_gb = _exact_local_relion_projection_cache_capacity_rows(
-            int(window_spec.n_projection)
-        )
-        if requested_cache_rows > 0:
-            bucket_specs = _sort_buckets_for_relion_projection_cache(bucket_specs)
-        relion_projection_cache_groups = _plan_exact_local_relion_projection_cache_groups(
-            bucket_specs,
-            cache_row_capacity=int(requested_cache_rows),
-        )
-        max_cache_groups = _exact_local_relion_projection_cache_max_groups()
-        if len(relion_projection_cache_groups) > max_cache_groups:
-            logger.info(
-                "Exact local RELION projection cache disabled: planned groups=%d exceeds max_groups=%d "
-                "(capacity_rows=%d cap=%.2f GB projection_pixels=%d)",
-                len(relion_projection_cache_groups),
-                max_cache_groups,
-                int(requested_cache_rows),
-                float(relion_projection_cache_cap_gb),
-                int(window_spec.n_projection),
-            )
-            relion_projection_cache_groups = []
-        if relion_projection_cache_groups:
-            relion_projection_cache_capacity_rows = int(
-                max(row_count for _, _, row_count in relion_projection_cache_groups)
-            )
-            relion_projection_cache_n_projection_pixels = int(window_spec.n_projection)
-            valid_layout_ids = np.asarray(local_layout.rotation_ids_flat, dtype=np.int64)
-            valid_layout_ids = valid_layout_ids[valid_layout_ids >= 0]
-            relion_projection_cache_id_map_rows = int(np.max(valid_layout_ids)) + 1 if valid_layout_ids.size else 1
-            logger.info(
-                "Exact local RELION projection cache groups enabled: groups=%d capacity_rows=%d "
-                "requested_rows=%d cap=%.2f GB projection_pixels=%d id_map_rows=%d",
-                len(relion_projection_cache_groups),
-                relion_projection_cache_capacity_rows,
-                int(requested_cache_rows),
-                float(relion_projection_cache_cap_gb),
-                relion_projection_cache_n_projection_pixels,
-                relion_projection_cache_id_map_rows,
-            )
+    relion_projection_cache_plan = plan_local_relion_projection_cache(
+        bucket_specs,
+        local_layout.rotation_ids_flat,
+        n_projection_pixels=int(window_spec.n_projection),
+        enabled=bool(use_big_jit_buckets and compact_relion_projector_big_jit and not score_only),
+    )
+    bucket_specs = list(relion_projection_cache_plan.buckets)
     if use_big_jit_buckets and not use_relion_projector and not projection_relion_texture_interp:
         mean_for_proj_big_jit = fourier_transform_utils.full_volume_to_half_volume(
             mean_for_proj,
@@ -2331,37 +2057,29 @@ def run_local_em_exact(
 
     for bucket_index, bucket in enumerate(bucket_specs):
         if (
-            relion_projection_cache_groups
-            and relion_projection_cache_group_cursor < len(relion_projection_cache_groups)
-            and bucket_index == relion_projection_cache_groups[relion_projection_cache_group_cursor][0]
+            relion_projection_cache_plan.groups
+            and relion_projection_cache_group_cursor < len(relion_projection_cache_plan.groups)
+            and bucket_index == relion_projection_cache_plan.groups[relion_projection_cache_group_cursor][0]
         ):
-            group_start, group_stop, _ = relion_projection_cache_groups[relion_projection_cache_group_cursor]
+            group_start, group_stop, _ = relion_projection_cache_plan.groups[relion_projection_cache_group_cursor]
             relion_projection_cache = _build_exact_local_relion_projection_cache_for_buckets(
                 bucket_specs[group_start:group_stop],
                 relion_projector_half_big_jit,
                 image_shape=image_shape,
-                n_projection_pixels=int(window_spec.n_projection),
+                n_projection_pixels=relion_projection_cache_plan.n_projection_pixels,
                 relion_projector_r_max=int(relion_projector_r_max_big_jit),
                 projection_padding_factor=int(projection_padding_factor),
                 projection_relion_texture_interp=projection_relion_texture_interp,
                 projection_relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
                 projection_pixel_indices=jnp.asarray(window_spec.projection_indices, dtype=jnp.int32),
                 projector_output_size=int(big_jit_relion_projector_output_size),
-                cache_row_capacity=int(relion_projection_cache_capacity_rows),
-                max_global_rotation_id=max(relion_projection_cache_id_map_rows - 1, 0),
+                cache_row_capacity=relion_projection_cache_plan.capacity_rows,
+                max_global_rotation_id=max(relion_projection_cache_plan.id_map_rows - 1, 0),
                 group_index=relion_projection_cache_group_cursor,
-                n_groups=len(relion_projection_cache_groups),
+                n_groups=len(relion_projection_cache_plan.groups),
             )
             relion_projection_cache_group_cursor += 1
-            relion_projection_cache_groups_built += int(relion_projection_cache.enabled)
-            relion_projection_cache_total_build_s += float(relion_projection_cache.build_s)
-            relion_projection_cache_max_rows = max(
-                relion_projection_cache_max_rows, int(relion_projection_cache.row_count)
-            )
-            relion_projection_cache_max_estimated_gb = max(
-                relion_projection_cache_max_estimated_gb,
-                float(relion_projection_cache.estimated_gb),
-            )
+            relion_projection_cache_stats.record(relion_projection_cache)
         n_chunks += 1
         if collect_profile_stats:
             chunk_sizes.append(int(bucket.image_indices.shape[0]))
@@ -4698,16 +4416,16 @@ def run_local_em_exact(
         "raw_cache_build_time_s": np.float64(timing.raw_cache_build_s),
         "raw_cache_enabled": np.asarray(raw_cache_enabled),
         "processed_half_cache_enabled": np.asarray(processed_half_cache_enabled),
-        "relion_projection_cache_enabled": np.asarray(relion_projection_cache_groups_built > 0),
-        "relion_projection_cache_groups": np.int64(len(relion_projection_cache_groups)),
-        "relion_projection_cache_groups_built": np.int64(relion_projection_cache_groups_built),
-        "relion_projection_cache_rows": np.int64(relion_projection_cache_max_rows),
-        "relion_projection_cache_capacity_rows": np.int64(relion_projection_cache_capacity_rows),
-        "relion_projection_cache_id_map_rows": np.int64(relion_projection_cache_id_map_rows),
-        "relion_projection_cache_pixels": np.int64(relion_projection_cache_n_projection_pixels),
-        "relion_projection_cache_estimated_gb": np.float64(relion_projection_cache_max_estimated_gb),
-        "relion_projection_cache_build_s": np.float64(relion_projection_cache_total_build_s),
-        "relion_projection_cache_cap_gb": np.float64(relion_projection_cache_cap_gb),
+        "relion_projection_cache_enabled": np.asarray(relion_projection_cache_stats.groups_built > 0),
+        "relion_projection_cache_groups": np.int64(len(relion_projection_cache_plan.groups)),
+        "relion_projection_cache_groups_built": np.int64(relion_projection_cache_stats.groups_built),
+        "relion_projection_cache_rows": np.int64(relion_projection_cache_stats.max_rows),
+        "relion_projection_cache_capacity_rows": np.int64(relion_projection_cache_plan.capacity_rows),
+        "relion_projection_cache_id_map_rows": np.int64(relion_projection_cache_plan.id_map_rows),
+        "relion_projection_cache_pixels": np.int64(relion_projection_cache_plan.n_projection_pixels),
+        "relion_projection_cache_estimated_gb": np.float64(relion_projection_cache_stats.max_estimated_gb),
+        "relion_projection_cache_build_s": np.float64(relion_projection_cache_stats.total_build_s),
+        "relion_projection_cache_cap_gb": np.float64(relion_projection_cache_plan.cap_gb),
         "batch_fetch_time_s": np.float64(timing.batch_fetch_s),
         "preprocess_time_s": np.float64(timing.preprocess_s),
         **_prefixed_timer_profile("preprocess_", preprocess_profile),

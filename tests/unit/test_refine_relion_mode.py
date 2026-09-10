@@ -4378,6 +4378,7 @@ def test_packed_local_noise_projection_accepts_relion_projector(monkeypatch):
 
 def test_local_relion_projection_cache_forwards_texture_selection(monkeypatch):
     from recovar.em.dense_single_volume import local_em_engine
+    from recovar.em.dense_single_volume import local_projection_cache
 
     bucket = LocalBucketSpec(
         image_indices=np.array([0], dtype=np.int32),
@@ -4396,7 +4397,7 @@ def test_local_relion_projection_cache_forwards_texture_selection(monkeypatch):
         calls.append(dict(kwargs))
         return jnp.ones((rotations.shape[0], 12), dtype=jnp.complex64), None
 
-    monkeypatch.setattr(local_em_engine, "_compute_relion_projector_projections_block", fake_projector)
+    monkeypatch.setattr(local_projection_cache, "_compute_relion_projector_projections_block", fake_projector)
     cache = local_em_engine._build_exact_local_relion_projection_cache_for_buckets(
         [bucket],
         jnp.ones((4, 4, 3), dtype=jnp.complex64),
