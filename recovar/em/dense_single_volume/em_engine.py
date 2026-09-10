@@ -124,8 +124,13 @@ from .helpers.translation_prior import (
     validate_translation_prior_centers,
 )
 from .helpers.types import EMProfileStats, make_noise_stats, make_relion_stats
+from .diagnostics.local_capture import (
+    DenseCcComponentCapture,
+    DenseNoiseComponentCapture,
+    maybe_write_dense_cc_components,
+    write_dense_noise_components,
+)
 from .local_debug import (
-    dense_score_dump_label_suffix,
     maybe_write_dense_per_pose_score_dump,
     parse_dense_noise_component_dump_request,
     parse_dense_per_pose_score_dump_request,
@@ -1578,67 +1583,22 @@ def run_em(
                 preprior=True,
             )
 
-            # Env-gated cross/norms component dump for CC parity bisection.
-            # When RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR is set, recompute cross
-            # and norms outside the JIT block and dump alongside batch_norm
-            # (Xi2_image) for the target image. Allows decomposing the recovar
-            # vs RELION CC ratio into numerator vs Xi2 vs suma2 contributors.
-            _cc_comp_dir = _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR")
-            _cc_comp_target = _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET")
-            if _cc_comp_dir and _cc_comp_target is not None:
-                try:
-                    _target_idx = int(_cc_comp_target)
-                    _match_indices = (
-                        original_indices_np_for_debug
-                        if _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET_IS_ORIGINAL", "0") != "0"
-                        else indices_np_for_debug
-                    )
-                    _hits = np.where(np.asarray(_match_indices, dtype=np.int64) == _target_idx)[0]
-                    if len(_hits) > 0:
-                        _row = int(_hits[0])
-                        from pathlib import Path as _P
-
-                        _dump_path = _P(_cc_comp_dir)
-                        _dump_path.mkdir(parents=True, exist_ok=True)
-                        _label_suffix = dense_score_dump_label_suffix()
-                        # shifted_windowed shape (batch*n_trans, n_score)
-                        # ctf2_over_nv_windowed shape (batch, n_score) — already includes ctf²/Xi2 in CC mode
-                        # proj_half_b shape (rot_block, n_half) — full pre-window
-                        # window_spec.score_values selects score pixels.
-                        _proj_score = np.asarray(window_spec.score_values(proj_half_b))
-                        _proj_abs2_score = np.asarray(window_spec.score_values(proj_abs2_half_b))
-                        _shifted = np.asarray(shifted_windowed)
-                        _ctf2_w = np.asarray(ctf2_over_nv_windowed)
-                        _bn = np.asarray(batch_norm)
-                        # Recompute cross and norms for target row.
-                        _b = batch_size
-                        _t = n_trans
-                        _r = _proj_score.shape[0]
-                        _shift_target = _shifted.reshape(_b, _t, -1)[_row]  # (n_trans, n_score)
-                        _ctf2_target = _ctf2_w[_row]  # (n_score,)
-                        _bn_target = float(_bn[_row].squeeze())
-                        # cross[t,r] = -2 Re(sum_n conj(shifted[t,n]) * proj[r,n])
-                        _cross_tr = -2.0 * np.real(np.einsum("tn,rn->tr", np.conj(_shift_target), _proj_score))
-                        # norms[r] = sum_n ctf2_w[n] * |proj[r,n]|^2  (when relion_half_sum, weights=1)
-                        _norms_r = np.einsum("n,rn->r", _ctf2_target, _proj_abs2_score)
-                        np.savez(
-                            _dump_path
-                            / f"cc_components_target{_target_idx:06d}{_label_suffix}_block{int(block.index):04d}.npz",
-                            cross_tr=_cross_tr,
-                            norms_r=_norms_r,
-                            batch_norm=_bn_target,
-                            n_score=int(_proj_score.shape[1]),
-                            r0=int(block.r0),
-                            r1=int(block.r1),
-                            active_rotations=int(block.r1 - block.r0),
-                            stored_rotations=int(_proj_score.shape[0]),
-                            n_trans=int(n_trans),
-                            score_mode=relion_firstiter_score_mode,
-                            local_index=int(indices_np_for_debug[_row]),
-                            original_index=int(original_indices_np_for_debug[_row]),
-                        )
-                except Exception as _e:
-                    print(f"[CC component dump] error: {_e}", flush=True)
+            maybe_write_dense_cc_components(
+                DenseCcComponentCapture(
+                    indices=indices_np_for_debug,
+                    original_indices=original_indices_np_for_debug,
+                    shifted_windowed=shifted_windowed,
+                    ctf2_over_noise_windowed=ctf2_over_nv_windowed,
+                    batch_norm=batch_norm,
+                    projector_half=proj_half_b,
+                    projector_abs2_half=proj_abs2_half_b,
+                    window_spec=window_spec,
+                    block=block,
+                    batch_size=batch_size,
+                    translation_count=n_trans,
+                    score_mode=relion_firstiter_score_mode,
+                )
+            )
 
             pass1_postprocess_t0 = time.time()
             (
@@ -2057,30 +2017,17 @@ def run_em(
                     rotation_posterior_sums[block.r0 : block.r0 + block.actual_rot] += block_rotation_sums
                 timing.host_stats_s += time.time() - host_stats_t0
 
-        if dense_noise_component_acc:
-            for global_idx, state in dense_noise_component_acc.items():
-                p_img_shells = np.asarray(state["p_img_shells"], dtype=np.float64)
-                a2_shells = np.asarray(state["a2_shells"], dtype=np.float64)
-                xa_shells = np.asarray(state["xa_shells"], dtype=np.float64)
-                total_shells = p_img_shells + a2_shells - 2.0 * xa_shells
-                dump_path = (
-                    debug_options.noise_component_dump_dir
-                    / f"dense_noise_components_cs{int(current_size or -1):03d}_image_{int(global_idx)}.npz"
-                )
-                np.savez_compressed(
-                    dump_path,
-                    selected_global_image_indices=np.array([int(global_idx)], dtype=np.int64),
-                    selected_local_image_indices=np.array([int(state["local_idx"])], dtype=np.int64),
-                    current_size=np.array([int(current_size) if current_size is not None else -1], dtype=np.int32),
-                    n_rot=np.array([int(n_rot)], dtype=np.int32),
-                    n_trans=np.array([int(n_trans)], dtype=np.int32),
-                    p_img_shells=p_img_shells,
-                    a2_shells=a2_shells,
-                    xa_shells=xa_shells,
-                    total_shells=total_shells,
-                    shell_indices_half=np.asarray(shell_indices_half, dtype=np.int32),
-                    shell_indices_noise=np.asarray(shell_indices_noise, dtype=np.int32),
-                )
+        write_dense_noise_components(
+            DenseNoiseComponentCapture(
+                dump_dir=debug_options.noise_component_dump_dir,
+                accumulators=dense_noise_component_acc,
+                current_size=current_size,
+                rotation_count=n_rot,
+                translation_count=n_trans,
+                shell_indices_half=shell_indices_half,
+                shell_indices_noise=shell_indices_noise,
+            )
+        )
 
         if return_stats:
             stats_finalize_t0 = time.time()

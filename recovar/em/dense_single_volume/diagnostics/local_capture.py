@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -26,6 +27,37 @@ class DensePerPoseScoreDumpRequest:
     @property
     def enabled(self) -> bool:
         return self.dump_dir is not None and self.target is not None
+
+
+@dataclass(frozen=True)
+class DenseCcComponentCapture:
+    """Values already available at one dense CC scoring block."""
+
+    indices: Any
+    original_indices: Any
+    shifted_windowed: Any
+    ctf2_over_noise_windowed: Any
+    batch_norm: Any
+    projector_half: Any
+    projector_abs2_half: Any
+    window_spec: Any
+    block: Any
+    batch_size: int
+    translation_count: int
+    score_mode: str
+
+
+@dataclass(frozen=True)
+class DenseNoiseComponentCapture:
+    """Completed dense per-particle noise component accumulators."""
+
+    dump_dir: Path | None
+    accumulators: dict[int, dict[str, Any]]
+    current_size: int | None
+    rotation_count: int
+    translation_count: int
+    shell_indices_half: Any
+    shell_indices_noise: Any
 
 
 def parse_debug_score_dump_request():
@@ -217,6 +249,88 @@ def dense_score_dump_label_suffix() -> str:
     """Return the optional label suffix shared by dense score diagnostics."""
 
     return _dense_score_dump_label_suffix()
+
+
+def maybe_write_dense_cc_components(capture: DenseCcComponentCapture) -> None:
+    """Write the targeted dense CC numerator/norm decomposition, if requested."""
+
+    dump_dir = _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR")
+    target = _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET")
+    if not dump_dir or target is None:
+        return
+    try:
+        target_index = int(target)
+        match_indices = (
+            capture.original_indices
+            if _runtime_environment().get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_TARGET_IS_ORIGINAL", "0") != "0"
+            else capture.indices
+        )
+        hits = np.where(np.asarray(match_indices, dtype=np.int64) == target_index)[0]
+        if len(hits) == 0:
+            return
+        row = int(hits[0])
+        output_dir = Path(dump_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        projector = np.asarray(capture.window_spec.score_values(capture.projector_half))
+        projector_abs2 = np.asarray(capture.window_spec.score_values(capture.projector_abs2_half))
+        shifted = np.asarray(capture.shifted_windowed)
+        ctf2_over_noise = np.asarray(capture.ctf2_over_noise_windowed)
+        batch_norm = np.asarray(capture.batch_norm)
+        shifted_target = shifted.reshape(capture.batch_size, capture.translation_count, -1)[row]
+        ctf2_target = ctf2_over_noise[row]
+        cross = -2.0 * np.real(np.einsum("tn,rn->tr", np.conj(shifted_target), projector))
+        norms = np.einsum("n,rn->r", ctf2_target, projector_abs2)
+        np.savez(
+            output_dir
+            / (
+                f"cc_components_target{target_index:06d}{_dense_score_dump_label_suffix()}_"
+                f"block{int(capture.block.index):04d}.npz"
+            ),
+            cross_tr=cross,
+            norms_r=norms,
+            batch_norm=float(batch_norm[row].squeeze()),
+            n_score=int(projector.shape[1]),
+            r0=int(capture.block.r0),
+            r1=int(capture.block.r1),
+            active_rotations=int(capture.block.r1 - capture.block.r0),
+            stored_rotations=int(projector.shape[0]),
+            n_trans=int(capture.translation_count),
+            score_mode=capture.score_mode,
+            local_index=int(capture.indices[row]),
+            original_index=int(capture.original_indices[row]),
+        )
+    except Exception as exc:
+        print(f"[CC component dump] error: {exc}", flush=True)
+
+
+def write_dense_noise_components(capture: DenseNoiseComponentCapture) -> None:
+    """Serialize completed dense per-particle noise component accumulators."""
+
+    if capture.dump_dir is None:
+        return
+    for global_index, state in capture.accumulators.items():
+        p_img_shells = np.asarray(state["p_img_shells"], dtype=np.float64)
+        a2_shells = np.asarray(state["a2_shells"], dtype=np.float64)
+        xa_shells = np.asarray(state["xa_shells"], dtype=np.float64)
+        total_shells = p_img_shells + a2_shells - 2.0 * xa_shells
+        np.savez_compressed(
+            capture.dump_dir
+            / f"dense_noise_components_cs{int(capture.current_size or -1):03d}_image_{int(global_index)}.npz",
+            selected_global_image_indices=np.array([int(global_index)], dtype=np.int64),
+            selected_local_image_indices=np.array([int(state["local_idx"])], dtype=np.int64),
+            current_size=np.array(
+                [int(capture.current_size) if capture.current_size is not None else -1],
+                dtype=np.int32,
+            ),
+            n_rot=np.array([int(capture.rotation_count)], dtype=np.int32),
+            n_trans=np.array([int(capture.translation_count)], dtype=np.int32),
+            p_img_shells=p_img_shells,
+            a2_shells=a2_shells,
+            xa_shells=xa_shells,
+            total_shells=total_shells,
+            shell_indices_half=np.asarray(capture.shell_indices_half, dtype=np.int32),
+            shell_indices_noise=np.asarray(capture.shell_indices_noise, dtype=np.int32),
+        )
 
 
 def maybe_write_dense_per_pose_score_dump(

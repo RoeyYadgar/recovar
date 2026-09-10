@@ -1293,7 +1293,7 @@ Provenance: parent HEAD `b29e5ea0c5a1c581a4d15fd76cd76a118f82bcfa`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: relocate compact sparse capture`.
+Commit SHA and descriptive message: `7b8c5102` — `refactor: relocate compact sparse capture`.
 
 Decision: accepted after compatibility revision.
 
@@ -1301,6 +1301,53 @@ Next action: extract dense-engine CC/noise schemas and significance schemas.
 
 Open risks: the sparse engine still contains its older BPref, membership,
 operand, and residual serialization families.
+
+### 2026-09-10 — C3 dense engine serialization extraction
+
+Hypothesis: CC-component and dense-noise artifact construction can consume two
+typed capture payloads after production values are available, removing I/O
+and diagnostic algebra from the dense engine without changing its numerical
+path.
+
+Files changed: `diagnostics/local_capture.py`, `em_engine.py`, focused schema
+and inertness tests, and this ledger.
+
+Algorithmic invariants protected: scoring, posterior, M-step, noise
+accumulation, assignment, and return values are unchanged. The capture calls
+remain at the previous host locations, return no value, and the disabled CC
+route returns before converting any payload array. `em_engine.py` now contains
+no direct `np.save*` call.
+
+Focused tests and exact results: disabled passive CC capture, exact CC artifact
+keys/values, exact dense-noise keys/dtypes/values, and existing dense per-pose
+capture; 4/4 passed. A source ratchet additionally rejects future direct
+serialization in the dense engine.
+
+CPU fast guard: scheduled after significance extraction.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured in this host-only extraction.
+
+Performance artifacts and deltas: not measured in this host-only extraction.
+
+Compile/memory observations: JIT arguments and returned arrays are unchanged;
+the same already-materialized host diagnostic values are passed to the writer.
+
+Provenance: parent HEAD `7b8c51021216487cfb1b391fd3e9fe613564d114`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: extract dense engine diagnostics`.
+
+Decision: accepted.
+
+Next action: extract significance capture schemas and their targeted-stop
+adapter, then run the focused significance suite and CPU fast guard.
+
+Open risks: the CC diagnostic still intentionally performs shadow host
+arithmetic when explicitly enabled; it must remain classified `SHADOW`, never
+passive or production-authoritative.
 
 ## Per-slice update template
 
