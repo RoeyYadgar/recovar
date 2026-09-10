@@ -85,7 +85,6 @@ from recovar.em.dense_single_volume.helpers.projection import (
 from recovar.em.dense_single_volume.helpers.translation_prior import (
     translation_prior_centers_for_images,
     translation_sqdist_angstrom,
-    validate_translation_prior_centers,
 )
 from recovar.em.dense_single_volume.helpers.types import make_noise_stats, make_relion_stats
 from recovar.em.dense_single_volume.local_backprojection import (
@@ -126,14 +125,17 @@ from recovar.em.dense_single_volume.local_debug import (
     parse_debug_noise_component_dump_request,
     parse_debug_score_dump_request,
 )
-from recovar.em.dense_single_volume.local_em_planning import plan_local_em_modes
+from recovar.em.dense_single_volume.local_em_planning import plan_local_em_inputs, plan_local_em_modes
 from recovar.em.dense_single_volume.local_em_types import (
+    LocalCorrectionInputs,
     LocalEMOutputSpec,
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalEMResult,
+    LocalPosteriorInputs,
     LocalReconstructionSettings,
     LocalScoringSettings,
+    LocalSearchSettings,
 )
 from recovar.em.dense_single_volume.local_layout import (
     LocalBucketSpec,
@@ -1990,62 +1992,31 @@ def run_local_em_exact(
     mstep_current_size = current_size if reconstruction_current_size is None else int(reconstruction_current_size)
     n_half = H * (W // 2 + 1)
     n_trans = int(local_layout.translation_grid.shape[0])
-    n_images = int(local_layout.n_images)
-    class_log_prior = float(class_log_prior)
-    group_ids_np = None
-    n_scale_groups = 0
-    explicit_scale_group_count = 0
-    if scale_correction_group_count is not None:
-        explicit_scale_group_count = int(scale_correction_group_count)
-        if (
-            explicit_scale_group_count < 0
-            or not np.isfinite(float(scale_correction_group_count))
-            or float(scale_correction_group_count) != float(explicit_scale_group_count)
-        ):
-            raise ValueError(
-                "scale_correction_group_count must be a non-negative integer, " f"got {scale_correction_group_count!r}"
-            )
-    if group_ids is not None:
-        group_ids_np = np.asarray(group_ids, dtype=np.int64).reshape(-1)
-        if group_ids_np.shape != (n_images,):
-            raise ValueError(f"group_ids must have shape ({n_images},), got {group_ids_np.shape}")
-        if group_ids_np.size and int(np.min(group_ids_np)) < 0:
-            raise ValueError("group_ids must be non-negative")
-        inferred_scale_group_count = int(np.max(group_ids_np)) + 1 if group_ids_np.size else 1
-        n_scale_groups = max(explicit_scale_group_count, inferred_scale_group_count)
-    normalization_log_z_np = None
-    if normalization_log_z is not None:
-        normalization_log_z_np = np.asarray(normalization_log_z, dtype=np.float64)
-        if normalization_log_z_np.shape != (n_images,):
-            raise ValueError(
-                f"normalization_log_z must have shape ({n_images},), got {normalization_log_z_np.shape}",
-            )
-    normalization_log_evidence_np = None
-    if normalization_log_evidence is not None:
-        normalization_log_evidence_np = np.asarray(normalization_log_evidence, dtype=np.float64)
-        if normalization_log_evidence_np.shape != (n_images,):
-            raise ValueError(
-                f"normalization_log_evidence must have shape ({n_images},), got {normalization_log_evidence_np.shape}",
-            )
-    if normalization_log_z_np is not None and normalization_log_evidence_np is not None:
-        raise ValueError("Provide only one of normalization_log_z or normalization_log_evidence")
-    reconstruction_probability_threshold_np = None
-    if reconstruction_probability_threshold is not None:
-        reconstruction_probability_threshold_np = np.asarray(reconstruction_probability_threshold, dtype=np.float64)
-        if reconstruction_probability_threshold_np.shape != (n_images,):
-            raise ValueError(
-                "reconstruction_probability_threshold must have shape "
-                f"({n_images},), got {reconstruction_probability_threshold_np.shape}",
-            )
-        if not np.all(np.isfinite(reconstruction_probability_threshold_np)):
-            raise ValueError("reconstruction_probability_threshold must be finite")
-        if np.any(reconstruction_probability_threshold_np < 0.0):
-            raise ValueError("reconstruction_probability_threshold must be non-negative")
-    translation_prior_centers_np = validate_translation_prior_centers(
-        translation_prior_centers,
-        n_images=n_images,
-        n_dims=local_layout.translation_grid.shape[1],
+    input_plan = plan_local_em_inputs(
+        local_layout=local_layout,
+        corrections=LocalCorrectionInputs(
+            group_ids=group_ids,
+            scale_correction_group_count=scale_correction_group_count,
+        ),
+        posterior=LocalPosteriorInputs(
+            normalization_log_z=normalization_log_z,
+            class_log_prior=class_log_prior,
+            normalization_log_evidence=normalization_log_evidence,
+            translation_prior_centers=translation_prior_centers,
+        ),
+        search=LocalSearchSettings(
+            current_size=current_size,
+            reconstruction_probability_threshold=reconstruction_probability_threshold,
+        ),
     )
+    n_images = input_plan.n_images
+    class_log_prior = input_plan.class_log_prior
+    group_ids_np = input_plan.group_ids
+    n_scale_groups = input_plan.n_scale_groups
+    normalization_log_z_np = input_plan.normalization_log_z
+    normalization_log_evidence_np = input_plan.normalization_log_evidence
+    reconstruction_probability_threshold_np = input_plan.reconstruction_probability_threshold
+    translation_prior_centers_np = input_plan.translation_prior_centers
     (
         debug_score_dump_dir,
         debug_score_dump_targets,
