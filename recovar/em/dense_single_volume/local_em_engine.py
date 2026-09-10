@@ -128,11 +128,12 @@ from recovar.em.dense_single_volume.local_em_batch_planning import (  # noqa: F4
     _exact_local_effective_max_hypotheses_per_microbatch,
     _exact_local_max_hypotheses_per_microbatch,
     _exact_local_microbatch_env_overridden,
-    _exact_local_xhalf_auto_microbatch_boost,
     _exact_local_xhalf_projection_microbatch_cap,
     _exact_local_xhalf_projection_target_row_pixels,
     _exact_local_xhalf_tail_microbatch_cap,
     _visible_gpu_memory_bytes,
+    plan_local_microbatch_cap,
+    plan_local_microbatch_route,
 )
 from recovar.em.dense_single_volume.local_em_array_setup import (
     local_mstep_adjoint_window as _local_mstep_adjoint_window,
@@ -147,6 +148,7 @@ from recovar.em.dense_single_volume.local_em_planning import (
 )
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
+    LocalExecutionSettings,
     LocalEMOutputSpec,
     LocalEMRequest,
     LocalEMRequestedOutputs,
@@ -1587,6 +1589,13 @@ def run_local_em_exact(
         do_gridding_correction=do_gridding_correction,
         square_window=square_window,
     )
+    execution_settings = LocalExecutionSettings(
+        image_batch_size=image_batch_size,
+        rotation_block_size=rotation_block_size,
+        max_hypotheses_per_microbatch=max_hypotheses_per_microbatch,
+        unify_local_bucket_sizes=unify_local_bucket_sizes,
+        cache=cache_settings,
+    )
     search_settings = LocalSearchSettings(
         current_size=current_size,
         reconstruction_current_size=reconstruction_current_size,
@@ -1928,16 +1937,18 @@ def run_local_em_exact(
             if values.size:
                 reconstruction_probability_values_by_image[int(image_index)].append(values.copy())
 
-    # The cap model already accounts for the active score/reconstruction
-    # windows and the x-half M-step row footprint, but RELION projector x-half
-    # buckets at 256 OOMed at both 2x and 1.25x in c180 probes. Keep the default
-    # conservative and allow explicit experiments through the x-half env knob.
-    allow_microbatch_auto_boost = True
-    xhalf_bpref_mstep = bool(relion_projector_half is not None and mstep_relion_x_half and not score_only)
-    xhalf_auto_microbatch_boost = _exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None
-    xhalf_full_bpref_mstep = bool(xhalf_bpref_mstep and int(recon_volume_shape[0]) >= (2 * int(image_shape[0]) + 1))
-    if xhalf_bpref_mstep and max_hypotheses_per_microbatch is None and not _exact_local_microbatch_env_overridden():
-        bpreftype = "full-BPref" if xhalf_full_bpref_mstep else "current-size BPref"
+    microbatch_route = plan_local_microbatch_route(
+        geometry=geometry_plan,
+        reconstruction=reconstruction_plan,
+        mode=mode_plan,
+        relion_projector_half=relion_projector_half,
+    )
+    if (
+        microbatch_route.xhalf_bpref_mstep
+        and execution_settings.max_hypotheses_per_microbatch is None
+        and not _exact_local_microbatch_env_overridden()
+    ):
+        bpreftype = "full-BPref" if microbatch_route.full_bpref else "current-size BPref"
         logger.info(
             "Exact local RELION x-half %s M-step: using conservative microbatch cap "
             "(image_shape=%s, recon_volume_shape=%s)",
@@ -1945,52 +1956,34 @@ def run_local_em_exact(
             tuple(int(x) for x in image_shape),
             tuple(int(x) for x in recon_volume_shape),
         )
-    max_hypotheses_per_microbatch = _exact_local_effective_max_hypotheses_per_microbatch(
-        max_hypotheses_per_microbatch,
-        n_windowed,
-        n_trans=n_trans,
-        n_recon_windowed=window_spec.n_recon,
+    microbatch_plan = plan_local_microbatch_cap(
         local_layout=local_layout,
-        image_batch_size=image_batch_size,
-        rotation_block_size=rotation_block_size,
-        allow_auto_boost=allow_microbatch_auto_boost,
-        auto_boost_factor=xhalf_auto_microbatch_boost,
-        allow_high_memory_default=not xhalf_bpref_mstep,
-        score_only=score_only,
+        geometry=geometry_plan,
+        fourier=fourier_plan,
+        execution=execution_settings,
+        mode=mode_plan,
+        route=microbatch_route,
     )
-    if xhalf_bpref_mstep:
-        uncapped_hypotheses_per_microbatch = int(max_hypotheses_per_microbatch)
-        max_hypotheses_per_microbatch = _exact_local_xhalf_tail_microbatch_cap(
-            uncapped_hypotheses_per_microbatch,
-            local_layout,
-            image_batch_size=image_batch_size,
-            rotation_block_size=rotation_block_size,
-        )
-        if max_hypotheses_per_microbatch < uncapped_hypotheses_per_microbatch:
+    max_hypotheses_per_microbatch = microbatch_plan.effective_cap
+    if microbatch_route.xhalf_bpref_mstep:
+        if microbatch_plan.tail_cap < microbatch_plan.initial_cap:
             logger.info(
                 "Exact local RELION x-half tail microbatch cap: %d -> %d "
                 "(max_local_rotations=%d, planned_image_batch=%d, planned_rotation_block=%d)",
-                uncapped_hypotheses_per_microbatch,
-                int(max_hypotheses_per_microbatch),
+                microbatch_plan.initial_cap,
+                microbatch_plan.tail_cap,
                 int(np.max(np.asarray(local_layout.rotation_counts), initial=0)),
                 int(image_batch_size),
                 int(rotation_block_size),
             )
-        tail_capped_hypotheses_per_microbatch = int(max_hypotheses_per_microbatch)
-        max_hypotheses_per_microbatch = _exact_local_xhalf_projection_microbatch_cap(
-            tail_capped_hypotheses_per_microbatch,
-            local_layout,
-            n_projection_pixels=int(window_spec.n_projection),
-            rotation_block_size=rotation_block_size,
-        )
-        if max_hypotheses_per_microbatch < tail_capped_hypotheses_per_microbatch:
+        if microbatch_plan.effective_cap < microbatch_plan.tail_cap:
             logger.info(
                 "Exact local RELION x-half projection microbatch cap: %d -> %d "
                 "(projection_pixels=%d target_row_pixels=%d)",
-                tail_capped_hypotheses_per_microbatch,
-                int(max_hypotheses_per_microbatch),
+                microbatch_plan.tail_cap,
+                microbatch_plan.effective_cap,
                 int(window_spec.n_projection),
-                int(_exact_local_xhalf_projection_target_row_pixels()),
+                microbatch_plan.projection_target_row_pixels,
             )
     bucket_build_t0 = time.time()
     bucket_specs = bucket_local_hypothesis_layout(

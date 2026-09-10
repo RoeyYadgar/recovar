@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from dataclasses import dataclass
 
 import jax
 import numpy as np
 
+from recovar.em.dense_single_volume.local_em_array_setup import (
+    LocalEMFourierPlan,
+    LocalEMReconstructionPlan,
+)
+from recovar.em.dense_single_volume.local_em_planning import LocalEMGeometryPlan, LocalEMModePlan
+from recovar.em.dense_single_volume.local_em_types import LocalExecutionSettings
 from recovar.em.dense_single_volume.local_layout import (
     LocalHypothesisLayout,
     _exact_bucket_rotation_size,
@@ -47,6 +54,25 @@ EXACT_LOCAL_SCORE_TILE_FREE_MEMORY_FRACTION = 0.20
 EXACT_LOCAL_SCORE_TILE_LIVE_FACTOR = 1.25
 
 _VISIBLE_GPU_MEMORY_BYTES_CACHE: int | None = None
+
+
+@dataclass(frozen=True)
+class LocalMicrobatchRoute:
+    """Resolved x-half mode that controls exact-local memory caps."""
+
+    xhalf_bpref_mstep: bool
+    full_bpref: bool
+    auto_boost_factor: float | None
+
+
+@dataclass(frozen=True)
+class LocalMicrobatchPlan:
+    """Effective cap after the generic and x-half-specific stages."""
+
+    initial_cap: int
+    tail_cap: int
+    effective_cap: int
+    projection_target_row_pixels: int | None
 
 
 def _visible_gpu_memory_bytes() -> int | None:
@@ -365,3 +391,74 @@ def _exact_local_xhalf_projection_microbatch_cap(
     # largest padded bucket even when that exceeds the configured row target.
     safe_cap = max(int(max_bucket_rotation_count), int(projection_row_cap))
     return min(cap, safe_cap)
+
+
+def plan_local_microbatch_route(
+    *,
+    geometry: LocalEMGeometryPlan,
+    reconstruction: LocalEMReconstructionPlan,
+    mode: LocalEMModePlan,
+    relion_projector_half=None,
+) -> LocalMicrobatchRoute:
+    """Resolve the x-half memory route before calculating its caps."""
+
+    xhalf_bpref_mstep = bool(relion_projector_half is not None and mode.mstep_relion_x_half and not mode.score_only)
+    auto_boost_factor = _exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None
+    full_bpref = bool(
+        xhalf_bpref_mstep and int(reconstruction.volume_shape[0]) >= (2 * int(geometry.image_shape[0]) + 1)
+    )
+    return LocalMicrobatchRoute(
+        xhalf_bpref_mstep=xhalf_bpref_mstep,
+        full_bpref=full_bpref,
+        auto_boost_factor=auto_boost_factor,
+    )
+
+
+def plan_local_microbatch_cap(
+    *,
+    local_layout: LocalHypothesisLayout,
+    geometry: LocalEMGeometryPlan,
+    fourier: LocalEMFourierPlan,
+    execution: LocalExecutionSettings,
+    mode: LocalEMModePlan,
+    route: LocalMicrobatchRoute,
+) -> LocalMicrobatchPlan:
+    """Apply the established generic, tail, and projection caps in order."""
+
+    initial_cap = _exact_local_effective_max_hypotheses_per_microbatch(
+        execution.max_hypotheses_per_microbatch,
+        fourier.window.n_score,
+        n_trans=geometry.n_translations,
+        n_recon_windowed=fourier.window.n_recon,
+        local_layout=local_layout,
+        image_batch_size=execution.image_batch_size,
+        rotation_block_size=execution.rotation_block_size,
+        allow_auto_boost=True,
+        auto_boost_factor=route.auto_boost_factor,
+        allow_high_memory_default=not route.xhalf_bpref_mstep,
+        score_only=mode.score_only,
+    )
+    tail_cap = initial_cap
+    effective_cap = initial_cap
+    projection_target_row_pixels = None
+    if route.xhalf_bpref_mstep:
+        tail_cap = _exact_local_xhalf_tail_microbatch_cap(
+            initial_cap,
+            local_layout,
+            image_batch_size=execution.image_batch_size,
+            rotation_block_size=execution.rotation_block_size,
+        )
+        effective_cap = _exact_local_xhalf_projection_microbatch_cap(
+            tail_cap,
+            local_layout,
+            n_projection_pixels=fourier.window.n_projection,
+            rotation_block_size=execution.rotation_block_size,
+        )
+        if effective_cap < tail_cap:
+            projection_target_row_pixels = _exact_local_xhalf_projection_target_row_pixels()
+    return LocalMicrobatchPlan(
+        initial_cap=int(initial_cap),
+        tail_cap=int(tail_cap),
+        effective_cap=int(effective_cap),
+        projection_target_row_pixels=projection_target_row_pixels,
+    )
