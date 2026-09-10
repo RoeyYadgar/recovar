@@ -20,10 +20,6 @@ from recovar.em.dense_single_volume.helpers.adjoint import (
 )
 from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.dtype_policy import DensePrecisionPolicy
-from recovar.em.dense_single_volume.helpers.fourier_window import (
-    centered_half_indices_to_fftw_half_indices,
-    make_fourier_window_spec,
-)
 from recovar.em.dense_single_volume.helpers.half_spectrum import (
     bin_shell_values_jax,
     make_half_image_weights,
@@ -34,9 +30,7 @@ from recovar.em.dense_single_volume.helpers.half_spectrum import (
 )
 from recovar.em.dense_single_volume.helpers.half_volume_mstep import (
     enforce_half_volume_x0,
-    half_volume_accumulator_shape,
     half_volume_accumulators_to_full,
-    relion_backprojector_volume_shape,
     relion_x_half_accumulators_to_public_layout,
     relion_x_half_mstep_accumulator_dtypes,
 )
@@ -125,6 +119,12 @@ from recovar.em.dense_single_volume.local_debug import (
     parse_debug_noise_component_dump_request,
     parse_debug_score_dump_request,
 )
+from recovar.em.dense_single_volume.local_em_array_setup import (
+    local_mstep_adjoint_window as _local_mstep_adjoint_window,
+    make_local_em_precision,
+    plan_local_em_fourier,
+    plan_local_em_reconstruction,
+)
 from recovar.em.dense_single_volume.local_em_planning import (
     plan_local_em_geometry,
     plan_local_em_inputs,
@@ -137,6 +137,7 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalEMRequestedOutputs,
     LocalEMResult,
     LocalPosteriorInputs,
+    LocalProjectionSettings,
     LocalReconstructionSettings,
     LocalScoringSettings,
     LocalSearchSettings,
@@ -393,32 +394,6 @@ class _LocalRelionProjectionCache:
     n_projection_pixels: int = 0
     estimated_gb: float = 0.0
     build_s: float = 0.0
-
-
-def _local_mstep_adjoint_window(
-    image_shape,
-    n_half: int,
-    current_size: int | None,
-    *,
-    use_window: bool,
-    recon_window_indices,
-    mstep_relion_x_half: bool,
-):
-    """Return coordinate indices/max radius for exact-local M-step adjoints."""
-
-    mstep_recon_window_indices = recon_window_indices
-    if mstep_relion_x_half:
-        if mstep_recon_window_indices is None:
-            mstep_recon_window_indices = jnp.arange(int(n_half), dtype=jnp.int32)
-        mstep_recon_window_indices = centered_half_indices_to_fftw_half_indices(
-            image_shape,
-            mstep_recon_window_indices,
-        )
-    mstep_adjoint_max_r = None
-    if use_window or mstep_relion_x_half:
-        mstep_current_size = int(current_size) if current_size is not None else int(image_shape[0])
-        mstep_adjoint_max_r = float(mstep_current_size // 2)
-    return mstep_recon_window_indices, mstep_adjoint_max_r
 
 
 def _packed_noise_projection_chunk_rows(n_recon_pixels: int, *, batch_size: int = 1) -> int:
@@ -1169,20 +1144,6 @@ def _project_packed_noise_rows(
         None,
     )
     return packed_proj_for_noise
-
-
-def _local_projection_mode(window_spec, projection_kwargs: dict, relion_projector_half=None) -> str:
-    if relion_projector_half is not None:
-        return "relion_projector"
-    if not window_spec.use_window:
-        return "full"
-    if bool(projection_kwargs.get("force_jax", False)):
-        return "windowed_full_jax"
-    if bool(projection_kwargs.get("relion_texture_interp", False)):
-        return "windowed_full_texture"
-    if not _indexed_projection_available():
-        return "windowed_full_cuda_unavailable"
-    return "windowed_indexed_cuda"
 
 
 def _postprocess_local_bucket(
@@ -1969,6 +1930,16 @@ def run_local_em_exact(
         use_float64_scoring=use_float64_scoring,
         use_float64_normalization=use_float64_normalization,
     )
+    projection_settings = LocalProjectionSettings(
+        projection_padding_factor=projection_padding_factor,
+        reconstruction_padding_factor=reconstruction_padding_factor,
+        use_float64_projections=use_float64_projections,
+        relion_texture_interp=projection_relion_texture_interp,
+        relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
+        force_jax=projection_force_jax,
+        do_gridding_correction=do_gridding_correction,
+        square_window=square_window,
+    )
     search_settings = LocalSearchSettings(
         current_size=current_size,
         reconstruction_current_size=reconstruction_current_size,
@@ -2105,26 +2076,18 @@ def run_local_em_exact(
         mean_for_proj = mean
         proj_volume_shape = volume_shape
 
-    precision_policy = DensePrecisionPolicy(
-        use_float64_scoring=use_float64_scoring,
-        use_float64_projections=use_float64_projections,
-        use_float64_normalization=use_float64_normalization,
+    precision_policy = make_local_em_precision(
+        scoring=scoring_settings,
+        projection=projection_settings,
     )
     mean_for_proj = precision_policy.cast_projection_volume(mean_for_proj)
 
-    if mstep_relion_x_half:
-        # RELION BPref::initZeros(current_size) sizes the accumulator from the
-        # iteration r_max.  The reconstruction boundary then crops the output
-        # back to ``volume_shape``.
-        recon_volume_shape = relion_backprojector_volume_shape(
-            volume_shape,
-            reconstruction_padding_factor,
-            current_size=mstep_current_size,
-        )
-    elif reconstruction_padding_factor > 1:
-        recon_volume_shape = tuple(d * reconstruction_padding_factor for d in volume_shape)
-    else:
-        recon_volume_shape = volume_shape
+    reconstruction_plan = plan_local_em_reconstruction(
+        geometry=geometry_plan,
+        projection=projection_settings,
+        mode=mode_plan,
+    )
+    recon_volume_shape = reconstruction_plan.volume_shape
     if score_only:
         logger.info("Exact local score-only: M-step accumulators disabled")
     elif mstep_relion_x_half:
@@ -2134,35 +2097,26 @@ def run_local_em_exact(
         )
     else:
         logger.info("Exact local M-step: using native half-volume backprojection")
-    recon_accum_shape = half_volume_accumulator_shape(recon_volume_shape)
-    recon_volume_size = int(np.prod(recon_accum_shape))
-    score_only_accumulator_size = 1 if score_only else recon_volume_size
-
-    window_spec = make_fourier_window_spec(
-        image_shape,
-        current_size,
-        n_half,
-        reconstruction_current_size=mstep_current_size,
-        square=square_window,
-        include_recon_window=True,
+    fourier_plan = plan_local_em_fourier(
+        geometry=geometry_plan,
+        search=search_settings,
+        projection=projection_settings,
+        mode=mode_plan,
+        reconstruction=reconstruction_plan,
+        relion_projector_half=relion_projector_half,
     )
+    recon_accum_shape = fourier_plan.reconstruction_accumulator_shape
+    recon_volume_size = fourier_plan.reconstruction_accumulator_size
+    score_only_accumulator_size = fourier_plan.accumulator_allocation_size
+    window_spec = fourier_plan.window
     use_window = window_spec.use_window
     window_indices = window_spec.score_indices
     recon_window_indices = window_spec.recon_indices
-    mstep_recon_window_indices, mstep_adjoint_max_r = _local_mstep_adjoint_window(
-        image_shape,
-        n_half,
-        mstep_current_size,
-        use_window=use_window,
-        recon_window_indices=recon_window_indices,
-        mstep_relion_x_half=bool(mstep_relion_x_half),
-    )
+    mstep_recon_window_indices = fourier_plan.mstep_reconstruction_window_indices
+    mstep_adjoint_max_r = fourier_plan.mstep_adjoint_max_r
     n_windowed = window_spec.n_score
-    projection_kwargs = window_spec.projection_kwargs()
-    projection_kwargs["relion_texture_interp"] = projection_relion_texture_interp
-    projection_kwargs["relion_acc_double_floorf_quirk"] = projection_relion_acc_double_floorf_quirk
-    projection_kwargs["force_jax"] = bool(projection_force_jax)
-    projection_mode = _local_projection_mode(window_spec, projection_kwargs, relion_projector_half)
+    projection_kwargs = fourier_plan.projection.kwargs()
+    projection_mode = fourier_plan.projection_mode
 
     half_weights = make_scoring_half_image_weights(
         image_shape,
