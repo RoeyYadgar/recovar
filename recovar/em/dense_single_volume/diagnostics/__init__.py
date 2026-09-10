@@ -1,6 +1,7 @@
 """Host-side configuration and sinks for dense EM diagnostics."""
 
 from .config import DiagnosticsPlan as DiagnosticsPlan
+from .config import DiagnosticRoutes as DiagnosticRoutes
 from .config import EnvironmentVariableClass as EnvironmentVariableClass
 from .events import ConvergenceUpdated as ConvergenceUpdated
 from .events import DiagnosticEffect as DiagnosticEffect

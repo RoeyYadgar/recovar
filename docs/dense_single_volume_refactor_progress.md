@@ -1483,7 +1483,7 @@ Provenance: parent HEAD `9411717f7b4301b8df2a23b33700762bf053d1fc`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: centralize controller serialization`.
+Commit SHA and descriptive message: `ee7d166f` — `refactor: centralize controller serialization`.
 
 Decision: accepted.
 
@@ -1493,6 +1493,53 @@ move invasive sparse bucket prioritization behind that adapter.
 Open risks: several legacy payload dictionaries remain assembled near their
 algorithm state because moving them requires the C5/C7 request/state objects;
 serialization itself and stop policy are now outside those modules.
+
+### 2026-09-10 — C3 diagnostic effect routing
+
+Hypothesis: The compatibility `DiagnosticsPlan` can expose a typed
+passive/shadow/invasive partition and trace request without adding ambient
+context or allowing observational sinks to select outputs.
+
+Files changed: `diagnostics/config.py`, `diagnostics/sparse_capture.py`, runtime
+logging in `iteration_loop.py`, focused routing tests, and this ledger.
+
+Algorithmic invariants protected: the original passive/invasive snapshots
+remain stored unchanged for compatibility. `DiagnosticRoutes` is a derived,
+immutable host view; it names extra trace outputs and marks invasive runs as
+non-authoritative. Normal and non-stopped sparse routes return the original
+bucket collection unchanged. Only `InvasiveSparseDiagnostics` can reorder
+buckets, and its existing opt-in conditions are unchanged.
+
+Focused tests and exact results: runtime snapshot/routing 2/2 with 65
+deselected; stopped pass-2, non-stopped pass-2, and stopped norm-residual order
+3/3 with 27 deselected; cross-module structure 2/2.
+
+CPU fast guard: 16/16 passed in 49.94 seconds. The expected CPU-node CUDA
+initialization warning was logged before the successful fallback.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured in this host-policy slice.
+
+Performance artifacts and deltas: not measured in this host-policy slice.
+
+Compile/memory observations: no numerical/JIT signature changed. `TraceSpec`
+is derived at the host boundary and is not captured through a `ContextVar`.
+
+Provenance: parent HEAD `ee7d166ff731106f7b693990874a179dc35ed3a3`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: classify diagnostic effects`.
+
+Decision: accepted.
+
+Next action: wire lifecycle events at existing host boundaries, run the
+complete focused C3 matrix, then submit the null-diagnostics GPU comparison.
+
+Open risks: trace kinds document requested extra values, while the legacy
+engines still consume their established typed debug options until C4-C6
+replace those internal flags with `TraceSpec` directly.
 
 ## Per-slice update template
 

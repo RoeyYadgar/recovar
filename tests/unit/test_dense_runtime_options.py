@@ -14,6 +14,7 @@ from recovar.em.dense_single_volume.diagnostics.config import (
     diagnostic_environment_overrides,
     diagnostics_environment,
 )
+from recovar.em.dense_single_volume.diagnostics.events import DiagnosticEffect, TraceKind
 from recovar.em.dense_single_volume.firstiter_cc import _safe_firstiter_cc_image_batch_size
 from recovar.em.dense_single_volume.local_caches import (
     _local_processed_half_cache_enabled,
@@ -131,6 +132,32 @@ def test_runtime_configuration_resolves_every_host_group_from_one_snapshot(monke
         assert current_environment() is runtime.environment
 
     assert current_runtime_configuration() is None
+
+
+@pytest.mark.unit
+def test_diagnostics_routes_separate_passive_shadow_and_invasive_effects():
+    plan = DiagnosticsPlan.from_environment(
+        {
+            "RECOVAR_PARITY_TIMING_DIR": "/tmp/timing",
+            "RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR": "/tmp/cc",
+            "RECOVAR_BPREF_MEMBERSHIP_DUMP_DIR": "/tmp/membership",
+            "RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET": "1",
+        }
+    )
+
+    routes = plan.routes
+    assert tuple(routes.passive) == (
+        "RECOVAR_BPREF_MEMBERSHIP_DUMP_DIR",
+        "RECOVAR_PARITY_TIMING_DIR",
+    )
+    assert tuple(routes.shadow) == ("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR",)
+    assert tuple(routes.invasive) == ("RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET",)
+    assert routes.effect_for("RECOVAR_PARITY_TIMING_DIR") is DiagnosticEffect.PASSIVE
+    assert routes.effect_for("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR") is DiagnosticEffect.SHADOW
+    assert routes.effect_for("RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET") is DiagnosticEffect.INVASIVE
+    assert routes.trace_spec.requests(TraceKind.SCORES)
+    assert routes.trace_spec.requests(TraceKind.MEMBERSHIP)
+    assert not routes.production_authoritative
 
 
 @pytest.mark.unit

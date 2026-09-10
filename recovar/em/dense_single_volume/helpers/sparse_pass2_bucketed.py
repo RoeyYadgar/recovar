@@ -50,6 +50,7 @@ from recovar.em.dense_single_volume.helpers.adjoint import (
 from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.compact_candidate_capture import (
     BPrefContributionDumpComplete,
+    INVASIVE_SPARSE_DIAGNOSTICS,
     Pass2DumpComplete,
     compact_capture_requested_for_original_indices,
     compact_capture_requested_particle_count,
@@ -10800,31 +10801,16 @@ def _prioritize_stopped_pass2_dump_buckets(
     ) and _env_flag_enabled(
         _NORM_RESIDUAL_DUMP_STOP_AFTER_TARGET_ENV, default=False
     )
-    if not (stopped_pass2_dump or stopped_norm_dump):
-        return buckets
-
-    requested = []
-    remaining = []
-    for bucket in buckets:
-        destination = (
-            requested
-            if _pass2_dump_requested_for_bucket(
-                experiment_dataset=experiment_dataset,
-                image_indices=bucket["image_indices"],
-                current_size=current_size,
-            )
-            else remaining
-        )
-        destination.append(bucket)
-    if not requested:
-        return buckets
-    logger.info(
-        "Sparse K=1 pass-2 stopped diagnostic: moving %d requested dump "
-        "bucket(s) before %d unrelated bucket(s)",
-        len(requested),
-        len(remaining),
+    return INVASIVE_SPARSE_DIAGNOSTICS.prioritize_target_buckets(
+        buckets,
+        stopped_pass2_dump=stopped_pass2_dump,
+        stopped_norm_dump=stopped_norm_dump,
+        is_requested=lambda bucket: _pass2_dump_requested_for_bucket(
+            experiment_dataset=experiment_dataset,
+            image_indices=bucket["image_indices"],
+            current_size=current_size,
+        ),
     )
-    return requested + remaining
 
 
 _RELION_EXACT_CTF_SOURCE_CACHE: dict[tuple[str, tuple[int, int]], dict] = {}

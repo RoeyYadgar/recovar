@@ -13,6 +13,8 @@ from recovar.em.dense_single_volume.runtime_options import (
     environment_scope,
 )
 
+from .events import DiagnosticEffect, TraceKind, TraceSpec
+
 
 class EnvironmentVariableClass(str, Enum):
     """Effect class for a supported dense-EM environment variable."""
@@ -74,6 +76,60 @@ _EXTERNAL_TUNING_NAMES = frozenset(
     }
 )
 
+# These captures request extra arithmetic or otherwise materialize values that
+# the normal path does not need. They remain observational, but are not
+# performance-neutral PASSIVE captures.
+_SHADOW_PREFIXES = (
+    "RECOVAR_BPREF_DEVICE_SIGNATURE_",
+    "RECOVAR_DEBUG_CC_COMPONENT_",
+    "RECOVAR_DENSE_NOISE_COMPONENT_",
+    "RECOVAR_LOCAL_FUSED_POSTERIOR_",
+    "RECOVAR_LOCAL_NOISE_COMPONENT_",
+    "RECOVAR_LOCAL_SCORE_DUMP_",
+    "RECOVAR_PASS2_DUMP_",
+    "RECOVAR_SIGNIFICANCE_DUMP_",
+)
+
+
+def _trace_kind_for_name(name: str) -> frozenset[TraceKind]:
+    kinds: set[TraceKind] = set()
+    if any(token in name for token in ("SCORE", "SIGNIFICANCE", "PASS2_DUMP")):
+        kinds.add(TraceKind.SCORES)
+    if "POSTERIOR" in name:
+        kinds.add(TraceKind.POSTERIOR)
+    if any(token in name for token in ("OPERAND", "NORM_RESIDUAL", "SIGNIFICANCE")):
+        kinds.add(TraceKind.OPERANDS)
+    if "MEMBERSHIP" in name:
+        kinds.add(TraceKind.MEMBERSHIP)
+    if "PROJECTOR" in name:
+        kinds.add(TraceKind.PROJECTOR)
+    if "BPREF" in name:
+        kinds.add(TraceKind.BPREF)
+    return frozenset(kinds)
+
+
+@dataclass(frozen=True)
+class DiagnosticRoutes:
+    """Resolved diagnostics partitioned by behavioral effect."""
+
+    passive: EnvironmentSnapshot
+    shadow: EnvironmentSnapshot
+    invasive: EnvironmentSnapshot
+    trace_spec: TraceSpec
+
+    @property
+    def production_authoritative(self) -> bool:
+        return not bool(self.invasive)
+
+    def effect_for(self, name: str) -> DiagnosticEffect:
+        if name in self.invasive:
+            return DiagnosticEffect.INVASIVE
+        if name in self.shadow:
+            return DiagnosticEffect.SHADOW
+        if name in self.passive:
+            return DiagnosticEffect.PASSIVE
+        raise KeyError(name)
+
 
 def classify_environment_name(name: str) -> EnvironmentVariableClass | None:
     """Classify a supported environment name by its observable effect."""
@@ -115,6 +171,25 @@ class DiagnosticsPlan:
         )
         if all(str(values.get(name, "")).strip() for name in mutually_exclusive):
             raise ValueError(f"{mutually_exclusive[0]} and {mutually_exclusive[1]} are mutually exclusive")
+
+    @property
+    def routes(self) -> DiagnosticRoutes:
+        """Partition compatibility settings without changing their storage."""
+
+        shadow_names = {name for name in self.passive if any(name.startswith(prefix) for prefix in _SHADOW_PREFIXES)}
+        passive = EnvironmentSnapshot(
+            tuple((name, self.passive[name]) for name in self.passive if name not in shadow_names)
+        )
+        shadow = EnvironmentSnapshot(tuple((name, self.passive[name]) for name in self.passive if name in shadow_names))
+        trace_kinds: set[TraceKind] = set()
+        for name in (*passive, *shadow, *self.invasive):
+            trace_kinds.update(_trace_kind_for_name(name))
+        return DiagnosticRoutes(
+            passive=passive,
+            shadow=shadow,
+            invasive=self.invasive,
+            trace_spec=TraceSpec(frozenset(trace_kinds)),
+        )
 
     @classmethod
     def from_environment(

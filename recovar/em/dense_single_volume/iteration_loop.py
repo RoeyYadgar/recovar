@@ -4840,13 +4840,18 @@ def refine_single_volume(
         execution=runtime.execution,
         runtime=runtime,
     )
+    diagnostic_routes = runtime.diagnostics.routes
     logger.info(
         "Resolved dense EM runtime: algorithm=%s execution=%s "
-        "passive_diagnostics=%s invasive_experiments=%s",
+        "passive_diagnostics=%s shadow_diagnostics=%s invasive_experiments=%s "
+        "production_authoritative=%s trace_outputs=%s",
         runtime.algorithm,
         runtime.execution,
-        tuple(sorted(runtime.diagnostics.passive)),
-        tuple(sorted(runtime.diagnostics.invasive)),
+        tuple(diagnostic_routes.passive),
+        tuple(diagnostic_routes.shadow),
+        tuple(diagnostic_routes.invasive),
+        diagnostic_routes.production_authoritative,
+        tuple(sorted(kind.value for kind in diagnostic_routes.trace_spec.outputs)),
     )
 
     with runtime_configuration_scope(runtime):
