@@ -1207,7 +1207,7 @@ Provenance: parent HEAD `f233f3a9b2fff1fb417a6d513fa51ac761ff973b`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: relocate local diagnostic capture`.
+Commit SHA and descriptive message: `cc89423d` — `refactor: relocate local diagnostic capture`.
 
 Decision: accepted.
 
@@ -1216,6 +1216,48 @@ then remove direct serialization from numerical engines.
 
 Open risks: production callers still use the compatibility facade until their
 larger legacy files can be migrated without unrelated formatting churn.
+
+### 2026-09-10 — C3 controller artifact module boundary
+
+Hypothesis: Existing iteration intermediates and noise-update schemas can be
+owned by the diagnostics package without changing the controller's stable
+monkeypatch surface.
+
+Files changed: `diagnostics/controller_capture.py`, `debug_dumps.py`, focused
+schema coverage, and this ledger.
+
+Algorithmic invariants protected: the writer implementation is moved
+mechanically and the old module re-exports the same two callables. Controller
+call positions, optionality, array conversions, output names, and MRC/NPY/NPZ
+schemas are unchanged.
+
+Focused tests and exact results: the new noise-update artifact contract and
+the controller compatibility-symbol ratchet, 2/2 passed. The run reported 21
+read-only persistent-cache warnings; these do not affect results.
+
+CPU fast guard: deferred until inline controller serialization is migrated.
+
+GPU/Slurm job IDs: deferred to the complete C3 structural comparison.
+
+Quality artifacts and deltas: not measured; implementation move only.
+
+Performance artifacts and deltas: not measured; production call sites are
+unchanged.
+
+Compile/memory observations: no engine or JIT interface changed.
+
+Provenance: parent HEAD `cc89423dfda7853853d23d4eb7b876e9bbfa1123`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: relocate controller diagnostics`.
+
+Decision: accepted.
+
+Next action: relocate compact candidate capture and extract the two dense
+engine schemas into the diagnostics package.
+
+Open risks: ten inline controller serialization sites remain to be extracted.
 
 ## Per-slice update template
 
