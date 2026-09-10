@@ -35,7 +35,19 @@ from recovar.em.dense_single_volume.batch_planning import (
 )
 from recovar.em.dense_single_volume.dense_em_types import DenseEMInputs
 from recovar.em.dense_single_volume.diagnostics.config import diagnostic_environment_overrides
+from recovar.em.dense_single_volume.diagnostics.events import (
+    ConvergenceUpdated,
+    HalfScored,
+    IterationFinished,
+    IterationStarted,
+    MapsUpdated,
+    MstepAccumulated,
+)
 from recovar.em.dense_single_volume.diagnostics.parity import PARITY_DIAGNOSTICS as _parity_dump
+from recovar.em.dense_single_volume.diagnostics.sinks import (
+    NULL_DIAGNOSTICS,
+    build_diagnostics_sink,
+)
 from recovar.em.dense_single_volume.em_engine import (
     dense_em_request_from_legacy_kwargs,
     run_dense_em,
@@ -4868,6 +4880,7 @@ def refine_single_volume(
             rotations=rotations,
             translations=translations,
             options=options,
+            diagnostics=build_diagnostics_sink(runtime.diagnostics),
         )
 
 
@@ -4926,6 +4939,7 @@ def _run_relion_iteration_loop(
     rotations,
     translations,
     options,
+    diagnostics,
 ):
     """RELION-parity refinement loop with convergence detection.
 
@@ -5559,7 +5573,6 @@ def _run_relion_iteration_loop(
             )
             break
         t0 = time.time()
-        _parity_dump.start_iteration(iteration)
         iter_replay_override = None
         if replay.replay_iteration_overrides is not None and iteration < len(replay.replay_iteration_overrides):
             iter_replay_override = replay.replay_iteration_overrides[iteration]
@@ -5579,6 +5592,14 @@ def _run_relion_iteration_loop(
             relion_firstiter_cc_this_iter or first_iter_hard_reconstruction_this_iter
         )
         numbered_relion_iteration = _numbered_relion_iteration(init_relion_iteration, iteration)
+        if diagnostics is not NULL_DIAGNOSTICS:
+            diagnostics.iteration_started(
+                IterationStarted(
+                    iteration=iteration,
+                    relion_iteration=numbered_relion_iteration,
+                    current_size=int(cs),
+                )
+            )
 
         if relion_follower_scale_state is not None:
             _dispatch_relion_follower_scale_for_numbered_iteration(
@@ -7214,6 +7235,17 @@ def _run_relion_iteration_loop(
             Ft_y_k = score_result.Ft_y
             Ft_ctf_k = score_result.Ft_ctf
             per_half.update_from(k, score_result)
+            if diagnostics is not NULL_DIAGNOSTICS:
+                diagnostics.half_scored(
+                    HalfScored(iteration=iteration, half=k, result=score_result)
+                )
+                diagnostics.mstep_accumulated(
+                    MstepAccumulated(
+                        iteration=iteration,
+                        half=k,
+                        accumulators=(Ft_y_k, Ft_ctf_k),
+                    )
+                )
             _record_score_profile(
                 history.global_profile_history,
                 score_result,
@@ -8091,6 +8123,14 @@ def _run_relion_iteration_loop(
             accumulator_volume_shape=mstep_accumulator_shape,
         )
         unreg_means = unreg_result.unregularized_means
+        if diagnostics is not NULL_DIAGNOSTICS:
+            diagnostics.maps_updated(
+                MapsUpdated(
+                    iteration=iteration,
+                    means=tuple(means),
+                    unregularized_means=tuple(unreg_means),
+                )
+            )
 
         # K>1 uses the shared per-class data_vs_prior curve to drive growth;
         # K=1 keeps the split-half FSC history.
@@ -8821,6 +8861,15 @@ def _run_relion_iteration_loop(
             float(state.current_changes_optimal_orientations),
             float(state.current_changes_optimal_offsets_angstrom),
         )
+        if diagnostics is not NULL_DIAGNOSTICS:
+            diagnostics.convergence_updated(
+                ConvergenceUpdated(
+                    iteration=iteration,
+                    fsc=fsc,
+                    average_max_posterior=float(ave_pmax),
+                    converged=bool(state.has_converged),
+                )
+            )
 
         # Save assignments for next iteration's change tracking.
         # Use coarse_ha (indexed into effective_rotations/current_rotations)
@@ -8879,6 +8928,14 @@ def _run_relion_iteration_loop(
         # --- Timing ---
         elapsed = time.time() - t0
         history.record_wall_time(elapsed)
+        if diagnostics is not NULL_DIAGNOSTICS:
+            diagnostics.iteration_finished(
+                IterationFinished(
+                    iteration=iteration,
+                    relion_iteration=numbered_relion_iteration,
+                    wall_time_s=elapsed,
+                )
+            )
 
         res_angstrom = shell_index_to_resolution_angstrom(
             pixel_res,

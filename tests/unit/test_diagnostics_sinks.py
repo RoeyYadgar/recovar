@@ -6,16 +6,19 @@ import numpy as np
 import pytest
 
 from recovar.em.dense_single_volume.diagnostics import (
+    NPZ_DIAGNOSTICS,
     NULL_DIAGNOSTICS,
     ConvergenceUpdated,
+    DiagnosticsPlan,
     HalfScored,
     IterationFinished,
     IterationStarted,
     MapsUpdated,
     MstepAccumulated,
-    NPZ_DIAGNOSTICS,
+    ParityDiagnostics,
     TraceKind,
     TraceSpec,
+    build_diagnostics_sink,
 )
 
 
@@ -75,3 +78,13 @@ def test_npz_diagnostics_writes_explicit_payload_without_schema_changes(tmp_path
         assert capture.files == ["count", "values"]
         assert capture["count"].dtype == np.int32
         assert capture["values"].dtype == np.float64
+
+
+def test_sink_factory_selects_null_or_parity_from_the_resolved_plan():
+    assert build_diagnostics_sink(DiagnosticsPlan.from_environment({})) is NULL_DIAGNOSTICS
+    assert isinstance(
+        build_diagnostics_sink(
+            DiagnosticsPlan.from_environment({"RECOVAR_PARITY_TIMING_DIR": "/tmp/timing"})
+        ),
+        ParityDiagnostics,
+    )

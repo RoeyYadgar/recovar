@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
@@ -17,6 +16,9 @@ from .events import (
     MstepAccumulated,
     TraceSpec,
 )
+
+if TYPE_CHECKING:
+    from .config import DiagnosticsPlan
 
 
 class DiagnosticsSink(Protocol):
@@ -100,3 +102,14 @@ class NpzDiagnostics:
 NO_TRACE = TraceSpec.none()
 NULL_DIAGNOSTICS = NullDiagnostics()
 NPZ_DIAGNOSTICS = NpzDiagnostics()
+
+
+def build_diagnostics_sink(plan: DiagnosticsPlan) -> DiagnosticsSink:
+    """Build the run-wide lifecycle sink from a resolved diagnostics plan."""
+
+    names = {*plan.passive, *plan.invasive}
+    if names.intersection({"RECOVAR_PARITY_DUMP_DIR", "RECOVAR_PARITY_TIMING_DIR"}):
+        from .parity import PARITY_DIAGNOSTICS
+
+        return PARITY_DIAGNOSTICS
+    return NULL_DIAGNOSTICS

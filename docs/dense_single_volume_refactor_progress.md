@@ -1530,7 +1530,7 @@ Provenance: parent HEAD `ee7d166ff731106f7b693990874a179dc35ed3a3`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: classify diagnostic effects`.
+Commit SHA and descriptive message: `ebb7861f` — `refactor: classify diagnostic effects`.
 
 Decision: accepted.
 
@@ -1540,6 +1540,55 @@ complete focused C3 matrix, then submit the null-diagnostics GPU comparison.
 Open risks: trace kinds document requested extra values, while the legacy
 engines still consume their established typed debug options until C4-C6
 replace those internal flags with `TraceSpec` directly.
+
+### 2026-09-10 — C3 controller lifecycle sink wiring
+
+Hypothesis: Selecting one run-wide diagnostics sink at the refinement boundary
+and invoking typed lifecycle events only at existing host orchestration points
+can make diagnostic ownership explicit without adding ambient runtime state or
+work to the production null route.
+
+Files changed: `diagnostics/sinks.py`, diagnostics exports,
+`iteration_loop.py`, focused sink/structure coverage, and this ledger.
+
+Algorithmic invariants protected: the sink is selected once from the resolved
+`DiagnosticsPlan` and passed as one explicit controller dependency. It never
+enters a numerical or JIT call. Identity guards around all lifecycle emission
+mean the singleton null sink does not allocate events, inspect arrays,
+materialize device values, or add synchronization. Sink calls have no result
+channel and therefore cannot replace production outputs. Existing detailed
+parity capture calls and their schemas remain unchanged.
+
+Focused tests and exact results: parity timing, sink contract/factory, and
+cross-module structure, 14/14 passed; refinement forwarding/lifecycle
+selection, 9/9 passed with 375 deselected.
+
+CPU fast guard: 16/16 passed in 50.91 seconds. The expected CPU-node CUDA
+initialization warning was logged before the successful fallback.
+
+GPU/Slurm job IDs: deferred to the complete C3 null-route comparison.
+
+Quality artifacts and deltas: not yet measured for this slice.
+
+Performance artifacts and deltas: not yet measured for this slice.
+
+Compile/memory observations: the explicit null fast path is outside JAX and
+all engine/JIT signatures remain unchanged; final C3 GPU evidence is pending.
+
+Provenance: parent HEAD `ebb7861f5844c7507b53e20d244349daf2ef6c66`
+on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
+scratch paths were left untouched.
+
+Commit SHA and descriptive message: pending — `refactor: wire diagnostics lifecycle sink`.
+
+Decision: accepted.
+
+Next action: run the CPU guard and focused C3 matrix, then submit the same-GPU
+null-route comparison against the C2 checkpoint.
+
+Open risks: lifecycle payloads deliberately retain references to existing
+values. Future non-null sinks must perform any materialization explicitly and
+remain outside JIT code.
 
 ## Per-slice update template
 

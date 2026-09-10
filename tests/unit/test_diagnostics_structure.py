@@ -31,3 +31,23 @@ def test_numeric_helpers_do_not_define_or_raise_diagnostic_stop_exceptions():
     assert "class Pass2DumpComplete" not in sparse_source
     assert "class BPrefContributionDumpComplete" not in sparse_source
     assert "raise Pass2DumpComplete" not in sparse_source
+
+
+def test_iteration_lifecycle_uses_one_explicit_sink_and_null_fast_path():
+    refine_source = inspect.getsource(iteration_loop.refine_single_volume)
+    loop_source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
+
+    assert "diagnostics=build_diagnostics_sink(runtime.diagnostics)" in refine_source
+    assert "diagnostics" in inspect.signature(
+        iteration_loop._run_relion_iteration_loop
+    ).parameters
+    assert loop_source.count("if diagnostics is not NULL_DIAGNOSTICS:") == 5
+    for method in (
+        "iteration_started",
+        "half_scored",
+        "mstep_accumulated",
+        "maps_updated",
+        "convergence_updated",
+        "iteration_finished",
+    ):
+        assert f"diagnostics.{method}(" in loop_source
