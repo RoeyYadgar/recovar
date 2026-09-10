@@ -420,7 +420,7 @@ Exit criteria:
 
 Deliverables:
 
-- move serialization and schema construction out of
+- move serialization and schema-specific writing out of
   `iteration_loop.py`, `em_engine.py`, `local_em_engine.py`,
   `helpers/significance.py`, and `helpers/sparse_pass2_bucketed.py`;
 - consolidate `debug_dumps.py`, `local_debug.py`, `parity_dump.py`, compact
@@ -431,6 +431,14 @@ Deliverables:
 - separate passive, shadow, and invasive routes visibly;
 - keep stop-after-target exceptions and exit behavior in diagnostics adapters,
   not in numeric helpers.
+
+Sequencing note: C3 moves artifact persistence, stable schema ownership, and
+diagnostic policy behind adapters. Raw capture inputs may still be gathered at
+the host boundary where the values already exist. Moving that gathering before
+the C4--C7 request/state types exist would require new dictionary bags or long
+`**kwargs` bridges, both of which conflict with this plan's primary interface
+goal. Each engine/controller phase must move its remaining raw payload assembly
+when it introduces the corresponding cohesive request or state object.
 
 Exit criteria:
 

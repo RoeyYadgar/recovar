@@ -1,7 +1,7 @@
 # Dense Single-Volume EM Refactor Progress
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
-Current phase: C3 — extract diagnostics and parity capture
+Current phase: C4 — refactor the exact-local engine
 Last updated: 2026-09-10
 
 ## Status board
@@ -11,8 +11,8 @@ Last updated: 2026-09-10
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
 | C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
-| C3 Diagnostics extraction | IN PROGRESS | The typed lifecycle/trace contract and zero-work null sink are implemented; migrate parity timing/capture next, then the remaining serialization families. |
-| C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second. |
+| C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas, improved paired FSC-AUC, and showed no runtime or memory regression. |
+| C4 Exact-local engine | NOT STARTED | Migrate host request first, JIT PyTree boundary second; move its remaining raw diagnostic payload gathering with the new cohesive state types. |
 | C5 Sparse pass 2 | NOT STARTED | Split 19,436-line module and break significance import cycle. |
 | C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
 | C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
@@ -131,6 +131,8 @@ GPU identity and paired timing context.
 | 2026-09-09 | Sparse expectation adjudication | Two exact focused cases at C2 `0f7b0337`, then the failing coarse case at pre-C2 `dc64e343` | The explicit algebraic-bypass route passed. The coarse-posterior case failed identically at both commits by one `7.45e-9` float32 value (`1.2938e-7` relative), proving it predates C2; no tolerance was changed. |
 | 2026-09-09 | Requested full K=1 validation | Slurm `60520380`; `$HOME/palmer_scratch/tmp/recovar_em_test_c2_0f7b0337_20260909_retry1` | Completed `0:0` on one A100 allocation: 13 numbered iterations, identical current-size trajectory, final-all-data, correlation `0.998392015`, RELION FSC-AUC `0.994875338`, ledger time `965.948 s`, Slurm wall `1081 s`, and peak RSS `17.764 GiB`. The raw, unaligned GT metrics are non-scoring. |
 | 2026-09-09 | Final same-allocation C2 A/B | Slurm `60521289`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c2_samegpu_0f7b0337_vs_dc64e343_retry1` | Completed `0:0` on one A100-PCIE-40GB. Candidate/control direct map FSC-AUC was `0.9992773`; candidate-vs-RELION FSC-AUC improved by `+0.0004093`; ledger time was unchanged (`+0.0009%`), process wall improved `0.20%`, exact-local time improved `1.07%`, and peak RSS improved `0.48%`. |
+| 2026-09-10 | Complete C3 focused matrix | Ten diagnostics/schema/performance test files plus significance selection | 237 passed, 2 expected GPU-only skips in `132.97 s`; significance 12/12 passed. Final CPU fast guard passed 16/16 in `50.91 s`. |
+| 2026-09-10 | Final same-allocation C3 A/B | Slurm `60538896`; `$HOME/palmer_scratch/tmp/dense_em_refactor_c3_samegpu_cfc22c31_vs_0f7b0337` | Completed `0:0` on one A100-PCIE-40GB. Both arms ran 13 iterations and final-all-data. Direct map FSC-AUC was `0.9992226`; candidate RELION FSC-AUC improved `+0.0004193`; ledger time improved `0.30%`, process wall improved `3.53%`, and RSS changed `+0.15%`. Fixed-input normalized StableHLO hashes matched exactly. |
 
 ## Decision log
 
@@ -1579,7 +1581,7 @@ Provenance: parent HEAD `ebb7861f5844c7507b53e20d244349daf2ef6c66`
 on `dense_em_refactor`; pre-existing untracked fixture, plot, editor, and
 scratch paths were left untouched.
 
-Commit SHA and descriptive message: pending — `refactor: wire diagnostics lifecycle sink`.
+Commit SHA and descriptive message: `cfc22c31` — `refactor: wire diagnostics lifecycle sink`.
 
 Decision: accepted.
 
@@ -1589,6 +1591,148 @@ null-route comparison against the C2 checkpoint.
 Open risks: lifecycle payloads deliberately retain references to existing
 values. Future non-null sinks must perform any materialization explicitly and
 remain outside JIT code.
+
+### 2026-09-10 — C3 completion and null-route GPU comparison
+
+Hypothesis: With every artifact write and diagnostic stop policy behind the
+diagnostics package, the explicit null sink leaves the production numerical
+route observationally and performance equivalent to the accepted C2
+checkpoint.
+
+Files changed: the C3 series from `15c53424` through `cfc22c31`, the plan's
+payload-gathering sequencing note, and this ledger.
+
+Algorithmic invariants protected: no numerical formula, JIT argument/result,
+batch plan, convergence rule, or finalization rule changed. The null sink is
+selected once before the iteration loop, is never passed into a JIT, and is
+guarded before lifecycle event construction. A source diff from C2 shows no
+added `block_until_ready`, `device_get`, or NumPy materialization in the five
+numerical/controller modules; conversions removed there were relocated to
+enabled-only adapters. Passive sinks have no return channel. Shadow arithmetic
+and invasive ordering/termination are separately named and cannot be treated
+as production-authoritative.
+
+Focused tests and exact results:
+
+- parity timing, sink factory/protocol, controller and dense schemas, compact
+  sparse capture, BPref membership, pass-1/pass-2 diagnostics, projector
+  capture, and sparse performance guards: 237 passed and 2 expected GPU-only
+  skips in `132.97 s`;
+- significance capture/schema/stop coverage: 12 passed and 51 deselected in
+  `2.92 s`;
+- the lifecycle/refinement selection: 9 passed and 375 deselected;
+- the final CPU fast guard: 16 passed in `50.91 s`.
+
+GPU/Slurm job ID: `60538896`, completed `0:0` in `00:36:16` on one
+NVIDIA A100-PCIE-40GB. C2 control `0f7b0337` and C3 candidate `cfc22c31`
+were clean detached worktrees run sequentially in one allocation, with the
+same fixture, seed, RELION binding, pinned CUDA library, and isolated runtime
+and compilation caches. Both tracked diff fingerprints were the empty SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+The portable artifact root is
+`$HOME/palmer_scratch/tmp/dense_em_refactor_c3_samegpu_cfc22c31_vs_0f7b0337`;
+its launcher SHA-256 is
+`54d42ef04c87f50e979be93efcb377165fa77293560706c8d5a111afade3ca42`.
+
+Each arm ran the requested full command, changing only its pinned worktree,
+unique output directory, and compile-log path:
+
+```bash
+python -m scripts.run_multi_iter_parity \
+  --relion_dir relion_em_test_double_seeded \
+  --data_star _full_refinement_data_double_seeded/particles.star \
+  --iter 0 \
+  --max_iter 20 \
+  --output_dir "$RUN_ROOT/<arm>_output" \
+  --gt_volume "$HOME/pi_data/igg_1d/init_mask/backproj_0.01.mrc" \
+  --replay-override-max-iter 0 \
+  --compile_log "$RUN_ROOT/logs/<arm>_run_<job-id>.log"
+```
+
+Quality artifacts and deltas:
+
+| Measure | C2 control `0f7b0337` | C3 candidate `cfc22c31` | Candidate delta |
+|---|---:|---:|---:|
+| Completed numbered iterations | 13 | 13 | same |
+| Current sizes | `46,46,72,70,70,70,70,70,70,72,72,72,72` | same | same |
+| Final-all-data path | yes | yes | same |
+| Final merged FSC-AUC vs RELION | `0.9944589348` | `0.9948782818` | `+0.0004193470` |
+| Final merged correlation vs RELION, diagnostic | `0.9983342748` | `0.9983926299` | `+0.0000583551` |
+
+The two 310-field result archives have identical key order, shapes, and
+dtypes. Direct control/candidate half-map FSC-AUC values are `0.9990144` and
+`0.9993343`; merged FSC-AUC is `0.9992226`, minimum non-DC merged FSC is
+`0.9972175`, and merged correlation is `0.9999497`. The candidate therefore
+does not regress the user-requested correlation diagnostic or the decisive
+FSC/FSC-AUC metric. The absolute RELION-facing FSC-AUC remains just below the
+program's `0.995` gate, as it did before this refactor stage, and remains an
+independent scientific-quality issue.
+
+The first/second-arm quality split is consistent with the established GPU
+repeat envelope, not a diagnostic effect: the same C2 implementation produced
+`0.9944589` as this job's first arm and `0.9948746` as the prior C2 job's
+second arm. C3's second-arm result is `0.9948783`. The comparison is therefore
+used as a non-regression gate, not as evidence that diagnostics improved the
+algorithm.
+
+Performance artifacts and deltas:
+
+| Measure | C2 control | C3 candidate | Candidate delta |
+|---|---:|---:|---:|
+| Refinement ledger elapsed | `1012.783 s` | `1009.773 s` | `-0.30%` |
+| Exact-local EM time | `335.215 s` | `336.790 s` | `+0.47%` |
+| External process wall | `1096.84 s` | `1058.07 s` | `-3.53%` |
+| Peak RSS | `11,106,972 KiB` | `11,123,304 KiB` | `+0.15%` |
+| Transfer-to-host profile | `8.313 s` | `7.510 s` | `-9.66%` |
+
+All changes remain far inside the investigation thresholds, with no material
+runtime, transfer, or host-memory regression.
+
+Compile/HLO observations: compile-log matches were `9,146` control and `9,194`
+candidate; unique logged signatures were `3,885` and `3,900`. Persistent-cache
+families had identical counts except `run_local_bucket_big_jit`, which had
+37 control shapes and 38 candidate shapes. The extra dynamic shape follows the
+same order-dependent particle-trajectory variation visible in the paired maps:
+the JIT implementation, signature, and static policy were untouched by C3,
+and the candidate still completed faster. To separate that dynamic batching
+effect from generated code, a fixed sparse pass-2 scorer was lowered in both
+clean worktrees. After removing source-location metadata, both StableHLO texts
+were 16,776 characters with one `stablehlo.while`, no
+`stablehlo.dot_general`, and exact SHA-256
+`60fa534f668ee8981c42988d3c9cc3a9af9cbe0aaed8a6b8fd4f0a5d2b6241b6`.
+Thus identical requests have identical HLO; C3 adds no compilation boundary.
+
+Sequencing decision: C3 owns persistence, stable artifact schemas, routing,
+and stop behavior. Raw capture inputs that are already available at a host
+boundary remain gathered there until C4--C7 introduce the corresponding
+cohesive request/state objects. Moving them now would replace the legacy code
+with new long signatures or untyped dictionary/`**kwargs` bridges, directly
+contradicting the refactor's interface goal. This sequencing is now explicit
+in the plan, and each engine/controller phase owns that remaining payload
+assembly migration.
+
+Provenance: candidate `cfc22c31a252e53fc4bdd04a72782fa17c98f166`
+on `dense_em_refactor`; the main tracked tree was clean before this
+documentation closeout. Pre-existing fixture, plot, editor, and scratch paths
+were not staged or modified.
+
+Commit SHA and descriptive message: pending — `docs: complete C3 diagnostics ledger`.
+
+Decision: C3 is complete with a structural GPU pass. The null route is
+observational, preserves the requested quality trajectory and artifact
+contracts, has fixed-input HLO identity, and introduces no material runtime,
+transfer, or memory regression.
+
+Next action: begin C4 with the exact-local host request and validation/planning
+split, preserving the existing 98-argument JIT boundary until the host stages
+are covered independently.
+
+Open risks: the exact-local dynamic bucket count can vary by one across the
+known GPU trajectory repeat envelope; C4 must measure compile shapes when it
+changes that boundary. Legacy artifact payload gathering remains at some
+controller/sparse host sites and is assigned to their C5/C7 typed-state
+migrations. `TraceSpec` replaces those established internal trace flags only
+when each engine boundary is refactored in C4--C6.
 
 ## Per-slice update template
 
@@ -1615,12 +1759,15 @@ Open risks:
 
 ## Immediate next actions
 
-1. Define the C3 null diagnostics sink and stable lifecycle payloads at the
-   existing host synchronization points; do not introduce a generic event bus.
-2. Move one serialization family at a time out of the controller and engines,
-   retaining exact NPZ keys, dtypes, shapes, filenames, and stop behavior.
-3. Keep passive, shadow, and invasive diagnostics visibly separate; passive
-   capture must never select production outputs.
-4. Compare null-diagnostics output, synchronization, lowered HLO, compilation
-   count, timing, and memory against the C2 checkpoint, while tracking the
-   older absolute `0.995` FSC-AUC issue independently.
+1. Inventory the current exact-local host stages and assign each statement to
+   validation/planning, cache preparation, bucket execution, host
+   postprocessing, or result finalization.
+2. Introduce the smallest cohesive request/state types needed by those host
+   stages; keep arrays in JAX-compatible PyTrees and paths/diagnostics outside
+   the compiled boundary.
+3. Extract one host stage per descriptive commit with focused exact-local tests
+   and preserve the current JIT signature until the host orchestration is
+   stable.
+4. Move remaining exact-local raw diagnostic payload gathering behind the C3
+   sink using the new C4 request/state objects, without dictionary bags or
+   long `**kwargs` adapters.
