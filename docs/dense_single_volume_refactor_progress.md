@@ -2348,6 +2348,58 @@ Commit SHA and descriptive message: `fa638bc8` —
 Decision: accepted. Next separate allocated cache/projection resources from
 mutable cache statistics and output accumulators.
 
+### 2026-09-10 — C4 RELION projection-cache component
+
+Hypothesis: projection-cache scheduling, materialization, and observed build
+statistics form one host-side component and can leave the engine without
+changing device work.
+
+Files changed: new `local_projection_cache.py`, `local_em_engine.py`, new
+`test_local_projection_cache.py`, and the owning-module monkeypatch in
+`test_refine_relion_mode.py`.
+
+The new component owns the cache limits, deterministic bucket grouping and
+sorting, group materialization, and cache metadata. An immutable
+`LocalRelionProjectionCachePlan` separates the intended group schedule from
+`LocalRelionProjectionCacheStats`, which explicitly records the groups that
+were actually built. The engine retains private compatibility imports while
+its orchestration now consumes the named plan and statistics objects.
+
+Algorithmic invariants protected: cache capacity arithmetic, sort key, greedy
+group construction, maximum-group fallback, rotation deduplication, chunk
+size, projector arguments, host/device conversion order within each build,
+and profile values are unchanged. Device caches are still built immediately
+before the first bucket in their group.
+
+Focused tests and exact results:
+
+- schedule, group-limit, statistics, projector forwarding, and cached-versus-
+  uncached cases: 5 passed and 374 deselected in `13.02 s`;
+- every selected real `run_local_em_exact` case: 21 passed and 355 deselected
+  in `79.37 s`;
+- CPU fast guard: 16 passed in `51.66 s`, after its expected login-node CUDA
+  discovery traceback;
+- new component/tests pass Ruff format and lint; the engine and touched legacy
+  test pass the established targeted lint scope.
+
+GPU validation remains deferred to the compiled-boundary gate. This extraction
+moves existing projection/cache work into its owner module and replaces loose
+Python counters with one mutable host statistics object; kernel inputs and
+numeric operations remain unchanged.
+
+Provenance: code commit
+`ea79ca42bef6471ef7cd89c1af1788486941c771` on `dense_em_refactor`;
+committed patch SHA-256
+`4079dff0ac8c9a1c22fab3884d33bb09b673af727520d162dadc4191ccbe8b95`.
+Existing untracked fixtures, editor settings, plots, and scratch outputs were
+not modified.
+
+Commit SHA and descriptive message: `ea79ca42` —
+`refactor: isolate local projection cache`.
+
+Decision: accepted. Next replace the long compiled call with grouped dynamic
+PyTrees and one frozen static policy, preserving accumulator donation.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2373,9 +2425,8 @@ Open risks:
 
 ## Immediate next actions
 
-1. Separate allocated cache/projection resources from mutable cache statistics
-   and output accumulator state, then introduce the grouped dynamic PyTrees and
-   frozen static policy at the big-JIT boundary one caller route at a time.
+1. Introduce grouped dynamic PyTrees and a frozen static policy at the big-JIT
+   boundary, preserving the exact accumulator donation set and result routes.
 2. Move exact-local diagnostic payload gathering behind the C3 sink using the
    new C4 plans, then run focused, CPU, fixed-HLO/compile-count, and paired warm
    GPU timing gates before closing C4.
