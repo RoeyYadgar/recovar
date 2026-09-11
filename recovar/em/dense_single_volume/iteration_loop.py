@@ -4252,40 +4252,6 @@ def _snapshot_state_swap_inputs(
     }
 
 
-def _state_swap_return_tuple(
-    cs,
-    means,
-    mean_variance,
-    noise_variance_per_half,
-    noise_variance,
-    previous_noise_radial_per_half,
-    previous_noise_radial,
-    previous_best_rotations,
-    current_sigma_offset_angstrom,
-    current_sigma_offset_angstrom_per_half,
-    class_direction_prior_per_half,
-    class_direction_prior_order_per_half,
-    global_direction_prior_per_half,
-    global_direction_prior_order_per_half,
-):
-    return (
-        cs,
-        means,
-        mean_variance,
-        noise_variance_per_half,
-        noise_variance,
-        previous_noise_radial_per_half,
-        previous_noise_radial,
-        previous_best_rotations,
-        current_sigma_offset_angstrom,
-        current_sigma_offset_angstrom_per_half,
-        class_direction_prior_per_half,
-        class_direction_prior_order_per_half,
-        global_direction_prior_per_half,
-        global_direction_prior_order_per_half,
-    )
-
-
 def _state_swap_map_shell_labels(volume_shape):
     """Return unshifted integer-radius labels for a full Fourier volume."""
 
@@ -4412,60 +4378,33 @@ def _apply_state_swap_probe(
     iteration,
     recovar_snapshot,
     state,
-    cs,
     volume_shape,
-    means,
-    mean_variance,
-    noise_variance_per_half,
-    noise_variance,
-    previous_noise_radial_per_half,
-    previous_noise_radial,
     relion_half_inputs,
-    previous_best_rotations,
-    current_sigma_offset_angstrom,
-    current_sigma_offset_angstrom_per_half,
-    class_direction_prior_per_half,
-    class_direction_prior_order_per_half,
-    global_direction_prior_per_half,
-    global_direction_prior_order_per_half,
+    state_values,
 ):
     """Restore selected RECOVAR-produced state after RELION replay override."""
 
+    (
+        cs,
+        means,
+        mean_variance,
+        noise_variance_per_half,
+        noise_variance,
+        previous_noise_radial_per_half,
+        previous_noise_radial,
+        previous_best_rotations,
+        current_sigma_offset_angstrom,
+        current_sigma_offset_angstrom_per_half,
+        class_direction_prior_per_half,
+        class_direction_prior_order_per_half,
+        global_direction_prior_per_half,
+        global_direction_prior_order_per_half,
+    ) = state_values
     if not probe or recovar_snapshot is None:
-        return _state_swap_return_tuple(
-            cs,
-            means,
-            mean_variance,
-            noise_variance_per_half,
-            noise_variance,
-            previous_noise_radial_per_half,
-            previous_noise_radial,
-            previous_best_rotations,
-            current_sigma_offset_angstrom,
-            current_sigma_offset_angstrom_per_half,
-            class_direction_prior_per_half,
-            class_direction_prior_order_per_half,
-            global_direction_prior_per_half,
-            global_direction_prior_order_per_half,
-        )
+        return state_values
     target_iteration = int(probe.get("iteration", 1))
     if int(iteration) != target_iteration:
-        return _state_swap_return_tuple(
-            cs,
-            means,
-            mean_variance,
-            noise_variance_per_half,
-            noise_variance,
-            previous_noise_radial_per_half,
-            previous_noise_radial,
-            previous_best_rotations,
-            current_sigma_offset_angstrom,
-            current_sigma_offset_angstrom_per_half,
-            class_direction_prior_per_half,
-            class_direction_prior_order_per_half,
-            global_direction_prior_per_half,
-            global_direction_prior_order_per_half,
-        )
+        return state_values
 
     variant = str(probe.get("variant", "all_relion"))
     components = _STATE_SWAP_VARIANT_COMPONENTS.get(variant)
@@ -4571,7 +4510,7 @@ def _apply_state_swap_probe(
     if "current_size" in components:
         cs = int(recovar_snapshot["cs"])
 
-    return _state_swap_return_tuple(
+    return (
         cs,
         means,
         mean_variance,
@@ -5943,22 +5882,24 @@ def _run_relion_iteration_loop(
             iteration=iteration,
             recovar_snapshot=recovar_state_swap_snapshot,
             state=state,
-            cs=cs,
             volume_shape=volume_shape,
-            means=means,
-            mean_variance=mean_variance,
-            noise_variance_per_half=noise_variance_per_half,
-            noise_variance=noise_variance,
-            previous_noise_radial_per_half=previous_noise_radial_per_half,
-            previous_noise_radial=previous_noise_radial,
             relion_half_inputs=relion_half_inputs,
-            previous_best_rotations=previous_best_rotations,
-            current_sigma_offset_angstrom=current_sigma_offset_angstrom,
-            current_sigma_offset_angstrom_per_half=current_sigma_offset_angstrom_per_half,
-            class_direction_prior_per_half=class_direction_prior_per_half,
-            class_direction_prior_order_per_half=class_direction_prior_order_per_half,
-            global_direction_prior_per_half=global_direction_prior_per_half,
-            global_direction_prior_order_per_half=global_direction_prior_order_per_half,
+            state_values=(
+                cs,
+                means,
+                mean_variance,
+                noise_variance_per_half,
+                noise_variance,
+                previous_noise_radial_per_half,
+                previous_noise_radial,
+                previous_best_rotations,
+                current_sigma_offset_angstrom,
+                current_sigma_offset_angstrom_per_half,
+                class_direction_prior_per_half,
+                class_direction_prior_order_per_half,
+                global_direction_prior_per_half,
+                global_direction_prior_order_per_half,
+            ),
         )
         if not parity.use_per_half_mean_variance:
             # State-swap diagnostics historically replace the one shared tau2.
