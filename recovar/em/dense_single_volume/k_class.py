@@ -11,9 +11,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from recovar.utils.nvtx_shim import nvtx
 from recovar.em.dense_single_volume.diagnostics.config import diagnostic_environment_overrides
 from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
+from recovar.utils.nvtx_shim import nvtx
 
 from .dense_em_types import DenseEMInputs, DenseEMRequest
 from .em_engine import make_dense_em_request, run_dense_em
@@ -3318,7 +3318,9 @@ def run_dense_k_class_em_adaptive(
     if "current_size" not in pass2_kwargs and fine_current_size is not None:
         pass2_kwargs["current_size"] = fine_current_size
 
-    device_signature_configured = bool(_runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip())
+    device_signature_configured = bool(
+        _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
+    )
     fused_atomic_env_enabled = _env_flag_enabled(_RELION_X_HALF_BP_FUSED_ATOMICS_ENV)
     fused_atomic_diagnostic_requested = bool(
         fused_atomic_env_enabled and (bpref_device_signature_active or not device_signature_configured)

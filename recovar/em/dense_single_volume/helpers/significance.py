@@ -14,6 +14,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from recovar.em.dense_single_volume.diagnostics.significance_capture import (
+    SignificanceTarget,
+    stop_after_significance_dump,
+    write_kclass_significance,
+    write_single_class_significance,
+    write_tree_rescore,
+)
 from recovar.em.dense_single_volume.helpers.env_flags import parse_env_int_set
 from recovar.em.dense_single_volume.helpers.projection import compute_projections_block
 from recovar.em.dense_single_volume.helpers.scoring import (
@@ -21,16 +28,10 @@ from recovar.em.dense_single_volume.helpers.scoring import (
     _e_step_block_scores_windowed,
     _update_logsumexp,
 )
-from recovar.em.dense_single_volume.diagnostics.significance_capture import (
-    SignificanceDumpComplete,
-    SignificanceTarget,
-    stop_after_significance_dump,
-    write_kclass_significance,
-    write_single_class_significance,
-    write_tree_rescore,
-)
 from recovar.em.dense_single_volume.runtime_options import (
     current_algorithm_settings,
+)
+from recovar.em.dense_single_volume.runtime_options import (
     current_environment as _runtime_environment,
 )
 from recovar.utils.nvtx_shim import nvtx
@@ -40,19 +41,13 @@ _SIGNIFICANCE_SCORE_CACHE_MAX_GB_ENV = "RECOVAR_SIGNIFICANCE_SCORE_CACHE_MAX_GB"
 _SIGNIFICANCE_SCORE_CACHE_DEFAULT_MAX_GB = 2.0
 _SIGNIFICANCE_FUSED_PASS1_ENV = "RECOVAR_PASS1_FUSED"
 _GLOBAL_PASS1_RELION_PROJECTOR_TEXTURE_ENV = "RECOVAR_RELION_GLOBAL_PASS1_PROJECTOR_TEXTURE_INTERP"
-_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV = (
-    "RECOVAR_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN"
-)
+_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV = "RECOVAR_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN"
 _K1_COARSE_GAUSSIAN_FFI_ENV = "RECOVAR_K1_COARSE_GAUSSIAN_FFI"
 _K1_COARSE_GAUSSIAN_SINCOSF_ENV = "RECOVAR_K1_COARSE_GAUSSIAN_SINCOSF"
-_K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV = (
-    "RECOVAR_K1_COARSE_GAUSSIAN_NATIVE_TEXTURE"
-)
+_K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV = "RECOVAR_K1_COARSE_GAUSSIAN_NATIVE_TEXTURE"
 _K1_RELION_EXACT_COARSE_OPERANDS_ENV = "RECOVAR_K1_RELION_EXACT_COARSE_OPERANDS"
 _K1_RELION_F32_COARSE_SUPPORT_ENV = "RECOVAR_K1_RELION_F32_COARSE_SUPPORT"
-_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV = (
-    "RECOVAR_SIGNIFICANCE_DUMP_PASSIVE_CACHE"
-)
+_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV = "RECOVAR_SIGNIFICANCE_DUMP_PASSIVE_CACHE"
 NVTX_DOMAIN_EM = "recovar_em"
 logger = logging.getLogger(__name__)
 
@@ -67,10 +62,7 @@ def _compact_projection_window_positions(compact_indices, window_indices) -> np.
     position_by_index = {int(index): position for position, index in enumerate(compact)}
     missing = [int(index) for index in window if int(index) not in position_by_index]
     if missing:
-        raise ValueError(
-            "projection window contains indices absent from the compact projection: "
-            f"{missing[:8]}"
-        )
+        raise ValueError("projection window contains indices absent from the compact projection: " f"{missing[:8]}")
     return np.asarray([position_by_index[int(index)] for index in window], dtype=np.int32)
 
 
@@ -103,10 +95,15 @@ def _maybe_stop_after_significance_dump(
 def _k1_coarse_gaussian_ffi_enabled(*, default: bool = False) -> bool:
     """Return whether the RELION coarse Gaussian FFI is active."""
 
-    token = _runtime_environment().get(
-        _K1_COARSE_GAUSSIAN_FFI_ENV,
-        "1" if default else "0",
-    ).strip().lower()
+    token = (
+        _runtime_environment()
+        .get(
+            _K1_COARSE_GAUSSIAN_FFI_ENV,
+            "1" if default else "0",
+        )
+        .strip()
+        .lower()
+    )
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -117,10 +114,15 @@ def _k1_coarse_gaussian_ffi_enabled(*, default: bool = False) -> bool:
 def _k1_coarse_gaussian_sincosf_enabled(*, default: bool = False) -> bool:
     """Return whether exact RELION coarse score translation is active."""
 
-    token = _runtime_environment().get(
-        _K1_COARSE_GAUSSIAN_SINCOSF_ENV,
-        "1" if default else "0",
-    ).strip().lower()
+    token = (
+        _runtime_environment()
+        .get(
+            _K1_COARSE_GAUSSIAN_SINCOSF_ENV,
+            "1" if default else "0",
+        )
+        .strip()
+        .lower()
+    )
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -133,10 +135,15 @@ def _k1_coarse_gaussian_sincosf_enabled(*, default: bool = False) -> bool:
 def _k1_coarse_gaussian_native_texture_enabled(*, default: bool = False) -> bool:
     """Return whether projection and coarse scoring run in one RELION kernel."""
 
-    token = _runtime_environment().get(
-        _K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV,
-        "1" if default else "0",
-    ).strip().lower()
+    token = (
+        _runtime_environment()
+        .get(
+            _K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV,
+            "1" if default else "0",
+        )
+        .strip()
+        .lower()
+    )
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -149,10 +156,15 @@ def _k1_coarse_gaussian_native_texture_enabled(*, default: bool = False) -> bool
 def _k1_relion_exact_coarse_operands_enabled(*, default: bool = False) -> bool:
     """Return whether coarse Gaussian scoring uses native RFLOAT CTF operands."""
 
-    token = _runtime_environment().get(
-        _K1_RELION_EXACT_COARSE_OPERANDS_ENV,
-        "1" if default else "0",
-    ).strip().lower()
+    token = (
+        _runtime_environment()
+        .get(
+            _K1_RELION_EXACT_COARSE_OPERANDS_ENV,
+            "1" if default else "0",
+        )
+        .strip()
+        .lower()
+    )
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -165,10 +177,15 @@ def _k1_relion_exact_coarse_operands_enabled(*, default: bool = False) -> bool:
 def _k1_relion_f32_coarse_support_enabled(*, default: bool = False) -> bool:
     """Return whether the RELION CUDA float32 coarse support is active."""
 
-    token = _runtime_environment().get(
-        _K1_RELION_F32_COARSE_SUPPORT_ENV,
-        "1" if default else "0",
-    ).strip().lower()
+    token = (
+        _runtime_environment()
+        .get(
+            _K1_RELION_F32_COARSE_SUPPORT_ENV,
+            "1" if default else "0",
+        )
+        .strip()
+        .lower()
+    )
     if token in {"0", "false", "no", "off"}:
         return False
     if token in {"1", "true", "yes", "on"}:
@@ -210,9 +227,7 @@ def _relion_coarse_gaussian_square_operands(
         jnp.zeros((), dtype=shifted_corrected.dtype),
     )
     pixel_weight = square_score_weight * half_weights[score_indices][None, :]
-    output_complex_dtype = (
-        jnp.complex128 if shifted_corrected.dtype == jnp.complex128 else jnp.complex64
-    )
+    output_complex_dtype = jnp.complex128 if shifted_corrected.dtype == jnp.complex128 else jnp.complex64
     output_real_dtype = jnp.float64 if output_complex_dtype == jnp.complex128 else jnp.float32
     return (
         jnp.asarray(shifted_corrected, dtype=output_complex_dtype),
@@ -235,6 +250,7 @@ def _relion_coarse_gaussian_square_operands_sincosf(
     """Build corrected coarse images with RELION's CUDA sin/cos path."""
 
     from recovar import cuda_backproject
+
     score_indices = jnp.asarray(score_indices, dtype=jnp.int32)
     if translation_phase_source is None:
         translation_phase_source = translations
@@ -258,16 +274,11 @@ def _relion_coarse_gaussian_square_operands_sincosf(
     real_dtype = jnp.float64 if use_float64 else jnp.float32
     angle_dtype = np.float64 if use_float64 else np.float32
     translation_angles = np.asarray(
-        -2.0
-        * np.pi
-        * np.asarray(translation_phase_source, dtype=np.float64)
-        / float(image_shape[0]),
+        -2.0 * np.pi * np.asarray(translation_phase_source, dtype=np.float64) / float(image_shape[0]),
         dtype=angle_dtype,
     )
     translate_score = (
-        cuda_backproject.relion_translate_score_f64
-        if use_float64
-        else cuda_backproject.relion_translate_score_f32
+        cuda_backproject.relion_translate_score_f64 if use_float64 else cuda_backproject.relion_translate_score_f32
     )
     shifted_corrected = translate_score(
         jnp.asarray(unshifted_corrected, dtype=complex_dtype),
@@ -301,23 +312,18 @@ def _relion_cc_inverse_power_from_processed(processed_half, score_indices=None):
     processed_half = jnp.asarray(processed_half, dtype=jnp.complex128)
     if score_indices is not None:
         processed_half = processed_half[:, jnp.asarray(score_indices, dtype=jnp.int32)]
-    power_terms = (
-        processed_half.real * processed_half.real
-        + processed_half.imag * processed_half.imag
-    )
+    power_terms = processed_half.real * processed_half.real + processed_half.imag * processed_half.imag
     image_power = jnp.sum(power_terms, axis=-1, keepdims=True)
-    return jnp.reciprocal(
-        jnp.maximum(image_power, jnp.asarray(1e-30, dtype=jnp.float64))
-    )
+    return jnp.reciprocal(jnp.maximum(image_power, jnp.asarray(1e-30, dtype=jnp.float64)))
 
 
 def _capture_offset_free_and_absolute_float32_scores(scores, log_score_offset):
     """Capture native score margins before adding a large common offset."""
 
     offset_free = np.asarray(scores, dtype=np.float32)
-    absolute = (
-        np.asarray(scores, dtype=np.float64) + np.asarray(log_score_offset, dtype=np.float64)
-    ).astype(np.float32)
+    absolute = (np.asarray(scores, dtype=np.float64) + np.asarray(log_score_offset, dtype=np.float64)).astype(
+        np.float32
+    )
     return offset_free, absolute
 
 
@@ -346,8 +352,7 @@ def _firstiter_cc_tree_top2_rescore_max_margin() -> float | None:
     margin = float(token)
     if not np.isfinite(margin) or margin < 0.0:
         raise ValueError(
-            f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} must be a finite "
-            f"non-negative float, got {token!r}",
+            f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} must be a finite " f"non-negative float, got {token!r}",
         )
     return margin
 
@@ -655,7 +660,9 @@ def _significance_score_cache_enabled(n_images, n_classes, n_rot, n_trans, *, us
     force = mode in {"1", "true", "yes", "on", "force", "always"}
     itemsize = 8 if use_float64_scoring else 4
     estimated_bytes = int(n_images) * int(n_classes) * int(n_rot) * int(n_trans) * itemsize
-    max_gb = float(_runtime_environment().get(_SIGNIFICANCE_SCORE_CACHE_MAX_GB_ENV, _SIGNIFICANCE_SCORE_CACHE_DEFAULT_MAX_GB))
+    max_gb = float(
+        _runtime_environment().get(_SIGNIFICANCE_SCORE_CACHE_MAX_GB_ENV, _SIGNIFICANCE_SCORE_CACHE_DEFAULT_MAX_GB)
+    )
     return force or estimated_bytes <= int(max_gb * (1024**3))
 
 
@@ -671,14 +678,10 @@ def _significance_debug_dump_matches(*, current_size, debug_iteration) -> bool:
     if not parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES"):
         return False
     target_current_size = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_CURRENT_SIZE")
-    if target_current_size and (
-        current_size is None or int(current_size) != int(target_current_size)
-    ):
+    if target_current_size and (current_size is None or int(current_size) != int(target_current_size)):
         return False
     target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
-    if target_iteration and (
-        debug_iteration is None or int(debug_iteration) != int(target_iteration)
-    ):
+    if target_iteration and (debug_iteration is None or int(debug_iteration) != int(target_iteration)):
         return False
     return True
 
@@ -728,13 +731,9 @@ def _maybe_dump_tree_rescore_batch(
         debug_iteration=debug_iteration,
     ):
         return
-    target_original_indices = parse_env_int_set(
-        "RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES"
-    )
+    target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
     batch_original_indices = _original_indices_for_local(experiment_dataset, indices)
-    ambiguous_original_indices = batch_original_indices[
-        np.asarray(ambiguous_rows, dtype=np.int64)
-    ]
+    ambiguous_original_indices = batch_original_indices[np.asarray(ambiguous_rows, dtype=np.int64)]
     dump_dir = _runtime_environment()["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
     os.makedirs(dump_dir, exist_ok=True)
     candidate_pose_ids = np.asarray(candidate_pose_ids, dtype=np.int32)
@@ -771,12 +770,8 @@ def _maybe_dump_tree_rescore_batch(
             image_candidates=np.asarray(shifted_candidates[row], dtype=np.complex64),
             image_candidates_are_unshifted=np.asarray(True, dtype=np.bool_),
             translation_angles=np.asarray(translation_angles[row], dtype=np.float32),
-            score_weight_candidates=np.asarray(
-                score_weight_candidates[row], dtype=np.float32
-            ),
-            numerator_weight_candidates=np.asarray(
-                numerator_weight_candidates[row], dtype=np.float32
-            ),
+            score_weight_candidates=np.asarray(score_weight_candidates[row], dtype=np.float32),
+            numerator_weight_candidates=np.asarray(numerator_weight_candidates[row], dtype=np.float32),
             rotation_matrices=np.asarray(rotation_matrices[row], dtype=np.float32),
             half_weights=np.asarray(half_weights, dtype=np.float32),
             packed_to_compact=np.asarray(packed_to_compact, dtype=np.int32),
@@ -1115,11 +1110,7 @@ def _maybe_dump_k_class_significance_batch(
                 if trans_prior is not None
                 else np.empty((0,), dtype=np.float64)
             ),
-            shifted_data=(
-                shifted_target
-                if shifted_target is not None
-                else np.empty((0,), dtype=np.complex128)
-            ),
+            shifted_data=(shifted_target if shifted_target is not None else np.empty((0,), dtype=np.complex128)),
             ctf2_data=(
                 np.asarray(ctf2_target, dtype=np.float64)
                 if ctf2_target is not None
@@ -1207,21 +1198,14 @@ def _maybe_dump_k_class_significance_batch(
                 projection_ids.size,
                 n_trans,
             )
-            if (
-                norm_scores.shape != expected_component_shape
-                or cross_scores.shape != expected_component_shape
-            ):
+            if norm_scores.shape != expected_component_shape or cross_scores.shape != expected_component_shape:
                 raise ValueError(
                     "projected score components must both have shape "
                     f"{expected_component_shape}, got "
                     f"{norm_scores.shape} and {cross_scores.shape}",
                 )
-            save_kwargs["projected_reference_norm_score_per_class"] = norm_scores[
-                :, local_pos
-            ].astype(np.float64)
-            save_kwargs["projected_cross_score_per_class"] = cross_scores[
-                :, local_pos
-            ].astype(np.float64)
+            save_kwargs["projected_reference_norm_score_per_class"] = norm_scores[:, local_pos].astype(np.float64)
+            save_kwargs["projected_cross_score_per_class"] = cross_scores[:, local_pos].astype(np.float64)
         write_kclass_significance(
             out_path,
             save_kwargs,
@@ -1388,9 +1372,7 @@ def _compute_significance_batched(
         else bool(relion_projector_texture_interp)
     )
     coarse_floorf_quirk = bool(
-        use_float64_scoring
-        and not coarse_texture_interp
-        and _relion_acc_double_floorf_quirk_enabled()
+        use_float64_scoring and not coarse_texture_interp and _relion_acc_double_floorf_quirk_enabled()
     )
     projection_kwargs["force_jax"] = bool(projection_force_jax)
     if use_window:
@@ -2008,7 +1990,6 @@ def _compute_k_class_significance_batched(
         _e_step_block_scores_windowed,
         _e_step_block_scores_windowed_normalized_cc,
         _relion_coarse_normalized_cc_rescore,
-        _relion_coarse_normalized_cc_rescore_f64,
         _update_logsumexp,
     )
     from recovar.reconstruction import noise as noise_utils
@@ -2033,8 +2014,7 @@ def _compute_k_class_significance_batched(
     )
     if translations_source.shape != translations.shape:
         raise ValueError(
-            "translation_phase_source must match translations: "
-            f"{translations_source.shape} != {translations.shape}",
+            "translation_phase_source must match translations: " f"{translations_source.shape} != {translations.shape}",
         )
     n_rot = int(rotations.shape[0])
     n_trans = int(translations.shape[0])
@@ -2110,16 +2090,12 @@ def _compute_k_class_significance_batched(
         else bool(relion_projector_texture_interp)
     )
     coarse_floorf_quirk = bool(
-        use_float64_scoring
-        and not coarse_texture_interp
-        and _relion_acc_double_floorf_quirk_enabled()
+        use_float64_scoring and not coarse_texture_interp and _relion_acc_double_floorf_quirk_enabled()
     )
     tree_rescore_max_margin = _firstiter_cc_tree_top2_rescore_max_margin()
     # The environment setting spans the full process, while only iteration 1
     # uses normalized CC.  Later Gaussian iterations must remain unaffected.
-    tree_rescore_enabled = (
-        tree_rescore_max_margin is not None and score_mode == "normalized_cc"
-    )
+    tree_rescore_enabled = tree_rescore_max_margin is not None and score_mode == "normalized_cc"
     # The environment flag spans the complete refinement process. Iteration 1
     # may use normalized CC, while this intervention applies only to later
     # Gaussian coarse passes. Keep the flag dormant for the CC call instead of
@@ -2127,60 +2103,42 @@ def _compute_k_class_significance_batched(
     coarse_gaussian_ffi_requested = _k1_coarse_gaussian_ffi_enabled(
         default=relion_coarse_gaussian_default,
     )
-    coarse_gaussian_ffi_enabled = (
-        coarse_gaussian_ffi_requested and score_mode == "gaussian"
-    )
+    coarse_gaussian_ffi_enabled = coarse_gaussian_ffi_requested and score_mode == "gaussian"
     coarse_gaussian_sincosf_requested = _k1_coarse_gaussian_sincosf_enabled(
         default=relion_coarse_gaussian_default and coarse_gaussian_ffi_enabled,
     )
-    coarse_gaussian_sincosf_enabled = (
-        coarse_gaussian_sincosf_requested and score_mode == "gaussian"
-    )
+    coarse_gaussian_sincosf_enabled = coarse_gaussian_sincosf_requested and score_mode == "gaussian"
     if coarse_gaussian_sincosf_enabled and not coarse_gaussian_ffi_enabled:
         raise ValueError(
-            f"{_K1_COARSE_GAUSSIAN_SINCOSF_ENV} requires "
-            f"{_K1_COARSE_GAUSSIAN_FFI_ENV}=1",
+            f"{_K1_COARSE_GAUSSIAN_SINCOSF_ENV} requires " f"{_K1_COARSE_GAUSSIAN_FFI_ENV}=1",
         )
     exact_coarse_operands_requested = _k1_relion_exact_coarse_operands_enabled(
-        default=(
-            relion_coarse_gaussian_default
-            and coarse_gaussian_ffi_enabled
-            and coarse_gaussian_sincosf_enabled
-        ),
+        default=(relion_coarse_gaussian_default and coarse_gaussian_ffi_enabled and coarse_gaussian_sincosf_enabled),
     )
-    exact_coarse_operands_enabled = (
-        exact_coarse_operands_requested and score_mode == "gaussian"
-    )
+    exact_coarse_operands_enabled = exact_coarse_operands_requested and score_mode == "gaussian"
     if exact_coarse_operands_enabled and not coarse_gaussian_sincosf_enabled:
         raise ValueError(
             f"{_K1_RELION_EXACT_COARSE_OPERANDS_ENV} requires "
             f"{_K1_COARSE_GAUSSIAN_FFI_ENV}=1 and "
             f"{_K1_COARSE_GAUSSIAN_SINCOSF_ENV}=1",
         )
-    coarse_gaussian_native_texture_requested = (
-        _k1_coarse_gaussian_native_texture_enabled(
-            # Keep the fused texture scorer as an explicit diagnostic.  The
-            # preprojected rectangular FFI consumes the same exact image/CTF
-            # operands but matches RELION's coarse support boundary more
-            # closely; the fused scorer can move marginal parents across the
-            # adaptive-significance cutoff.
-            default=False,
-        )
+    coarse_gaussian_native_texture_requested = _k1_coarse_gaussian_native_texture_enabled(
+        # Keep the fused texture scorer as an explicit diagnostic.  The
+        # preprojected rectangular FFI consumes the same exact image/CTF
+        # operands but matches RELION's coarse support boundary more
+        # closely; the fused scorer can move marginal parents across the
+        # adaptive-significance cutoff.
+        default=False,
     )
-    coarse_gaussian_native_texture_enabled = (
-        coarse_gaussian_native_texture_requested and score_mode == "gaussian"
-    )
+    coarse_gaussian_native_texture_enabled = coarse_gaussian_native_texture_requested and score_mode == "gaussian"
     if coarse_gaussian_native_texture_enabled and not exact_coarse_operands_enabled:
         raise ValueError(
-            f"{_K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV} requires "
-            f"{_K1_RELION_EXACT_COARSE_OPERANDS_ENV}=1",
+            f"{_K1_COARSE_GAUSSIAN_NATIVE_TEXTURE_ENV} requires " f"{_K1_RELION_EXACT_COARSE_OPERANDS_ENV}=1",
         )
     relion_f32_coarse_support_requested = _k1_relion_f32_coarse_support_enabled(
         default=relion_coarse_gaussian_default and coarse_gaussian_ffi_enabled,
     )
-    relion_f32_coarse_support_enabled = (
-        relion_f32_coarse_support_requested and score_mode == "gaussian"
-    )
+    relion_f32_coarse_support_enabled = relion_f32_coarse_support_requested and score_mode == "gaussian"
     if relion_f32_coarse_support_enabled:
         if n_classes != 1:
             raise ValueError(
@@ -2194,8 +2152,7 @@ def _compute_k_class_significance_batched(
             "RELION CUDA float32 coarse support enabled (%s): current_size=%d",
             (
                 "guarded fresh-K=1 default"
-                if relion_coarse_gaussian_default
-                and _K1_RELION_F32_COARSE_SUPPORT_ENV not in _runtime_environment()
+                if relion_coarse_gaussian_default and _K1_RELION_F32_COARSE_SUPPORT_ENV not in _runtime_environment()
                 else "environment override"
             ),
             int(image_shape[0]) if current_size is None else int(current_size),
@@ -2208,23 +2165,13 @@ def _compute_k_class_significance_batched(
     coarse_gaussian_projector_full = None
     if coarse_gaussian_ffi_enabled:
         if n_classes != 1:
-            raise ValueError(
-                f"{_K1_COARSE_GAUSSIAN_FFI_ENV} is restricted to K=1"
-            )
+            raise ValueError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} is restricted to K=1")
         if not use_relion_projector:
-            raise ValueError(
-                f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires the supplied RELION "
-                "projector"
-            )
+            raise ValueError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires the supplied RELION " "projector")
         if not half_spectrum_scoring:
-            raise ValueError(
-                f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires half-spectrum scoring"
-            )
+            raise ValueError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires half-spectrum scoring")
         if n_trans > 128:
-            raise ValueError(
-                f"{_K1_COARSE_GAUSSIAN_FFI_ENV} supports at most 128 "
-                f"translations, got {n_trans}"
-            )
+            raise ValueError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} supports at most 128 " f"translations, got {n_trans}")
         from recovar import cuda_backproject
         from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
             _relion_cuda_corr_img_from_native_noise_variance,
@@ -2236,9 +2183,7 @@ def _compute_k_class_significance_batched(
         )
 
         if jax.default_backend() != "gpu" or not cuda_backproject.cuda_available():
-            raise RuntimeError(
-                f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires the custom CUDA backend"
-            )
+            raise RuntimeError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires the custom CUDA backend")
         score_size = int(image_shape[0]) if current_size is None else int(current_size)
         square_score_indices_np, square_score_count = make_fourier_window_indices_np(
             image_shape,
@@ -2282,12 +2227,10 @@ def _compute_k_class_significance_batched(
         )
         coarse_gaussian_powerclass = _relion_cuda_powerclass_highres_xi2_half
         logger.warning(
-            "K=1 RELION coarse Gaussian FFI enabled (%s, %s): "
-            "current_size=%d square_pixels=%d translations=%d",
+            "K=1 RELION coarse Gaussian FFI enabled (%s, %s): " "current_size=%d square_pixels=%d translations=%d",
             (
                 "guarded fresh-K=1 default"
-                if relion_coarse_gaussian_default
-                and _K1_COARSE_GAUSSIAN_FFI_ENV not in _runtime_environment()
+                if relion_coarse_gaussian_default and _K1_COARSE_GAUSSIAN_FFI_ENV not in _runtime_environment()
                 else "environment override"
             ),
             "float64" if use_float64_scoring else "float32",
@@ -2301,8 +2244,7 @@ def _compute_k_class_significance_batched(
                 "current_size=%d square_pixels=%d translations=%d",
                 (
                     "guarded fresh-K=1 default"
-                    if relion_coarse_gaussian_default
-                    and _K1_COARSE_GAUSSIAN_SINCOSF_ENV not in _runtime_environment()
+                    if relion_coarse_gaussian_default and _K1_COARSE_GAUSSIAN_SINCOSF_ENV not in _runtime_environment()
                     else "environment override"
                 ),
                 score_size,
@@ -2345,18 +2287,15 @@ def _compute_k_class_significance_batched(
     if tree_rescore_enabled:
         if n_classes != 1:
             raise ValueError(
-                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} currently "
-                "supports K=1 only",
+                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} currently " "supports K=1 only",
             )
         if not return_class_best:
             raise ValueError(
-                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires "
-                "return_class_best=True",
+                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires " "return_class_best=True",
             )
         if use_float64_scoring:
             raise ValueError(
-                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires "
-                "production float32 scoring",
+                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires " "production float32 scoring",
             )
         if not use_relion_projector or not coarse_texture_interp:
             raise ValueError(
@@ -2365,8 +2304,7 @@ def _compute_k_class_significance_batched(
             )
         if not half_spectrum_scoring:
             raise ValueError(
-                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires "
-                "half-spectrum scoring",
+                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires " "half-spectrum scoring",
             )
         from recovar import cuda_backproject
         from recovar.em.dense_single_volume.helpers.projection import (
@@ -2385,8 +2323,7 @@ def _compute_k_class_significance_batched(
             or not cuda_backproject.cuda_available()
         ):
             raise RuntimeError(
-                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires "
-                "the custom CUDA backend",
+                f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires " "the custom CUDA backend",
             )
         coarse_gaussian_projector_full = jnp.asarray(
             relion_projector_half_to_texture_full(relion_projector_half[0])
@@ -2395,9 +2332,7 @@ def _compute_k_class_significance_batched(
         )
         score_size = int(image_shape[0]) if current_size is None else int(current_size)
         score_indices_np = (
-            np.arange(n_half, dtype=np.int32)
-            if window_spec.score_indices_np is None
-            else window_spec.score_indices_np
+            np.arange(n_half, dtype=np.int32) if window_spec.score_indices_np is None else window_spec.score_indices_np
         )
         tree_rescore_fftw_order = jnp.asarray(
             relion_fftw_order_for_square_score_window(
@@ -2430,8 +2365,7 @@ def _compute_k_class_significance_batched(
         # accumulation schedule at adaptive-significance boundaries.
         rotation_block_size = n_rot
         logger.warning(
-            "K=1 RELION native texture coarse diagnostic: one particle per "
-            "full orientation grid (%d rotations)",
+            "K=1 RELION native texture coarse diagnostic: one particle per " "full orientation grid (%d rotations)",
             n_rot,
         )
 
@@ -2615,11 +2549,7 @@ def _compute_k_class_significance_batched(
         if coarse_gaussian_ffi_enabled:
             from recovar import cuda_backproject
 
-            proj_score = (
-                proj_half_b
-                if projector_returns_compact
-                else proj_half_b[:, coarse_gaussian_score_indices]
-            )
+            proj_score = proj_half_b if projector_returns_compact else proj_half_b[:, coarse_gaussian_score_indices]
             coarse_complex_dtype = jnp.complex128 if use_float64_scoring else jnp.complex64
             proj_score = jnp.asarray(proj_score, dtype=coarse_complex_dtype)
             coarse_diff2 = (
@@ -2724,9 +2654,7 @@ def _compute_k_class_significance_batched(
     best_log_score = np.empty(n_images, dtype=score_real_dtype)
     max_posterior = np.empty(n_images, dtype=score_real_dtype)
     class_log_evidence = np.empty((n_classes, n_images), dtype=np.float64)
-    class_best_log_score = (
-        np.empty((n_classes, n_images), dtype=score_real_dtype) if return_class_best else None
-    )
+    class_best_log_score = np.empty((n_classes, n_images), dtype=score_real_dtype) if return_class_best else None
     class_second_best_log_score = (
         np.empty((n_classes, n_images), dtype=score_real_dtype) if return_class_second else None
     )
@@ -2739,12 +2667,8 @@ def _compute_k_class_significance_batched(
     class_second_best_offset_free_log_score = (
         np.empty((n_classes, n_images), dtype=score_real_dtype) if return_class_second else None
     )
-    class_hard_assignment = (
-        np.empty((n_classes, n_images), dtype=np.int32) if return_class_best else None
-    )
-    class_second_hard_assignment = (
-        np.empty((n_classes, n_images), dtype=np.int32) if return_class_second else None
-    )
+    class_hard_assignment = np.empty((n_classes, n_images), dtype=np.int32) if return_class_best else None
+    class_second_hard_assignment = np.empty((n_classes, n_images), dtype=np.int32) if return_class_second else None
     tree_rescore_examined = 0
     tree_rescore_ambiguous = 0
     tree_rescore_winner_changes = 0
@@ -2813,9 +2737,7 @@ def _compute_k_class_significance_batched(
                     tree_rescore_unshifted_half,
                 ) = cc_preprocess_result
             else:
-                shifted_half, batch_norm, ctf2_half_score, ctf2_over_nv_half = (
-                    cc_preprocess_result
-                )
+                shifted_half, batch_norm, ctf2_half_score, ctf2_over_nv_half = cc_preprocess_result
         elif use_relion_numpy_preprocess and not relion_cuda_preprocess:
             preprocess_result = _preprocess_batch_relion_numpy(
                 batch_data,
@@ -2860,13 +2782,10 @@ def _compute_k_class_significance_batched(
             corr_expanded = jnp.repeat(applied_corr, n_trans)
             shifted_half = shifted_half * corr_expanded[:, None]
             if score_mode == "normalized_cc" and tree_rescore_enabled:
-                tree_rescore_unshifted_half = (
-                    tree_rescore_unshifted_half * applied_corr[:, None]
-                )
+                tree_rescore_unshifted_half = tree_rescore_unshifted_half * applied_corr[:, None]
             if coarse_gaussian_sincosf_enabled:
                 coarse_gaussian_unshifted_score_weighted = (
-                    coarse_gaussian_unshifted_score_weighted
-                    * applied_corr[:, None]
+                    coarse_gaussian_unshifted_score_weighted * applied_corr[:, None]
                 )
             # ``image_corrections`` carries ``(avg_norm/normcorr) * scale``;
             # ``scale_corrections`` carries ``scale``. The image-only
@@ -2894,14 +2813,11 @@ def _compute_k_class_significance_batched(
                 dtype=batch_shifts.dtype,
             )
             if score_mode == "normalized_cc" and tree_rescore_enabled:
-                tree_rescore_unshifted_half = (
-                    tree_rescore_unshifted_half
-                    * tiled_half_image_phase_factors(
-                        image_shape,
-                        batch_shifts,
-                        1,
-                        dtype=batch_shifts.dtype,
-                    )
+                tree_rescore_unshifted_half = tree_rescore_unshifted_half * tiled_half_image_phase_factors(
+                    image_shape,
+                    batch_shifts,
+                    1,
+                    dtype=batch_shifts.dtype,
                 )
             if coarse_gaussian_sincosf_enabled:
                 coarse_gaussian_unshifted_score_weighted = (
@@ -2918,9 +2834,7 @@ def _compute_k_class_significance_batched(
             score_weight_half = ctf2_half_score * inv_xi2
             shifted_half = shifted_half * jnp.repeat(inv_xi2, n_trans, axis=0)
             if tree_rescore_enabled:
-                tree_rescore_unshifted_half = (
-                    tree_rescore_unshifted_half * inv_xi2
-                )
+                tree_rescore_unshifted_half = tree_rescore_unshifted_half * inv_xi2
         else:
             score_weight_half = ctf2_over_nv_half
         if half_spectrum_scoring and score_mode != "normalized_cc":
@@ -2939,9 +2853,7 @@ def _compute_k_class_significance_batched(
             shifted_data = shifted_half[:, window_indices]
             ctf2_data = score_weight_half[:, window_indices]
             if score_mode == "normalized_cc" and tree_rescore_enabled:
-                tree_rescore_unshifted_data = tree_rescore_unshifted_half[
-                    :, window_indices
-                ]
+                tree_rescore_unshifted_data = tree_rescore_unshifted_half[:, window_indices]
         else:
             shifted_data = shifted_half
             ctf2_data = score_weight_half
@@ -2954,15 +2866,12 @@ def _compute_k_class_significance_batched(
             shifted_data = shifted_data.astype(jnp.complex64)
             ctf2_data = ctf2_data.astype(jnp.float32)
             if score_mode == "normalized_cc" and tree_rescore_enabled:
-                tree_rescore_unshifted_data = tree_rescore_unshifted_data.astype(
-                    jnp.complex64
-                )
+                tree_rescore_unshifted_data = tree_rescore_unshifted_data.astype(jnp.complex64)
 
         if score_mode == "normalized_cc" and tree_rescore_enabled:
             if not relion_cuda_preprocess or relion_preprocess_kwargs is None:
                 raise ValueError(
-                    f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires "
-                    "RELION CUDA image preprocessing",
+                    f"{_FIRSTITER_CC_TREE_TOP2_RESCORE_MAX_MARGIN_ENV} requires " "RELION CUDA image preprocessing",
                 )
             exact_cc_preprocess_kwargs = dict(relion_preprocess_kwargs)
             exact_cc_preprocess_kwargs["relion_fft_per_image"] = True
@@ -2991,9 +2900,8 @@ def _compute_k_class_significance_batched(
                 dtype=jnp.complex64,
             )
             if image_pre_shifts is not None and not real_space_pre_shift_applied:
-                exact_cc_unshifted_corrected = (
-                    exact_cc_unshifted_corrected
-                    * tiled_half_image_phase_factors(image_shape, batch_shifts, 1)
+                exact_cc_unshifted_corrected = exact_cc_unshifted_corrected * tiled_half_image_phase_factors(
+                    image_shape, batch_shifts, 1
                 )
             exact_cc_corr_img = _relion_cuda_corr_img_from_rfloat_ctf(
                 exact_cc_inv_xi2,
@@ -3001,9 +2909,7 @@ def _compute_k_class_significance_batched(
                 batch_scale_f32[:, None] if scale_corrections is not None else None,
             )
             if use_window:
-                tree_rescore_unshifted_data = exact_cc_unshifted_corrected[
-                    :, window_indices
-                ]
+                tree_rescore_unshifted_data = exact_cc_unshifted_corrected[:, window_indices]
                 tree_rescore_corr_img_data = exact_cc_corr_img[:, window_indices]
             else:
                 tree_rescore_unshifted_data = exact_cc_unshifted_corrected
@@ -3014,8 +2920,7 @@ def _compute_k_class_significance_batched(
             if exact_coarse_operands_enabled:
                 if not relion_cuda_preprocess or relion_preprocess_kwargs is None:
                     raise ValueError(
-                        f"{_K1_RELION_EXACT_COARSE_OPERANDS_ENV} requires "
-                        "RELION CUDA image preprocessing",
+                        f"{_K1_RELION_EXACT_COARSE_OPERANDS_ENV} requires " "RELION CUDA image preprocessing",
                     )
                 coarse_preprocess_kwargs = dict(relion_preprocess_kwargs)
                 coarse_preprocess_kwargs["relion_fft_per_image"] = True
@@ -3028,9 +2933,7 @@ def _compute_k_class_significance_batched(
             processed_for_powerclass = processed_direct
             if image_corrections is not None and not relion_cuda_preprocess:
                 image_only_correction = batch_corr / batch_scale
-                processed_for_powerclass = (
-                    processed_for_powerclass * image_only_correction[:, None]
-                )
+                processed_for_powerclass = processed_for_powerclass * image_only_correction[:, None]
             # Reuse the exact operands of RECOVAR's accepted Gaussian score
             # boundary. Reprocessing and translating a second image copy here
             # changed the operands as well as the reduction. Algebraically,
@@ -3080,12 +2983,8 @@ def _compute_k_class_significance_batched(
                     ctf_half_rfloat,
                     output_dtype=exact_real_dtype,
                 )
-                exact_unshifted_corrected = (
-                    jnp.asarray(processed_direct, dtype=exact_complex_dtype) * pixel_correction
-                )
-                exact_unshifted_corrected = exact_unshifted_corrected[
-                    :, coarse_gaussian_score_indices
-                ]
+                exact_unshifted_corrected = jnp.asarray(processed_direct, dtype=exact_complex_dtype) * pixel_correction
+                exact_unshifted_corrected = exact_unshifted_corrected[:, coarse_gaussian_score_indices]
                 exact_unshifted_corrected = jnp.where(
                     coarse_gaussian_score_active_mask[None, :],
                     exact_unshifted_corrected,
@@ -3097,9 +2996,7 @@ def _compute_k_class_significance_batched(
                 )
 
                 exact_translation_angles = (
-                    _relion_translation_angles_f64
-                    if use_float64_scoring
-                    else _relion_translation_angles_f32
+                    _relion_translation_angles_f64 if use_float64_scoring else _relion_translation_angles_f32
                 )
                 exact_translate_score = (
                     cuda_backproject.relion_translate_score_f64
@@ -3186,9 +3083,7 @@ def _compute_k_class_significance_batched(
             dump_target_local_positions is not None
             and _runtime_environment().get(_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV) == "1"
         )
-        passive_raw_score_blocks_per_class = (
-            [[] for _ in range(n_classes)] if passive_score_dump else None
-        )
+        passive_raw_score_blocks_per_class = [[] for _ in range(n_classes)] if passive_score_dump else None
         if passive_score_dump:
             # Do not materialize score blocks while production support is
             # being computed. Near an atomic cutoff that observation can
@@ -3205,7 +3100,9 @@ def _compute_k_class_significance_batched(
         best_argmax_batch = jnp.zeros(batch_size, dtype=jnp.int32)
         best_class_batch = jnp.zeros(batch_size, dtype=jnp.int32)
         class_best_scores = [jnp.full(batch_size, -jnp.inf) for _ in range(n_classes)] if return_class_best else None
-        class_best_argmaxes = [jnp.zeros(batch_size, dtype=jnp.int32) for _ in range(n_classes)] if return_class_best else None
+        class_best_argmaxes = (
+            [jnp.zeros(batch_size, dtype=jnp.int32) for _ in range(n_classes)] if return_class_best else None
+        )
         class_second_best_scores = (
             [jnp.full(batch_size, -jnp.inf) for _ in range(n_classes)] if track_class_second else None
         )
@@ -3222,8 +3119,7 @@ def _compute_k_class_significance_batched(
         cached_class_score_blocks = [] if cache_score_blocks else None
         if passive_score_dump and cached_class_score_blocks is None:
             raise RuntimeError(
-                f"{_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV}=1 requires the "
-                "production significance score cache"
+                f"{_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV}=1 requires the " "production significance score cache"
             )
 
         # ``RECOVAR_PASS1_FUSED=1`` swaps the per-block 4-5 separate JIT
@@ -3240,8 +3136,7 @@ def _compute_k_class_significance_batched(
         )
         if passive_score_dump and use_fused_pass1:
             raise RuntimeError(
-                f"{_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV}=1 does not support "
-                "the fused pass-1 diagnostic path"
+                f"{_SIGNIFICANCE_DUMP_PASSIVE_CACHE_ENV}=1 does not support " "the fused pass-1 diagnostic path"
             )
 
         # Precompute fused-path inputs once per batch (constant across class/block).
@@ -3428,9 +3323,7 @@ def _compute_k_class_significance_batched(
             tree_rescore_ambiguous += int(ambiguous_rows.size)
             if ambiguous_rows.size:
                 best_pose_np = np.asarray(class_best_argmaxes[0], dtype=np.int32)[ambiguous_rows]
-                second_pose_np = np.asarray(class_second_best_argmaxes[0], dtype=np.int32)[
-                    ambiguous_rows
-                ]
+                second_pose_np = np.asarray(class_second_best_argmaxes[0], dtype=np.int32)[ambiguous_rows]
                 candidate_pose_ids = np.sort(
                     np.stack([best_pose_np, second_pose_np], axis=1),
                     axis=1,
@@ -3447,9 +3340,7 @@ def _compute_k_class_significance_batched(
                     3,
                 )
                 unshifted_candidates = jnp.broadcast_to(
-                    tree_rescore_unshifted_data[
-                        jnp.asarray(ambiguous_rows, dtype=jnp.int32), None, :
-                    ],
+                    tree_rescore_unshifted_data[jnp.asarray(ambiguous_rows, dtype=jnp.int32), None, :],
                     (
                         ambiguous_rows.size,
                         2,
@@ -3460,9 +3351,7 @@ def _compute_k_class_significance_batched(
                     jnp.asarray(candidate_translation_ids, dtype=jnp.int32)
                 ]
                 score_weight_candidates = jnp.broadcast_to(
-                    tree_rescore_corr_img_data[
-                        jnp.asarray(ambiguous_rows, dtype=jnp.int32), None, :
-                    ],
+                    tree_rescore_corr_img_data[jnp.asarray(ambiguous_rows, dtype=jnp.int32), None, :],
                     unshifted_candidates.shape,
                 )
                 rescored_candidates = _relion_coarse_normalized_cc_rescore(
@@ -3505,9 +3394,7 @@ def _compute_k_class_significance_batched(
                     rotation_matrices=candidate_rotations,
                     translation_angles=candidate_translation_angles,
                     n_trans=n_trans,
-                    half_weights=(
-                        half_weights_windowed if use_window else half_weights
-                    ),
+                    half_weights=(half_weights_windowed if use_window else half_weights),
                     packed_to_compact=tree_rescore_fftw_order,
                     projector_full=coarse_gaussian_projector_full,
                     current_size=score_size,
@@ -3522,30 +3409,20 @@ def _compute_k_class_significance_batched(
                 rescored_runner_pose = candidate_pose_ids[row_ids, rescored_runner_slot]
                 rescored_winner_score = rescored_scores_np[row_ids, rescored_winner_slot]
                 rescored_runner_score = rescored_scores_np[row_ids, rescored_runner_slot]
-                tree_rescore_winner_changes += int(
-                    np.count_nonzero(rescored_winner_pose != best_pose_np)
-                )
+                tree_rescore_winner_changes += int(np.count_nonzero(rescored_winner_pose != best_pose_np))
                 applied_rows = np.arange(ambiguous_rows.size, dtype=np.int32)
                 if applied_rows.size:
                     rows_jax = jnp.asarray(ambiguous_rows[applied_rows], dtype=jnp.int32)
-                    best_argmax_batch = best_argmax_batch.at[rows_jax].set(
-                        rescored_winner_pose[applied_rows]
+                    best_argmax_batch = best_argmax_batch.at[rows_jax].set(rescored_winner_pose[applied_rows])
+                    best_score_batch = best_score_batch.at[rows_jax].set(rescored_winner_score[applied_rows])
+                    class_best_argmaxes[0] = class_best_argmaxes[0].at[rows_jax].set(rescored_winner_pose[applied_rows])
+                    class_best_scores[0] = class_best_scores[0].at[rows_jax].set(rescored_winner_score[applied_rows])
+                    class_second_best_argmaxes[0] = (
+                        class_second_best_argmaxes[0].at[rows_jax].set(rescored_runner_pose[applied_rows])
                     )
-                    best_score_batch = best_score_batch.at[rows_jax].set(
-                        rescored_winner_score[applied_rows]
+                    class_second_best_scores[0] = (
+                        class_second_best_scores[0].at[rows_jax].set(rescored_runner_score[applied_rows])
                     )
-                    class_best_argmaxes[0] = class_best_argmaxes[0].at[rows_jax].set(
-                        rescored_winner_pose[applied_rows]
-                    )
-                    class_best_scores[0] = class_best_scores[0].at[rows_jax].set(
-                        rescored_winner_score[applied_rows]
-                    )
-                    class_second_best_argmaxes[0] = class_second_best_argmaxes[0].at[
-                        rows_jax
-                    ].set(rescored_runner_pose[applied_rows])
-                    class_second_best_scores[0] = class_second_best_scores[0].at[
-                        rows_jax
-                    ].set(rescored_runner_score[applied_rows])
 
         global_log_z = global_max + jnp.log(global_sum)
         class_log_z_values = [
@@ -3639,8 +3516,7 @@ def _compute_k_class_significance_batched(
         log_score_offset = (
             np.zeros(batch_size, dtype=np.float64)
             if coarse_gaussian_ffi_enabled
-            else -0.5
-            * np.asarray(jnp.squeeze(batch_norm, axis=1), dtype=np.float64)
+            else -0.5 * np.asarray(jnp.squeeze(batch_norm, axis=1), dtype=np.float64)
         )
         global_log_z_np = np.asarray(global_log_z, dtype=np.float64)
         best_score_np = np.asarray(best_score_batch, dtype=np.float64)
@@ -3712,12 +3588,8 @@ def _compute_k_class_significance_batched(
                                 dtype=np.float64,
                             )
                         )
-                    target_scores_pre_prior_per_class.append(
-                        np.concatenate(raw_blocks, axis=1)
-                    )
-                    target_scores_with_prior_per_class.append(
-                        np.concatenate(with_prior_blocks, axis=1)
-                    )
+                    target_scores_pre_prior_per_class.append(np.concatenate(raw_blocks, axis=1))
+                    target_scores_with_prior_per_class.append(np.concatenate(with_prior_blocks, axis=1))
                 target_local_positions_for_dump = dump_target_local_positions
                 score_capture_mode = "passive_cached_after_support"
             elif dump_target_pre_prior_blocks_per_class is not None:
@@ -3739,10 +3611,7 @@ def _compute_k_class_significance_batched(
             )
             if requested_projection_rotations and target_local_positions_for_dump is not None:
                 projected_reference_rotation_ids = np.asarray(requested_projection_rotations, dtype=np.int32)
-                if (
-                    int(projected_reference_rotation_ids[0]) < 0
-                    or int(projected_reference_rotation_ids[-1]) >= n_rot
-                ):
+                if int(projected_reference_rotation_ids[0]) < 0 or int(projected_reference_rotation_ids[-1]) >= n_rot:
                     raise ValueError(
                         "RECOVAR_SIGNIFICANCE_DUMP_PROJECTION_ROTATIONS contains an out-of-range rotation",
                     )
@@ -3793,12 +3662,8 @@ def _compute_k_class_significance_batched(
                         component_cross.shape,
                     )
                     projection_values.append(np.asarray(projected_half, dtype=np.complex128))
-                    projection_norm_scores.append(
-                        np.asarray(-0.5 * component_norm, dtype=np.float64)
-                    )
-                    projection_cross_scores.append(
-                        np.asarray(-0.5 * component_cross, dtype=np.float64)
-                    )
+                    projection_norm_scores.append(np.asarray(-0.5 * component_norm, dtype=np.float64))
+                    projection_cross_scores.append(np.asarray(-0.5 * component_cross, dtype=np.float64))
                 projected_reference_per_class = np.stack(projection_values, axis=0)
                 projected_reference_norm_score_per_class = np.stack(
                     projection_norm_scores,
@@ -3848,9 +3713,7 @@ def _compute_k_class_significance_batched(
                 target_scores_with_prior_per_class=target_scores_with_prior_per_class,
                 projected_reference_rotation_ids=projected_reference_rotation_ids,
                 projected_reference_per_class=projected_reference_per_class,
-                projected_reference_norm_score_per_class=(
-                    projected_reference_norm_score_per_class
-                ),
+                projected_reference_norm_score_per_class=(projected_reference_norm_score_per_class),
                 projected_cross_score_per_class=projected_cross_score_per_class,
                 shifted_data=shifted_data,
                 ctf2_data=ctf2_data,
@@ -3862,17 +3725,11 @@ def _compute_k_class_significance_batched(
                 coarse_gaussian_initial_diff2=coarse_gaussian_initial_diff2,
                 coarse_gaussian_score_indices=coarse_gaussian_score_indices,
                 translation_phase_source=translations_source,
-                relion_f32_sum_weight=(
-                    _batch_sum_weight if relion_f32_coarse_support_enabled else None
-                ),
+                relion_f32_sum_weight=(_batch_sum_weight if relion_f32_coarse_support_enabled else None),
                 relion_f32_significant_weight=(
-                    _batch_significant_weight
-                    if relion_f32_coarse_support_enabled
-                    else None
+                    _batch_significant_weight if relion_f32_coarse_support_enabled else None
                 ),
-                relion_f32_cutoff_count=(
-                    batch_cutoff_count if relion_f32_coarse_support_enabled else None
-                ),
+                relion_f32_cutoff_count=(batch_cutoff_count if relion_f32_coarse_support_enabled else None),
                 score_capture_mode=score_capture_mode,
                 debug_iteration=debug_iteration,
             )
@@ -3919,8 +3776,7 @@ def _compute_k_class_significance_batched(
             "winner_changes": int(tree_rescore_winner_changes),
         }
         logger.warning(
-            "RELION coarse-tree top-2 rescore complete: "
-            "examined=%d ambiguous=%d exact_ties=%d winner_changes=%d",
+            "RELION coarse-tree top-2 rescore complete: " "examined=%d ambiguous=%d exact_ties=%d winner_changes=%d",
             tree_rescore_examined,
             tree_rescore_ambiguous,
             tree_rescore_exact_ties,
