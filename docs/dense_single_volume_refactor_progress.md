@@ -1,24 +1,52 @@
 # Dense Single-Volume EM Refactor Progress
 
-Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)  
-Current phase: C5 — split and simplify sparse pass 2
-Last updated: 2026-09-10
+Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)
+
+Audit: [`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volume_refactor_audit_2026-09-11.md)
+
+Current phase: C4.5 — consolidate C1--C4 foundations before C5
+
+Last updated: 2026-09-11
 
 ## Status board
 
 | Component | Status | Current result / next action |
 |---|---|---|
 | C0 Baseline and guardrails | COMPLETE FOR C1 | Inventory, focused/CPU guards, and a same-allocation A100 control/candidate run are recorded. The older absolute K=1 FSC gate remains an independent open issue. |
-| C1 Data contracts | COMPLETE — STRUCTURAL GPU PASS | Stable local and dense contracts are used by every in-package production caller. V100 job `60517729` confirms direct control/candidate final-map FSC-AUC `0.9998763`, improved candidate-vs-RELION FSC-AUC, and no runtime or memory regression. The older absolute K=1 FSC gate remains independently open. |
+| C1 Data contracts | COMPLETE — NUMERICAL GATE PASSED; ADAPTER DEBT OPEN | Typed local/dense requests and results are used at caller seams, but their implementations still round-trip through legacy signatures/tuples. V100 job `60517729` validated behavior and performance; C4.5 must finish the replacement. |
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
-| C4 Exact-local engine | COMPLETE — STRUCTURAL GPU PASS | Typed request/plans separate validation, array setup, batching, caches, diagnostics, and results. Fixed-input StableHLO is byte-identical, compilation count is unchanged, and paired GPU jobs `60544202`/`60544499` preserve quality with no material runtime or memory regression. |
-| C5 Sparse pass 2 | NOT STARTED — NEXT | Split 19,436-line module and break significance import cycle. |
-| C6 Dense/global engine | NOT STARTED | Stabilize request/result and orchestration stages. |
-| C7 Iteration controller | NOT STARTED | Decompose 5,564-line loop after engine boundaries stabilize. |
+| C4 Exact-local engine | COMPLETE — NUMERICAL/JIT GATE PASSED; HOST DEBT OPEN | Grouped big-JIT inputs, HLO, compilation, quality, runtime, and memory passed. The audit found that the typed host API still expands into the legacy signature/tuple path and must be consolidated. |
+| C4.5 Foundation consolidation | IN PROGRESS — NEXT IMPLEMENTATION | Invert local, dense, and local-search adapters; remove internal tuple/kwargs bridges and redundant one-lifecycle structures; reduce C4 production source by at least 1,000 lines before C5. |
+| C5 Sparse pass 2 | BLOCKED BY C4.5 | Do not split the 19,436-line module until the additive C1--C4 migration pattern is corrected. |
+| C6 Dense/global engine | NOT STARTED | Move the existing typed request/result into the canonical implementation and separate orchestration stages without another adapter layer. |
+| C7 Iteration controller | NOT STARTED | Decompose the current 5,620-line loop after engine boundaries stabilize. |
 | C8 K-class/replay routing | NOT STARTED | Consume typed engine/controller boundaries. |
-| C9 Duplicate/compatibility cleanup | NOT STARTED | Requires migrated production callers and evidence. |
+| C9 Duplicate/compatibility cleanup | NOT STARTED — FINAL RESIDUE ONLY | Earlier phases must remove their own superseded representations; C9 audits only justified compatibility and numerical variants that remain. |
 | C10 Final acceptance | NOT STARTED | Focused, CPU guard, Slurm GPU parity, full K=1, K-class, and performance gates. |
+
+## 2026-09-11 audit checkpoint
+
+The earlier phases preserved numerical behavior and created useful settings,
+diagnostics, and JAX boundaries, but they did not yet make the package smaller
+or substantially remove long host interfaces.
+
+| Measure | Baseline `1e2f229b` | C4 `6041093d` | Change |
+|---|---:|---:|---:|
+| Production Python files | 56 | 75 | `+19` |
+| Production lines | 67,999 | 71,509 | `+3,510` |
+| Functions/methods | 1,124 | 1,254 | `+130` |
+| Classes | 75 | 165 | `+90` |
+| Functions with >=15 args | 59 | 58 | `-1` |
+| Functions with >=20 args | 38 | 37 | `-1` |
+| Calls with >=15 args | 133 | 125 | `-8` |
+| Calls with >=20 args | 81 | 75 | `-6` |
+
+Decision: C1--C4 remain accepted for their validated numerical and boundary
+work, but C5 is paused. C4.5 must make typed cores authoritative, delete the
+internal compatibility round trips, and pass explicit deletion/complexity
+gates. Detailed evidence and candidate cleanup inventory are in the linked
+audit; authoritative exit thresholds are in the revised plan.
 
 ## Baseline inventory
 
@@ -2660,6 +2688,38 @@ signature until external callers migrate. The measured `23.44 us` PyTree
 dispatch cost and trajectory-dependent extra dynamic shape remain documented
 performance observations, not hidden regressions.
 
+### 2026-09-11 — C1--C4 structural value audit and plan correction
+
+Hypothesis: successful numerical/JAX gates did not establish that the refactor
+had reduced the reader-visible implementation or its long host interfaces.
+
+Evidence: production Python grew 67,999 -> 71,509 lines, files 56 -> 75,
+functions/methods 1,124 -> 1,254, and classes 75 -> 165. Functions with at
+least 20 arguments fell only 38 -> 37; calls with at least 20 arguments fell
+81 -> 75. Each of C1, C2, C3, and C4 was net-positive in production lines.
+
+Root cause: the typed local, dense, and local-search entry points are additive
+adapters over their legacy long-signature implementations and tuple protocols.
+K-class also retains raw `engine_kwargs` construction and signature-reflection
+bridges. Diagnostics/environment separation and the grouped local big-JIT
+boundary remain valuable and validated, but extraction added concepts faster
+than obsolete concepts were removed.
+
+Decision: revise the plan, pause C5, and insert C4.5. C4.5 requires canonical
+typed implementations, one-way compatibility only at real external edges,
+same-phase deletion of superseded representations, and a reduction of at least
+1,000 production lines from the C4 checkpoint. Full audit:
+[`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volume_refactor_audit_2026-09-11.md).
+
+Validation scope: documentation-only. No algorithm, imports, runtime behavior,
+JAX boundary, or artifact schema changed; GPU and numerical tests are not
+applicable. Documentation checks and repository provenance are recorded in the
+commits for this audit.
+
+Next action: begin C4.5 with a consumer inventory and the local typed-core
+adapter inversion. Keep local, dense, local-search, settings, diagnostics, and
+documentation cleanup in separate small commits.
+
 ## Per-slice update template
 
 Copy this block for each implementation slice:
@@ -2685,7 +2745,11 @@ Open risks:
 
 ## Immediate next actions
 
-1. Inventory the C5 sparse-pass-2 import graph and define the first neutral
-   support-selection seam that breaks the existing import cycle.
-2. Extract types/planning separately from numerical kernels, keeping each
-   commit small and validating K=1 and K-class callers independently.
+1. Inventory every local typed/legacy adapter consumer and record the C4.5
+   before scorecard.
+2. Make `run_local_em(LocalEMRequest)` authoritative in a mechanical, focused
+   slice; migrate caller families and remove the internal tuple round trip.
+3. Apply the proven inversion separately to dense and local-search execution.
+4. Audit and consolidate settings, diagnostics, and one-lifecycle local plans
+   until the C4.5 deletion/complexity gates pass.
+5. Begin C5 only after C4.5 is accepted.

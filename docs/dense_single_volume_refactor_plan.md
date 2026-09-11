@@ -1,9 +1,15 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: active planning baseline  
-Created: 2026-09-08  
-Scope: `recovar/em/dense_single_volume/` and its direct tests/callers  
+Status: active; C1--C4 audited, C4.5 consolidation required before C5
+
+Created: 2026-09-08
+
+Scope: `recovar/em/dense_single_volume/` and its direct tests/callers
+
 Progress log: [`dense_single_volume_refactor_progress.md`](dense_single_volume_refactor_progress.md)
+
+C1--C4 audit:
+[`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volume_refactor_audit_2026-09-11.md)
 
 ## 1. Goal
 
@@ -27,6 +33,37 @@ This is a structural refactor. It does not authorize changes to score formulas,
 candidate generation, posterior support, reduction order, dtype, random-number
 use, image order, M-step accumulation order, convergence rules, or RELION
 compatibility semantics.
+
+### 1.1 Outcome contract
+
+Readability, deletion, and replacement are deliverables, not hoped-for results
+of file extraction. The C1--C4 audit found that production Python grew from
+67,999 to 71,509 lines while functions with at least 20 arguments fell from 38
+to 37. The plan therefore uses the following rules from C4.5 onward:
+
+- report production, tests, and documentation separately; test or documentation
+  growth never offsets production growth;
+- distinguish a true replacement from an additive wrapper: a typed request is
+  not complete while normal production flow expands it into the old long
+  signature and parses the old tuple result;
+- delete a superseded internal representation in the same phase that replaces
+  it; temporary compatibility code needs an owner, real consumer, removal
+  condition, and expiry phase;
+- do not pass a phase merely by moving the same code into more modules or adding
+  names around it;
+- measure total/nonblank lines, files, functions, classes, long function
+  signatures, long calls, maximum function size, compatibility adapters,
+  duplicate implementations, environment boundaries, import cycles, and the
+  applicable quality/performance gates after every accepted slice;
+- keep a small type only when it names an independently testable decision,
+  crosses a meaningful boundary, or prevents invalid state. Inline or merge it
+  when it only renames local variables, duplicates a parent request, or bridges
+  two representations that should no longer coexist.
+
+These are complexity guardrails, not permission to compress code, merge
+numerically distinct kernels, or weaken clarity. If a quantitative target
+cannot be met safely, pause and revise the plan with the user instead of
+claiming completion or making algorithmic changes.
 
 ## 2. Provenance and baseline
 
@@ -80,7 +117,30 @@ The counts are baselines for a ratchet, not goals by themselves. Moving 50
 unrelated fields into a single opaque “context” would improve the count and
 make the design worse.
 
-### 3.1 Main hotspots
+### 3.1 C4 audit checkpoint
+
+The 2026-09-11 audit measured the completed C4 implementation at `6041093d`:
+
+| Measure | Baseline | C4 | Change |
+|---|---:|---:|---:|
+| Production Python files | 56 | 75 | `+19` |
+| Production lines | 67,999 | 71,509 | `+3,510` |
+| Functions/methods | 1,124 | 1,254 | `+130` |
+| Classes | 75 | 165 | `+90` |
+| Functions with >=15 args | 59 | 58 | `-1` |
+| Functions with >=20 args | 38 | 37 | `-1` |
+| Calls with >=15 args | 133 | 125 | `-8` |
+| Calls with >=20 args | 81 | 75 | `-6` |
+
+The environmental and diagnostic boundaries are real improvements, and the
+local big-JIT signature improved from 98 arguments to eight grouped arguments.
+However, typed local/dense/local-search entry points still delegate to their
+legacy long-signature implementations and translate legacy tuple results back
+to typed results. C4.5 corrects this additive migration before further
+component extraction. Full evidence and phase-by-phase findings are in the
+[C1--C4 audit](dense_single_volume_refactor_audit_2026-09-11.md).
+
+### 3.2 Main hotspots
 
 | File/function | Size or signature | Main concerns |
 |---|---:|---|
@@ -101,7 +161,7 @@ Examples of the plumbing problem include a 100-line, 98-argument call to
 `run_local_bucket_big_jit`, multiple 50- to 64-line calls from the iteration
 loop into half scorers, and result tuples whose shape changes with flags.
 
-### 3.2 Existing foundations to retain
+### 3.3 Existing foundations to retain
 
 The refactor should build on, not discard, the following existing work:
 
@@ -120,7 +180,7 @@ The refactor should build on, not discard, the following existing work:
   including the direct packed-half local adjoint contract and the negative
   result for local projection deduplication.
 
-### 3.3 Distinct concerns currently hidden behind flags
+### 3.4 Distinct concerns currently hidden behind flags
 
 Environment-controlled behavior falls into four different categories and must
 not remain one undifferentiated set:
@@ -355,8 +415,14 @@ the normal algorithm unreadable.
 ## 7. Work breakdown
 
 Each component is delivered as small reviewable slices. A slice should normally
-change one boundary, retain a compatibility adapter, and add or update focused
-tests before callers are migrated.
+change one boundary and add or update focused tests. Compatibility belongs at a
+genuine external edge, not between two in-package representations. A slice that
+introduces a migration adapter must either remove it after migrating callers in
+the same phase or record its owner, consumer, deletion condition, and expiry.
+
+C1--C4 are historical completed phases. Their numerical/performance gates
+remain accepted, but the 2026-09-11 structural audit supersedes any claim that
+their host interfaces are fully migrated. C5 is blocked until C4.5 passes.
 
 ### C0. Freeze behavior and add structural guardrails
 
@@ -471,20 +537,91 @@ Exit criteria:
 - no increase in shape-class/JIT compile count;
 - local focused tests, fast guard, and paired warm timing pass.
 
+Audit result: the grouped big-JIT boundary and extracted ownership passed, but
+the host migration remained additive. `run_local_em(request)` still expands to
+the historical `run_local_em_exact(...)` signature and converts its tuple back
+to a typed result. C4.5 must finish this replacement before C5.
+
+### C4.5. Consolidate the C1--C4 foundations
+
+Purpose: turn the existing scaffolding into a smaller authoritative design
+before introducing sparse-pass-2 types or modules. This phase changes host
+ownership and compatibility direction only; it does not change numerical
+operations, JAX array order, dispatch policy, or diagnostic schemas.
+
+Deliverables, in order:
+
+1. Inventory every C1--C4 compatibility adapter, legacy tuple converter,
+   re-export shim, raw settings dictionary, and newly introduced plan/result
+   class. Record its production consumers and classify it as canonical,
+   external compatibility, independently meaningful, merge candidate, or dead.
+2. Make `run_local_em(LocalEMRequest) -> LocalEMResult` the canonical
+   implementation. Move the existing body mechanically behind this boundary,
+   migrate every in-package caller, and make any required long-signature entry
+   point a thin one-way external adapter into the typed core.
+3. Apply the same adapter inversion to `run_dense_em` and typed local-search
+   execution. Production flow must never be
+   `typed -> legacy signature -> tuple -> typed`.
+4. Remove `legacy_runner` injection, signature-reflection request builders,
+   internal variable-tuple packing/unpacking, and K-class request round trips.
+   Preserve test interception through the canonical callable boundary or a
+   narrowly scoped explicit dependency only where a real test requires it.
+5. Replace K-class `engine_kwargs` bags that feed local/dense engines with typed
+   engine requests or typed class views. Do not broaden this into the C8
+   algorithm/routing redesign.
+6. Audit the C2 settings hierarchy. Keep `RuntimeConfiguration` as the resolved
+   host snapshot, pass owned settings explicitly to lower host components, and
+   remove aliases/accessors or duplicate settings records that add no semantic
+   boundary.
+7. Audit C3 diagnostics events/sinks and C4 planning records by producer,
+   consumer, and lifetime. Merge or inline one-lifecycle records; retain types
+   that express a separately testable decision or cross a real module/JAX
+   boundary.
+8. Remove internal dependencies on the legacy debug-module re-export shims and
+   delete shims that have no supported external consumer. Retarget tests to the
+   owning module instead of preserving private import locations for
+   monkeypatching.
+9. Split the progress documentation into a concise active status/metrics ledger
+   and an immutable historical archive. Preserve portable `$HOME` and
+   `$REPO_ROOT` paths; never add a user-specific absolute path.
+
+Quantitative exit gates, measured against C4 checkpoint `6041093d`:
+
+- production lines at most 70,509 (a reduction of at least 1,000);
+- no more than 74 production Python files and 155 production classes;
+- no more than 35 functions with at least 20 arguments;
+- no more than 65 calls with at least 20 arguments;
+- `run_local_em`, `run_dense_em`, and typed local-search execution are canonical
+  and have no in-package typed-to-legacy-to-typed route;
+- every remaining legacy facade has a documented external consumer or explicit
+  compatibility requirement and is absent from hot loops;
+- focused local, dense, K-class caller, settings, and diagnostics tests pass;
+  CPU fast guard passes; GPU/HLO validation is rerun for any slice that changes
+  a JIT-facing tree or execution dispatch.
+
+These numeric gates deliberately require a material improvement without making
+line count the sole objective. If consumer evidence makes one unsafe, stop and
+obtain an explicit plan revision rather than silently carrying the debt into
+C5.
+
 ### C5. Split and simplify sparse pass 2
 
 Deliverables:
 
-- break `helpers/sparse_pass2_bucketed.py` into types, planning, input
-  preparation, scoring, posterior, M-step, noise/norm, and orchestration modules;
+- first delete dead/shadow sparse paths and identify the smallest stable
+  orchestration boundary; do not begin with a file-per-concept split;
+- extract types, planning, input preparation, scoring, posterior, M-step, and
+  noise/norm modules only where they have an independent owner or test surface;
 - move all capture/dump code to diagnostics adapters;
-- define `SparsePass2Request`, `SparsePass2Policy`, `SparsePass2Plan`, and stable
-  K=1/K-class results;
+- define one cohesive sparse request and stable K=1/K-class results; introduce a
+  separate policy or plan only when its lifecycle or JAX/static role differs;
 - share planning and preparation between K=1 and K-class without merging
   numerically distinct score/posterior/M-step kernels;
 - break the `significance`/`sparse_pass2_bucketed` import cycle by moving shared
   support-selection types/primitives to a neutral lower-level module;
-- retain a compatibility facade at the old import path while callers migrate.
+- migrate all in-package callers during C5. Retain a facade at the old import
+  path only for a documented external compatibility requirement, and make it a
+  one-way adapter to the canonical typed implementation.
 
 Exit criteria:
 
@@ -492,14 +629,17 @@ Exit criteria:
 - exact RELION and algebraic kernels remain explicitly named;
 - bucket topology, candidate identity/order, compile count, peak memory, and
   results match their baselines;
-- the sparse performance regression test remains green.
+- the sparse performance regression test remains green;
+- the touched sparse/significance production subsystem is net smaller, and the
+  package-wide production line, class, long-signature, and long-call counts do
+  not increase from the accepted C4.5 checkpoint.
 
 ### C6. Refactor dense/global scoring
 
 Deliverables:
 
-- replace `run_em`'s argument and tuple contracts with a typed dense request and
-  result;
+- finish the existing dense migration by moving `run_em`'s body behind the
+  canonical typed request/result rather than adding another wrapper;
 - separate preprocessing, block planning, pass-1 normalization, pass-2 M-step,
   noise accumulation, and finalization;
 - evolve `_DenseBigJitBatchRunner` into a thin adapter over grouped kernel
@@ -513,7 +653,9 @@ Exit criteria:
 - dense numerical kernels have stable typed inputs/results;
 - first-iteration normalized-CC/hard-winner behavior and Gaussian behavior are
   independently covered;
-- dense JIT HLO, compile count, peak memory, and warm timing remain within gate.
+- dense JIT HLO, compile count, peak memory, and warm timing remain within gate;
+- no in-package caller invokes the long compatibility signature or consumes a
+  flag-dependent tuple, and the touched dense subsystem is net smaller.
 
 ### C7. Decompose half-step and iteration control
 
@@ -522,7 +664,8 @@ Deliverables:
 - make `_score_half_dense` and `_score_half_local` consume `HalfStepRequest` and
   return the same `HalfScoreResult` contract;
 - replace `_run_local_search_iteration`'s 71 arguments with a local-search
-  request assembled from the iteration plan;
+  request assembled from the iteration plan; replace the implementation rather
+  than wrapping and re-expanding the request;
 - split `_run_relion_iteration_loop` into initialization, plan derivation,
   replay application, per-half scoring, map/noise/prior/correction updates,
   convergence, history/reporting, and finalization;
@@ -536,6 +679,8 @@ Deliverables:
 Exit criteria:
 
 - the main iteration body reads as a stage sequence;
+- `_run_relion_iteration_loop` is below 1,000 lines and delegates to named,
+  independently testable lifecycle stages;
 - carried state has one definition and one update boundary;
 - convergence iteration, current-size/healpix trajectories, finalization route,
   particle state, maps, and histories match the baseline.
@@ -561,6 +706,15 @@ Exit criteria:
 - per-class FSC/state tests pass and no class is hidden by aggregate metrics;
 - replay cutoff and native-ownership transitions remain exact.
 
+Package-wide C8 structural gate:
+
+- production Python is at or below the 67,999-line baseline;
+- no phase after C4.5 has increased production lines, classes, long signatures,
+  or long calls without an explicit user-approved exception;
+- functions with at least 20 arguments are at most 20 and calls with at least
+  20 arguments are at most 35;
+- all remaining compatibility and duplicate paths are itemized before C9.
+
 ### C9. Remove obsolete compatibility and duplicate paths
 
 Deliverables:
@@ -574,6 +728,10 @@ Deliverables:
 - rename ambiguous `helpers` modules according to responsibility;
 - add a dependency-layer test and enforce no new import cycles;
 - ratchet argument/call/environment metrics downward.
+
+C9 is a final residue audit, not the phase where earlier additive migrations
+are finally paid down. Each of C4.5--C8 must remove the representation it
+supersedes before advancing.
 
 Exit criteria:
 
@@ -752,9 +910,14 @@ For every slice:
 3. Add or identify a focused equivalence test before changing the boundary.
 4. Make a mechanical extraction or interface migration; do not combine it with
    an algorithm/performance change.
-5. Run the focused tests, inspect the diff, and update the progress log.
+5. Run the focused tests, inspect the diff, and record the before/after
+   structural scorecard. Explain each new type/module and identify what the
+   slice deleted or replaced.
 6. Run the next validation rung proportional to risk.
-7. Revert or isolate any slice whose difference cannot be explained.
+7. Remove the slice's migration adapter after its caller family moves. If it
+   must stay, record its owner, consumer, deletion condition, and expiry.
+8. Revert or isolate any numerical, performance, or unexplained structural
+   difference.
 
 Do not:
 
@@ -788,24 +951,33 @@ The refactor is complete when:
   memory regression;
 - the progress document contains exact commands, results, job IDs/artifact
   paths, unresolved risks, and the final provenance.
+- production source is no larger than the 67,999-line baseline unless the user
+  explicitly approves a documented exception for concrete new capability;
+- no canonical in-package path converts a typed request to a historical long
+  signature and then converts a historical tuple back to a typed result;
+- each retained class/module earns its boundary through independent ownership,
+  validation, or invalid-state prevention rather than extraction alone.
 
-## 12. Recommended first implementation slice
+## 12. Next implementation sequence
 
-Start with the host-side local-engine contract, without changing the JIT
-signature yet:
+Do not begin C5. Start C4.5 with the local adapter inversion because C4 has the
+strongest focused tests and fixed-input HLO evidence:
 
-1. Define `LocalEMRequest` from cohesive sub-objects and `LocalEMResult` with a
-   stable field layout.
-2. Keep the existing `run_local_em_exact(...)` entry point temporarily as a
-   compatibility adapter that constructs the request.
-3. Add an internal `run_local_em(request, diagnostics)` entry point and migrate
-   production callers in `local_search_iteration.py`, `k_class.py`, and
-   `iteration_loop.py`.
-4. Leave all calculations, bucket ordering, environment resolution, and the
-   98-argument JIT call unchanged in this slice.
-5. Prove old-adapter/new-request output equivalence with existing local tests,
-   then run the CPU fast guard.
+1. Record the exact local compatibility consumer inventory and a before
+   scorecard.
+2. Mechanically make `run_local_em(request)` own the existing algorithm body;
+   leave calculations, ordering, settings, and JIT inputs unchanged.
+3. Migrate one caller family at a time and keep the old signature only as a
+   one-way facade if a documented external consumer requires it.
+4. Remove the local tuple/output-spec round trip after the final in-package
+   caller moves.
+5. Run focused local and caller tests after each small commit, then the CPU fast
+   guard. Repeat fixed-input HLO/compile checks because the host dispatch seam
+   touches the JIT entry path.
+6. Apply the proven pattern separately to dense and local-search execution.
+7. Only then audit and collapse the remaining settings, diagnostic, and local
+   planning structures needed to meet the C4.5 exit gates.
 
-This creates an immediately useful seam for later diagnostic extraction and
-JIT argument grouping while keeping the first patch low risk and easy to
-review.
+Each commit must be understandable and independently revertible. Do not combine
+the local, dense, local-search, settings, diagnostics, or documentation cleanup
+into one commit.
