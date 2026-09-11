@@ -27,6 +27,7 @@ import recovar.em.dense_single_volume.relion_replay as relion_replay_module
 import recovar.reconstruction.regularization as regularization_module
 from recovar import core
 from recovar.core.configs import ForwardModelConfig
+from recovar.em.dense_single_volume.dense_em_types import DenseEMResult
 from recovar.em.dense_single_volume.em_engine import _batch_parameter_rows, run_em
 from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch as _fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.convergence import (
@@ -438,6 +439,37 @@ H, W = IMAGE_SHAPE
 N_ROTATIONS = 5
 N_TRANSLATIONS = 3
 N_IMAGES = 4  # tiny: 2 per half-set
+
+
+def _adapt_legacy_dense_runner(legacy_runner):
+    """Adapt a legacy-signature test double to the canonical typed seam."""
+
+    def typed_runner(request):
+        inputs = request.inputs
+        output = legacy_runner(
+            inputs.experiment_dataset,
+            inputs.mean,
+            inputs.mean_variance,
+            inputs.noise_variance,
+            inputs.rotations,
+            inputs.translations,
+            inputs.disc_type,
+            **{
+                **vars(request.search),
+                **vars(request.execution),
+                **vars(request.scoring),
+                **vars(request.projection),
+                **vars(request.corrections),
+                **vars(request.posterior),
+                **vars(request.reconstruction),
+                **vars(request.outputs),
+            },
+        )
+        if isinstance(output, DenseEMResult):
+            return output
+        return DenseEMResult.from_legacy_tuple(output, request.outputs.legacy_tuple_spec)
+
+    return typed_runner
 SEED = 42
 
 
@@ -4513,7 +4545,7 @@ def test_exact_local_relion_projector_noise_projection_materializes_once():
 def test_dense_and_local_noise_mask_asymmetric_current_crop():
     from recovar.em.dense_single_volume import em_engine, local_em_engine
 
-    dense_src = inspect.getsource(em_engine.run_em)
+    dense_src = inspect.getsource(em_engine.run_dense_em)
     local_src = inspect.getsource(local_em_engine.run_local_em)
     call = "mask_relion_noise_shell_indices_to_current_window("
 
@@ -9909,7 +9941,7 @@ class TestRelionModeSmokeTest:
     ):
         """The final joined reconstruction still scores each half against its own map."""
         original_update = iteration_loop_module.update_refinement_state
-        original_run_em = iteration_loop_module.run_em
+        original_run_em = run_em
         run_em_mean_ids = []
         expected_accuracy_current_sizes = []
 
@@ -9942,7 +9974,7 @@ class TestRelionModeSmokeTest:
             "update_refinement_state",
             force_convergence_after_first_iter,
         )
-        monkeypatch.setattr(iteration_loop_module, "run_em", spy_run_em)
+        monkeypatch.setattr(iteration_loop_module, "run_dense_em", _adapt_legacy_dense_runner(spy_run_em))
         monkeypatch.setattr(
             iteration_loop_module,
             "relion_half1_trial_order",
@@ -10052,7 +10084,7 @@ class TestRelionModeSmokeTest:
             "update_refinement_state",
             force_convergence_after_first_iter,
         )
-        monkeypatch.setattr(iteration_loop_module, "run_em", fake_run_em)
+        monkeypatch.setattr(iteration_loop_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
         monkeypatch.setattr(regularization_module, "compute_relion_tau2_from_weights", spy_tau2)
 
         result = refine_single_volume(
@@ -10087,7 +10119,7 @@ class TestRelionModeSmokeTest:
     ):
         """The final K=1 all-data E-step uses the previous iter's pdf_direction."""
         original_update = iteration_loop_module.update_refinement_state
-        original_run_em = iteration_loop_module.run_em
+        original_run_em = run_em
         custom_eulers = np.zeros((N_ROTATIONS, 3), dtype=np.float32)
         learned_direction_priors = [
             np.array([0.7, 0.3], dtype=np.float32),
@@ -10137,7 +10169,7 @@ class TestRelionModeSmokeTest:
             "update_refinement_state",
             force_convergence_after_first_iter,
         )
-        monkeypatch.setattr(iteration_loop_module, "run_em", spy_run_em)
+        monkeypatch.setattr(iteration_loop_module, "run_dense_em", _adapt_legacy_dense_runner(spy_run_em))
         monkeypatch.setattr(iteration_loop_module, "rotation_grid_size", fake_rotation_grid_size)
         monkeypatch.setattr(
             iteration_loop_module,
@@ -10194,7 +10226,7 @@ class TestRelionModeSmokeTest:
     ):
         """The final all-data E-step still uses RELION's pdf_offset prior."""
         original_update = iteration_loop_module.update_refinement_state
-        original_run_em = iteration_loop_module.run_em
+        original_run_em = run_em
         run_em_translation_priors = []
         run_em_translation_prior_centers = []
 
@@ -10216,7 +10248,7 @@ class TestRelionModeSmokeTest:
             "update_refinement_state",
             force_convergence_after_first_iter,
         )
-        monkeypatch.setattr(iteration_loop_module, "run_em", spy_run_em)
+        monkeypatch.setattr(iteration_loop_module, "run_dense_em", _adapt_legacy_dense_runner(spy_run_em))
 
         result = refine_single_volume(
             half_datasets,
@@ -10255,7 +10287,7 @@ class TestRelionModeSmokeTest:
     ):
         """The joined final E-step retains each random subset's noise model."""
         original_update = iteration_loop_module.update_refinement_state
-        original_run_em = iteration_loop_module.run_em
+        original_run_em = run_em
         replay_noise_h1 = np.linspace(2.0, 3.0, IMAGE_SIZE, dtype=np.float32)
         replay_noise_h2 = np.linspace(5.0, 6.0, IMAGE_SIZE, dtype=np.float32)
         run_em_noise = []
@@ -10274,7 +10306,7 @@ class TestRelionModeSmokeTest:
             "update_refinement_state",
             force_convergence_after_first_iter,
         )
-        monkeypatch.setattr(iteration_loop_module, "run_em", spy_run_em)
+        monkeypatch.setattr(iteration_loop_module, "run_dense_em", _adapt_legacy_dense_runner(spy_run_em))
 
         result = refine_single_volume(
             half_datasets,
@@ -10314,7 +10346,7 @@ class TestRelionModeSmokeTest:
     ):
         """The final all-data E-step follows RELION local-search state."""
         original_update = iteration_loop_module.update_refinement_state
-        original_run_em = iteration_loop_module.run_em
+        original_run_em = run_em
         run_em_calls = []
         local_calls = []
 
@@ -10466,7 +10498,7 @@ class TestRelionModeSmokeTest:
             "update_refinement_state",
             force_converged_local_after_first_iter,
         )
-        monkeypatch.setattr(iteration_loop_module, "run_em", spy_run_em)
+        monkeypatch.setattr(iteration_loop_module, "run_dense_em", _adapt_legacy_dense_runner(spy_run_em))
         monkeypatch.setattr(iteration_loop_module, "rotation_grid_size", fake_rotation_grid_size)
         monkeypatch.setattr(iteration_loop_module, "get_relion_rotation_grid", fake_get_relion_rotation_grid)
         monkeypatch.setattr(
@@ -13304,7 +13336,7 @@ class TestRelionModeSmokeTest:
                 ),
             )
 
-        monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+        monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
         result = refine_single_volume(
             half_datasets,
@@ -13383,7 +13415,7 @@ class TestRelionModeSmokeTest:
                 ),
             )
 
-        monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+        monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
         refine_single_volume(
             half_datasets,
@@ -14812,7 +14844,7 @@ def test_local_search_uses_negative_previous_offsets_for_translation_prior(
     monkeypatch.setattr(refine_mod, "_precompute_exact_local_fine_grid_enabled", lambda order: False)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -14993,7 +15025,7 @@ def test_local_search_coarse_translation_prior_mode_uses_unperturbed_base_grid(
     monkeypatch.setattr(refine_mod, "_precompute_exact_local_fine_grid_enabled", lambda order: False)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -15108,7 +15140,7 @@ def test_local_search_os0_keeps_full_local_support_for_mstep(
     monkeypatch.setattr(refine_mod, "rotation_grid_size", fake_rotation_grid_size)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -15211,7 +15243,7 @@ def _run_refine_with_stubbed_exact_local_batch_sizes(
     monkeypatch.setattr(refine_mod, "rotation_grid_size", fake_rotation_grid_size)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -15398,7 +15430,7 @@ def test_local_search_coarse_translation_prior_mode_uses_replay_sampling_grid_wh
     monkeypatch.setattr(refine_mod, "rotation_grid_size", fake_rotation_grid_size)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -15591,7 +15623,7 @@ def test_first_local_iteration_uses_previous_best_rotations_without_dense_bootst
             best_pose_details,
         )
 
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -15767,7 +15799,7 @@ def test_init_previous_best_rotation_eulers_seed_first_local_iteration(
             best_pose_details,
         )
 
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
     monkeypatch.setattr(
         refine_mod,
@@ -15859,7 +15891,7 @@ def test_relion_mode_writes_absolute_translations_from_previous_offset(
             ),
         )
 
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
     result = refine_single_volume(
         half_datasets,
@@ -16407,7 +16439,7 @@ def test_local_search_decodes_hard_assignments_on_fine_grid(
     monkeypatch.setattr(refine_mod, "rotation_grid_size", fake_rotation_grid_size)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "run_em", fake_run_em)
+    monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
     monkeypatch.setattr(
         refine_mod,

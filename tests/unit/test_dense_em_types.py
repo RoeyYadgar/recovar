@@ -3,6 +3,7 @@ import itertools
 from dataclasses import FrozenInstanceError
 
 import pytest
+import recovar.em.dense_single_volume.em_engine as em_engine
 
 from recovar.em.dense_single_volume.dense_em_types import (
     DenseCorrectionInputs,
@@ -116,7 +117,7 @@ def test_dense_requested_outputs_define_only_legacy_tuple_suffixes():
 
 
 @pytest.mark.unit
-def test_dense_em_adapter_forwards_every_legacy_engine_parameter():
+def test_dense_em_compatibility_facade_groups_every_legacy_engine_parameter(monkeypatch):
     request = DenseEMRequest(
         inputs=DenseEMInputs(
             "dataset",
@@ -185,15 +186,6 @@ def test_dense_em_adapter_forwards_every_legacy_engine_parameter():
         noise_stats="noise_stats",
         profile_stats="profile_stats",
     )
-    captured = {}
-
-    def fake_legacy_runner(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
-
-    result = run_dense_em(request, legacy_runner=fake_legacy_runner)
-
     expected_kwargs = {}
     for group in (
         request.search,
@@ -207,8 +199,14 @@ def test_dense_em_adapter_forwards_every_legacy_engine_parameter():
     ):
         expected_kwargs.update(vars(group))
 
-    assert result == expected_result
-    assert captured["args"] == (
+    captured = {}
+
+    def fake_run_dense_em(actual_request):
+        captured["request"] = actual_request
+        return expected_result
+
+    monkeypatch.setattr(em_engine, "run_dense_em", fake_run_dense_em)
+    legacy_output = run_em(
         "dataset",
         "mean",
         "mean_variance",
@@ -216,17 +214,10 @@ def test_dense_em_adapter_forwards_every_legacy_engine_parameter():
         "rotations",
         "translations",
         "disc_type",
+        **expected_kwargs,
     )
-    assert captured["kwargs"] == expected_kwargs
+
+    assert legacy_output == expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
+    assert captured["request"] == request
     assert set(expected_kwargs) == set(list(inspect.signature(run_em).parameters)[7:])
-
-    round_trip_request = dense_em_request_from_legacy_kwargs(request.inputs, captured["kwargs"])
-    round_trip_capture = {}
-
-    def round_trip_runner(*args, **kwargs):
-        round_trip_capture["args"] = args
-        round_trip_capture["kwargs"] = kwargs
-        return expected_result.to_legacy_tuple(round_trip_request.outputs.legacy_tuple_spec)
-
-    assert run_dense_em(round_trip_request, legacy_runner=round_trip_runner) == expected_result
-    assert round_trip_capture == captured
+    assert dense_em_request_from_legacy_kwargs(request.inputs, expected_kwargs) == request

@@ -51,7 +51,6 @@ from recovar.em.dense_single_volume.diagnostics.sinks import (
 from recovar.em.dense_single_volume.em_engine import (
     dense_em_request_from_legacy_kwargs,
     run_dense_em,
-    run_em,
 )
 from recovar.em.dense_single_volume.firstiter_cc import (
     _build_firstiter_cc_pass2_grids,
@@ -3103,7 +3102,6 @@ def _score_half_dense(
                 **direct_em_kwargs,
             ),
         ),
-        legacy_runner=run_em,
     )
     return HalfScoreResult(
         ha=dense_result.hard_assignment,

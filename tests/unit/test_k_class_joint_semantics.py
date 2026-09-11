@@ -9,6 +9,7 @@ pytest.importorskip("jax")
 import jax.numpy as jnp
 
 import recovar.em.dense_single_volume.k_class as k_class_module
+from recovar.em.dense_single_volume.dense_em_types import DenseEMResult
 from recovar.em.dense_single_volume.helpers.orientation_priors import (
     class_weights_from_direction_prior,
     normalize_class_direction_prior_per_half,
@@ -49,6 +50,37 @@ def _stats(log_evidence, best_score, pmax, n_rot=3):
         max_posterior_per_image=np.asarray(pmax, dtype=np.float32),
         rotation_posterior_sums=np.zeros(n_rot, dtype=np.float32),
     )
+
+
+def _adapt_legacy_dense_runner(legacy_runner):
+    """Adapt a legacy-signature test double to the canonical typed seam."""
+
+    def typed_runner(request):
+        inputs = request.inputs
+        output = legacy_runner(
+            inputs.experiment_dataset,
+            inputs.mean,
+            inputs.mean_variance,
+            inputs.noise_variance,
+            inputs.rotations,
+            inputs.translations,
+            inputs.disc_type,
+            **{
+                **vars(request.search),
+                **vars(request.execution),
+                **vars(request.scoring),
+                **vars(request.projection),
+                **vars(request.corrections),
+                **vars(request.posterior),
+                **vars(request.reconstruction),
+                **vars(request.outputs),
+            },
+        )
+        if isinstance(output, DenseEMResult):
+            return output
+        return DenseEMResult.from_legacy_tuple(output, request.outputs.legacy_tuple_spec)
+
+    return typed_runner
 
 
 def _firstiter_probe_result(class_assignments, per_class_hard=None, n_rot=1):
@@ -568,7 +600,7 @@ def test_dense_k_class_selects_class_rotation_log_prior(monkeypatch):
             stats,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
     class_rotation_log_prior = np.asarray(
         [
@@ -642,7 +674,7 @@ def test_dense_k_class_decodes_best_pose_details(monkeypatch):
             stats,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
     result = run_dense_k_class_em(
         TinyDataset(),
@@ -695,7 +727,7 @@ def test_dense_k_class_single_class_skips_score_probe(monkeypatch):
             stats,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
     result = run_dense_k_class_em(
         TinyDataset(),
@@ -810,7 +842,7 @@ def test_adaptive_k_class_firstiter_override_redecodes_best_pose_details(monkeyp
             per_class_best_pose_rotation_ids=best_rot_ids,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(k_class_module, "run_dense_k_class_em", fake_run_dense_k_class_em)
 
     def fake_joint_probe(*args, **kwargs):
@@ -886,7 +918,7 @@ def test_firstiter_score_probe_uses_joint_significance(monkeypatch):
         raise AssertionError("firstiter K-class coarse probe should not call run_em per class")
 
     monkeypatch.setattr(significance_module, "_compute_k_class_significance_batched", fake_compute_significance)
-    monkeypatch.setattr(k_class_module, "run_em", fail_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fail_run_em))
 
     phase_source = np.asarray(
         [[0.0, 0.0], [1.0 + 2.0**-30, 0.0], [2.0, 0.0]],
@@ -995,7 +1027,7 @@ def test_adaptive_k_class_firstiter_uses_coarse_current_size_for_probe(monkeypat
             noise_stats=None,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(k_class_module, "run_dense_k_class_em", fake_run_dense_k_class_em)
 
     def fake_joint_probe(*_args, **kwargs):
@@ -1096,7 +1128,7 @@ def test_adaptive_k_class_firstiter_fine_pass_uses_global_winner_subsets(monkeyp
             stats,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
 
     def fake_joint_probe(*args, **kwargs):
         probe_calls.append((args, kwargs))
@@ -1259,7 +1291,7 @@ def test_adaptive_k_class_firstiter_sparse_fine_pass_uses_global_winner_subsets(
             stats,
         )
 
-    monkeypatch.setattr(k_class_module, "run_em", fake_run_em)
+    monkeypatch.setattr(k_class_module, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
     monkeypatch.setattr(oversampling_module, "compute_pass2_stats_sparse", fake_compute_pass2_stats_sparse)
 
     def fake_joint_probe(*args, **kwargs):

@@ -18,6 +18,7 @@ pytest.importorskip("jax")
 import jax.numpy as jnp
 
 import recovar.core.fourier_transform_utils as ftu
+from recovar.em.dense_single_volume.dense_em_types import DenseEMResult
 from recovar.em.dense_single_volume.em_engine import (
     compute_e_step_weights,
     run_em,
@@ -1520,33 +1521,24 @@ class TestUnionCap:
         sig_rot_mask[:2] = True
         captured = {}
 
-        def fake_run_em(
-            experiment_dataset,
-            mean,
-            mean_variance,
-            noise_variance,
-            rotations,
-            translations,
-            disc_type,
-            **kwargs,
-        ):
+        def fake_run_dense_em(request):
+            inputs = request.inputs
             _ = (
-                experiment_dataset,
-                mean,
-                mean_variance,
-                noise_variance,
-                rotations,
-                disc_type,
-                kwargs,
+                inputs.experiment_dataset,
+                inputs.mean,
+                inputs.mean_variance,
+                inputs.noise_variance,
+                inputs.rotations,
+                inputs.disc_type,
             )
-            captured["translations"] = np.asarray(translations)
+            captured["translations"] = np.asarray(inputs.translations)
             n_images = ds.n_units
             ha = np.zeros(n_images, dtype=np.int32)
             Ft_y = jnp.zeros(ds.volume_size, dtype=ds.dtype)
             Ft_ctf = jnp.zeros(ds.volume_size, dtype=ds.dtype)
-            return jnp.zeros(ds.volume_size, dtype=ds.dtype), ha, Ft_y, Ft_ctf
+            return DenseEMResult(jnp.zeros(ds.volume_size, dtype=ds.dtype), ha, Ft_y, Ft_ctf)
 
-        monkeypatch.setattr(engine_mod, "run_em", fake_run_em)
+        monkeypatch.setattr(engine_mod, "run_dense_em", fake_run_dense_em)
 
         Ft_y, Ft_ctf, ha, oversampled = adaptive_mod.compute_pass2_stats(
             ds,

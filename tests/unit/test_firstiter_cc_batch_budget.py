@@ -5,6 +5,7 @@ import numpy as np
 
 from recovar.em.dense_single_volume import iteration_loop, k_class
 from recovar.em.dense_single_volume.batch_planning import _estimate_relion_em_batch_sizes
+from recovar.em.dense_single_volume.dense_em_types import DenseEMResult
 from recovar.em.dense_single_volume.firstiter_cc import (
     _safe_dense_k_class_rotation_block_size,
     _safe_firstiter_cc_image_batch_size,
@@ -222,7 +223,7 @@ def test_firstiter_cc_adaptive_dispatch_clamps_against_fine_translation_grid(mon
     assert np.all(captured["fine_mstep_rotations_override"] == 0.25)
 
 
-def test_dense_half_direct_route_preserves_legacy_runner_hook(monkeypatch):
+def test_dense_half_direct_route_builds_typed_request(monkeypatch):
     captured = {}
     dataset = object()
     mean = object()
@@ -237,12 +238,30 @@ def test_dense_half_direct_route_preserves_legacy_runner_hook(monkeypatch):
     image_pre_shifts = object()
     translation_prior_centers = object()
 
-    def fake_run_em(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return ("new_mean", "hard_assignment", "Ft_y", "Ft_ctf", "relion_stats", "noise_stats")
+    def fake_run_dense_em(request):
+        inputs = request.inputs
+        captured["args"] = (
+            inputs.experiment_dataset,
+            inputs.mean,
+            inputs.mean_variance,
+            inputs.noise_variance,
+            inputs.rotations,
+            inputs.translations,
+            inputs.disc_type,
+        )
+        captured["kwargs"] = {
+            **vars(request.search),
+            **vars(request.execution),
+            **vars(request.scoring),
+            **vars(request.projection),
+            **vars(request.corrections),
+            **vars(request.posterior),
+            **vars(request.reconstruction),
+            **vars(request.outputs),
+        }
+        return DenseEMResult("new_mean", "hard_assignment", "Ft_y", "Ft_ctf", "relion_stats", "noise_stats")
 
-    monkeypatch.setattr(iteration_loop, "run_em", fake_run_em)
+    monkeypatch.setattr(iteration_loop, "run_dense_em", fake_run_dense_em)
 
     result = iteration_loop._score_half_dense(
         k=0,

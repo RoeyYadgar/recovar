@@ -945,7 +945,7 @@ def _run_dense_em_typed(inputs: DenseEMInputs, engine_kwargs: dict) -> DenseEMRe
     """Run a grouped dense request while retaining the K-class runner hook."""
 
     request = dense_em_request_from_legacy_kwargs(inputs, engine_kwargs)
-    return run_dense_em(request, legacy_runner=run_em)
+    return run_dense_em(request)
 
 
 def _stack_or_none(values):

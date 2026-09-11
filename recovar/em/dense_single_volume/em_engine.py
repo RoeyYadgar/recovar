@@ -290,7 +290,7 @@ class _SparsePass2Profile:
         }
 
 
-def _dense_em_return_tuple(
+def _make_dense_em_result(
     new_mean,
     hard_assignment,
     Ft_y,
@@ -303,14 +303,15 @@ def _dense_em_return_tuple(
     noise_stats=None,
     em_profile=None,
 ):
-    result = [new_mean, hard_assignment, Ft_y, Ft_ctf]
-    if return_stats:
-        result.append(relion_stats)
-    if accumulate_noise:
-        result.append(noise_stats)
-    if return_profile:
-        result.append(em_profile)
-    return tuple(result)
+    return DenseEMResult(
+        new_mean=new_mean,
+        hard_assignment=hard_assignment,
+        Ft_y=Ft_y,
+        Ft_ctf=Ft_ctf,
+        relion_stats=relion_stats if return_stats else None,
+        noise_stats=noise_stats if accumulate_noise else None,
+        profile_stats=em_profile if return_profile else None,
+    )
 
 
 @dataclass(frozen=True)
@@ -688,48 +689,7 @@ def _pad_dense_big_jit_image_axis(batch_data, ctf_params, target_batch_size: int
 
 
 @nvtx.annotate("dense.run_em", color="blue", domain=NVTX_DOMAIN_EM)
-def run_em(
-    experiment_dataset,
-    mean,
-    mean_variance,
-    noise_variance,
-    rotations,
-    translations,
-    disc_type: str,
-    image_batch_size: int = 500,
-    rotation_block_size: int = 5000,
-    current_size: int = None,
-    rotation_log_prior: np.ndarray = None,
-    translation_log_prior: np.ndarray = None,
-    image_indices: np.ndarray = None,
-    rotation_translation_mask: np.ndarray = None,
-    class_log_prior: float = 0.0,
-    normalization_log_evidence: np.ndarray = None,
-    *,
-    score_with_masked_images: bool = False,
-    return_stats: bool = False,
-    accumulate_noise: bool = False,
-    half_spectrum_scoring: bool = False,
-    projection_padding_factor: int = 1,
-    reconstruction_padding_factor: int = 1,
-    image_corrections: np.ndarray = None,
-    scale_corrections: np.ndarray = None,
-    image_pre_shifts: np.ndarray = None,
-    translation_prior_centers: np.ndarray = None,
-    relion_firstiter_score_mode: str = "gaussian",
-    relion_firstiter_winner_take_all: bool = False,
-    use_float64_scoring: bool = False,
-    use_float64_projections: bool = False,
-    do_gridding_correction: bool = False,
-    square_window: bool = False,
-    return_profile: bool = False,
-    sparse_pass2: bool = True,
-    disable_adjoint_y: bool = False,
-    disable_adjoint_ctf: bool = False,
-    score_only: bool = False,
-    relion_half_volume_mstep: bool = False,
-    return_half_volume_accumulators: bool = False,
-):
+def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
     """One EM iteration with JIT-fused two-pass blockwise normalization and half-spectrum GEMMs.
 
     Key properties:
@@ -836,6 +796,56 @@ def run_em(
         layout before returning. This is intended for K-class callers that
         immediately reconstruct from the accumulators.
     """
+    inputs = request.inputs
+    search = request.search
+    execution = request.execution
+    scoring = request.scoring
+    projection = request.projection
+    corrections = request.corrections
+    posterior = request.posterior
+    reconstruction = request.reconstruction
+    outputs = request.outputs
+
+    experiment_dataset = inputs.experiment_dataset
+    mean = inputs.mean
+    mean_variance = inputs.mean_variance
+    noise_variance = inputs.noise_variance
+    rotations = inputs.rotations
+    translations = inputs.translations
+    disc_type = inputs.disc_type
+    image_batch_size = execution.image_batch_size
+    rotation_block_size = execution.rotation_block_size
+    current_size = search.current_size
+    rotation_log_prior = search.rotation_log_prior
+    translation_log_prior = search.translation_log_prior
+    image_indices = search.image_indices
+    rotation_translation_mask = search.rotation_translation_mask
+    class_log_prior = posterior.class_log_prior
+    normalization_log_evidence = posterior.normalization_log_evidence
+    score_with_masked_images = scoring.score_with_masked_images
+    return_stats = outputs.return_stats
+    accumulate_noise = outputs.accumulate_noise
+    half_spectrum_scoring = scoring.half_spectrum_scoring
+    projection_padding_factor = projection.projection_padding_factor
+    reconstruction_padding_factor = projection.reconstruction_padding_factor
+    image_corrections = corrections.image_corrections
+    scale_corrections = corrections.scale_corrections
+    image_pre_shifts = corrections.image_pre_shifts
+    translation_prior_centers = posterior.translation_prior_centers
+    relion_firstiter_score_mode = scoring.relion_firstiter_score_mode
+    relion_firstiter_winner_take_all = scoring.relion_firstiter_winner_take_all
+    use_float64_scoring = scoring.use_float64_scoring
+    use_float64_projections = projection.use_float64_projections
+    do_gridding_correction = projection.do_gridding_correction
+    square_window = projection.square_window
+    return_profile = outputs.return_profile
+    sparse_pass2 = execution.sparse_pass2
+    disable_adjoint_y = reconstruction.disable_adjoint_y
+    disable_adjoint_ctf = reconstruction.disable_adjoint_ctf
+    score_only = reconstruction.score_only
+    relion_half_volume_mstep = reconstruction.relion_half_volume_mstep
+    return_half_volume_accumulators = outputs.return_half_volume_accumulators
+
     overall_t0 = time.time()
     n_rot = rotations.shape[0]
     n_trans = translations.shape[0]
@@ -1080,6 +1090,8 @@ def run_em(
     noise_a2 = None  # diagnostic
     noise_xa = None  # diagnostic
     noise_sigma2_offset = 0.0
+    shell_indices_half = None
+    shell_indices_noise = None
     if accumulate_noise:
         n_shells = image_shape[0] // 2 + 1
         shell_indices_half = make_relion_noise_shell_indices_half(image_shape)
@@ -2206,7 +2218,7 @@ def run_em(
     else:
         em_profile = None
 
-    return _dense_em_return_tuple(
+    return _make_dense_em_result(
         new_mean,
         hard_assignment,
         Ft_y,
@@ -2218,6 +2230,98 @@ def run_em(
         noise_stats=noise_stats,
         em_profile=em_profile,
     )
+
+
+def run_em(
+    experiment_dataset,
+    mean,
+    mean_variance,
+    noise_variance,
+    rotations,
+    translations,
+    disc_type: str,
+    image_batch_size: int = 500,
+    rotation_block_size: int = 5000,
+    current_size: int = None,
+    rotation_log_prior: np.ndarray = None,
+    translation_log_prior: np.ndarray = None,
+    image_indices: np.ndarray = None,
+    rotation_translation_mask: np.ndarray = None,
+    class_log_prior: float = 0.0,
+    normalization_log_evidence: np.ndarray = None,
+    *,
+    score_with_masked_images: bool = False,
+    return_stats: bool = False,
+    accumulate_noise: bool = False,
+    half_spectrum_scoring: bool = False,
+    projection_padding_factor: int = 1,
+    reconstruction_padding_factor: int = 1,
+    image_corrections: np.ndarray = None,
+    scale_corrections: np.ndarray = None,
+    image_pre_shifts: np.ndarray = None,
+    translation_prior_centers: np.ndarray = None,
+    relion_firstiter_score_mode: str = "gaussian",
+    relion_firstiter_winner_take_all: bool = False,
+    use_float64_scoring: bool = False,
+    use_float64_projections: bool = False,
+    do_gridding_correction: bool = False,
+    square_window: bool = False,
+    return_profile: bool = False,
+    sparse_pass2: bool = True,
+    disable_adjoint_y: bool = False,
+    disable_adjoint_ctf: bool = False,
+    score_only: bool = False,
+    relion_half_volume_mstep: bool = False,
+    return_half_volume_accumulators: bool = False,
+):
+    """Compatibility facade for callers that still use the legacy arguments."""
+
+    request = dense_em_request_from_legacy_kwargs(
+        DenseEMInputs(
+            experiment_dataset=experiment_dataset,
+            mean=mean,
+            mean_variance=mean_variance,
+            noise_variance=noise_variance,
+            rotations=rotations,
+            translations=translations,
+            disc_type=disc_type,
+        ),
+        {
+            "image_batch_size": image_batch_size,
+            "rotation_block_size": rotation_block_size,
+            "current_size": current_size,
+            "rotation_log_prior": rotation_log_prior,
+            "translation_log_prior": translation_log_prior,
+            "image_indices": image_indices,
+            "rotation_translation_mask": rotation_translation_mask,
+            "class_log_prior": class_log_prior,
+            "normalization_log_evidence": normalization_log_evidence,
+            "score_with_masked_images": score_with_masked_images,
+            "return_stats": return_stats,
+            "accumulate_noise": accumulate_noise,
+            "half_spectrum_scoring": half_spectrum_scoring,
+            "projection_padding_factor": projection_padding_factor,
+            "reconstruction_padding_factor": reconstruction_padding_factor,
+            "image_corrections": image_corrections,
+            "scale_corrections": scale_corrections,
+            "image_pre_shifts": image_pre_shifts,
+            "translation_prior_centers": translation_prior_centers,
+            "relion_firstiter_score_mode": relion_firstiter_score_mode,
+            "relion_firstiter_winner_take_all": relion_firstiter_winner_take_all,
+            "use_float64_scoring": use_float64_scoring,
+            "use_float64_projections": use_float64_projections,
+            "do_gridding_correction": do_gridding_correction,
+            "square_window": square_window,
+            "return_profile": return_profile,
+            "sparse_pass2": sparse_pass2,
+            "disable_adjoint_y": disable_adjoint_y,
+            "disable_adjoint_ctf": disable_adjoint_ctf,
+            "score_only": score_only,
+            "relion_half_volume_mstep": relion_half_volume_mstep,
+            "return_half_volume_accumulators": return_half_volume_accumulators,
+        },
+    )
+    return run_dense_em(request).to_legacy_tuple(request.outputs.legacy_tuple_spec)
 
 
 _RUN_EM_SIGNATURE = inspect.signature(run_em)
@@ -2289,72 +2393,6 @@ def dense_em_request_from_legacy_kwargs(inputs: DenseEMInputs, engine_kwargs: di
             return_half_volume_accumulators=values["return_half_volume_accumulators"],
         ),
     )
-
-
-def run_dense_em(request: DenseEMRequest, *, legacy_runner=None) -> DenseEMResult:
-    """Run dense EM through the typed host-side request/result boundary.
-
-    ``legacy_runner`` exists only to preserve compatibility and test
-    interception while production callers migrate. It defaults to
-    :func:`run_em`, whose numerical implementation remains the single source
-    of truth.
-    """
-
-    if legacy_runner is None:
-        legacy_runner = run_em
-
-    inputs = request.inputs
-    search = request.search
-    execution = request.execution
-    scoring = request.scoring
-    projection = request.projection
-    corrections = request.corrections
-    posterior = request.posterior
-    reconstruction = request.reconstruction
-    outputs = request.outputs
-
-    legacy_output = legacy_runner(
-        inputs.experiment_dataset,
-        inputs.mean,
-        inputs.mean_variance,
-        inputs.noise_variance,
-        inputs.rotations,
-        inputs.translations,
-        inputs.disc_type,
-        image_batch_size=execution.image_batch_size,
-        rotation_block_size=execution.rotation_block_size,
-        current_size=search.current_size,
-        rotation_log_prior=search.rotation_log_prior,
-        translation_log_prior=search.translation_log_prior,
-        image_indices=search.image_indices,
-        rotation_translation_mask=search.rotation_translation_mask,
-        class_log_prior=posterior.class_log_prior,
-        normalization_log_evidence=posterior.normalization_log_evidence,
-        score_with_masked_images=scoring.score_with_masked_images,
-        return_stats=outputs.return_stats,
-        accumulate_noise=outputs.accumulate_noise,
-        half_spectrum_scoring=scoring.half_spectrum_scoring,
-        projection_padding_factor=projection.projection_padding_factor,
-        reconstruction_padding_factor=projection.reconstruction_padding_factor,
-        image_corrections=corrections.image_corrections,
-        scale_corrections=corrections.scale_corrections,
-        image_pre_shifts=corrections.image_pre_shifts,
-        translation_prior_centers=posterior.translation_prior_centers,
-        relion_firstiter_score_mode=scoring.relion_firstiter_score_mode,
-        relion_firstiter_winner_take_all=scoring.relion_firstiter_winner_take_all,
-        use_float64_scoring=scoring.use_float64_scoring,
-        use_float64_projections=projection.use_float64_projections,
-        do_gridding_correction=projection.do_gridding_correction,
-        square_window=projection.square_window,
-        return_profile=outputs.return_profile,
-        sparse_pass2=execution.sparse_pass2,
-        disable_adjoint_y=reconstruction.disable_adjoint_y,
-        disable_adjoint_ctf=reconstruction.disable_adjoint_ctf,
-        score_only=reconstruction.score_only,
-        relion_half_volume_mstep=reconstruction.relion_half_volume_mstep,
-        return_half_volume_accumulators=outputs.return_half_volume_accumulators,
-    )
-    return DenseEMResult.from_legacy_tuple(legacy_output, outputs.legacy_tuple_spec)
 
 
 def compute_e_step_weights(

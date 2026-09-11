@@ -525,7 +525,7 @@ def compute_pass2_stats(
     )
 
     from ..dense_em_types import DenseEMInputs
-    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
+    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em
 
     n_images = experiment_dataset.n_units
     n_coarse_rot = coarse_rotations.shape[0]
@@ -678,7 +678,6 @@ def compute_pass2_stats(
                 "square_window": square_window,
             },
         ),
-        legacy_runner=run_em,
     )
 
     ha = em_result.hard_assignment
@@ -1024,7 +1023,7 @@ def _compute_pass2_stats_sparse_perimage_reference(
     )
 
     from ..dense_em_types import DenseEMInputs
-    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
+    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em
 
     if normalization_log_z is not None:
         raise NotImplementedError(
@@ -1200,7 +1199,6 @@ def _compute_pass2_stats_sparse_perimage_reference(
                     "relion_firstiter_winner_take_all": relion_firstiter_winner_take_all,
                 },
             ),
-            legacy_runner=run_em,
         )
 
         ha_i = em_result.hard_assignment
