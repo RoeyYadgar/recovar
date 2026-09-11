@@ -161,7 +161,6 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
     LocalEMDiagnostics,
     LocalEMInputs,
-    LocalEMOutputSpec,
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalEMResult,
@@ -472,16 +471,12 @@ def _adjoint_slice_volume_maybe_windowed_row_chunks(
     return updated, n_chunks
 
 
-def _local_em_return_tuple(
+def _make_local_em_result(
     Ft_y,
     Ft_ctf,
     hard_assignment,
     relion_stats,
     *,
-    accumulate_noise: bool,
-    return_profile: bool,
-    return_best_pose_details: bool,
-    return_significant_counts: bool = False,
     best_pose_rotations=None,
     best_pose_translations=None,
     best_pose_rotation_ids=None,
@@ -489,7 +484,7 @@ def _local_em_return_tuple(
     profile_summary=None,
     significant_counts=None,
 ):
-    result = LocalEMResult(
+    return LocalEMResult(
         Ft_y=Ft_y,
         Ft_ctf=Ft_ctf,
         hard_assignment=hard_assignment,
@@ -500,14 +495,6 @@ def _local_em_return_tuple(
         noise_stats=noise_stats,
         profile_summary=profile_summary,
         significant_counts=significant_counts,
-    )
-    return result.to_legacy_tuple(
-        LocalEMOutputSpec(
-            accumulate_noise=accumulate_noise,
-            return_profile=return_profile,
-            return_best_pose_details=return_best_pose_details,
-            return_significant_counts=return_significant_counts,
-        )
     )
 
 
@@ -1243,72 +1230,12 @@ def _build_nonzero_reconstruction_pack_indices(
     )
 
 
-@nvtx.annotate("local.run_local_em_exact", color="purple", domain=NVTX_DOMAIN_EM)
-def run_local_em_exact(
-    experiment_dataset,
-    mean,
-    mean_variance,
-    noise_variance,
-    local_layout: LocalHypothesisLayout,
-    disc_type: str,
-    *,
-    image_batch_size: int,
-    rotation_block_size: int,
-    current_size: int | None,
-    cache_settings: LocalCacheSettings | None = None,
-    reconstruction_current_size: int | None = None,
-    accumulate_noise: bool = False,
-    projection_padding_factor: int = 1,
-    reconstruction_padding_factor: int = 1,
-    score_with_masked_images: bool = True,
-    half_spectrum_scoring: bool = False,
-    relion_exact_score_translation: bool = False,
-    use_float64_scoring: bool = False,
-    use_float64_normalization: bool = True,
-    use_float64_projections: bool = False,
-    projection_relion_texture_interp: bool = False,
-    projection_relion_acc_double_floorf_quirk: bool = False,
-    projection_force_jax: bool = False,
-    relion_projector_half=None,
-    relion_projector_r_max: int | None = None,
-    do_gridding_correction: bool = False,
-    square_window: bool = False,
-    image_corrections: np.ndarray | None = None,
-    scale_corrections: np.ndarray | None = None,
-    group_ids: np.ndarray | None = None,
-    scale_correction_group_count: int | None = None,
-    scale_correction_data_vs_prior: np.ndarray | None = None,
-    image_pre_shifts: np.ndarray | None = None,
-    mstep_subtract_ctf_projection: bool = False,
-    mstep_relion_x_half: bool = False,
-    return_half_volume_accumulators: bool = False,
-    return_profile: bool = False,
-    disable_adjoint_y: bool = False,
-    disable_adjoint_ctf: bool = False,
-    max_hypotheses_per_microbatch: int | None = None,
-    reconstruct_significant_only: bool = False,
-    adaptive_fraction: float = 0.999,
-    max_significants: int = -1,
-    debug_iteration: int | None = None,
-    debug_pass_label: str | None = None,
-    return_best_pose_details: bool = False,
-    normalization_log_z: np.ndarray | None = None,
-    class_log_prior: float = 0.0,
-    normalization_log_evidence: np.ndarray | None = None,
-    translation_prior_centers: np.ndarray | None = None,
-    unify_local_bucket_sizes: bool | None = None,
-    stats_use_reconstruction_probs: bool = False,
-    include_unweighted_norm_high_shell: bool = True,
-    source_faithful_spectrum_norm: bool = False,
-    reconstruction_probability_threshold: np.ndarray | None = None,
-    return_reconstruction_probability_values: bool = False,
-    return_reconstruction_sample_indices: bool = False,
-    return_significant_counts: bool = False,
-    score_only: bool = False,
-):
+@nvtx.annotate("local.run_local_em", color="purple", domain=NVTX_DOMAIN_EM)
+def run_local_em(request: LocalEMRequest) -> LocalEMResult:
     """Run exact local EM over per-image local hypothesis sets.
 
-    ``debug_pass_label`` is diagnostic-only: it is appended verbatim to
+    The request is the canonical host-side boundary. ``debug_pass_label`` is
+    diagnostic-only: it is appended verbatim to
     ``RECOVAR_LOCAL_SCORE_DUMP_*`` filenames (see
     ``local_debug.maybe_write_debug_score_dump``). Callers that invoke this
     function more than once per iteration for the *same* image/current_size/
@@ -1317,95 +1244,81 @@ def run_local_em_exact(
     dump silently overwrites the earlier one at the same path.
     """
 
-    scoring_settings = LocalScoringSettings(
-        score_with_masked_images=score_with_masked_images,
-        half_spectrum_scoring=half_spectrum_scoring,
-        relion_exact_score_translation=relion_exact_score_translation,
-        use_float64_scoring=use_float64_scoring,
-        use_float64_normalization=use_float64_normalization,
-    )
-    projection_settings = LocalProjectionSettings(
-        projection_padding_factor=projection_padding_factor,
-        reconstruction_padding_factor=reconstruction_padding_factor,
-        use_float64_projections=use_float64_projections,
-        relion_texture_interp=projection_relion_texture_interp,
-        relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
-        force_jax=projection_force_jax,
-        do_gridding_correction=do_gridding_correction,
-        square_window=square_window,
-    )
-    execution_settings = LocalExecutionSettings(
-        image_batch_size=image_batch_size,
-        rotation_block_size=rotation_block_size,
-        max_hypotheses_per_microbatch=max_hypotheses_per_microbatch,
-        unify_local_bucket_sizes=unify_local_bucket_sizes,
-        cache=cache_settings,
-    )
-    search_settings = LocalSearchSettings(
-        current_size=current_size,
-        reconstruction_current_size=reconstruction_current_size,
-        reconstruct_significant_only=reconstruct_significant_only,
-        adaptive_fraction=adaptive_fraction,
-        max_significants=max_significants,
-        reconstruction_probability_threshold=reconstruction_probability_threshold,
-    )
-    reconstruction_settings = LocalReconstructionSettings(
-        mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
-        mstep_relion_x_half=mstep_relion_x_half,
-        disable_adjoint_y=disable_adjoint_y,
-        disable_adjoint_ctf=disable_adjoint_ctf,
-        stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-        include_unweighted_norm_high_shell=include_unweighted_norm_high_shell,
-        source_faithful_spectrum_norm=source_faithful_spectrum_norm,
-        score_only=score_only,
-    )
-    requested_outputs = LocalEMRequestedOutputs(
-        accumulate_noise=accumulate_noise,
-        return_half_volume_accumulators=return_half_volume_accumulators,
-        return_profile=return_profile,
-        return_best_pose_details=return_best_pose_details,
-        return_reconstruction_probability_values=return_reconstruction_probability_values,
-        return_reconstruction_sample_indices=return_reconstruction_sample_indices,
-        return_significant_counts=return_significant_counts,
-    )
-    correction_inputs = LocalCorrectionInputs(
-        image_corrections=image_corrections,
-        scale_corrections=scale_corrections,
-        group_ids=group_ids,
-        scale_correction_group_count=scale_correction_group_count,
-        scale_correction_data_vs_prior=scale_correction_data_vs_prior,
-        image_pre_shifts=image_pre_shifts,
-    )
-    posterior_inputs = LocalPosteriorInputs(
-        normalization_log_z=normalization_log_z,
-        class_log_prior=class_log_prior,
-        normalization_log_evidence=normalization_log_evidence,
-        translation_prior_centers=translation_prior_centers,
-    )
-    local_request = LocalEMRequest(
-        inputs=LocalEMInputs(
-            experiment_dataset=experiment_dataset,
-            mean=mean,
-            mean_variance=mean_variance,
-            noise_variance=noise_variance,
-            local_layout=local_layout,
-            disc_type=disc_type,
-            relion_projector_half=relion_projector_half,
-            relion_projector_r_max=relion_projector_r_max,
-        ),
-        search=search_settings,
-        execution=execution_settings,
-        scoring=scoring_settings,
-        projection=projection_settings,
-        corrections=correction_inputs,
-        posterior=posterior_inputs,
-        reconstruction=reconstruction_settings,
-        outputs=requested_outputs,
-        diagnostics=LocalEMDiagnostics(
-            iteration=debug_iteration,
-            pass_label=debug_pass_label,
-        ),
-    )
+    local_request = request
+    inputs = request.inputs
+    search_settings = request.search
+    execution_settings = request.execution
+    scoring_settings = request.scoring
+    projection_settings = request.projection
+    correction_inputs = request.corrections
+    posterior_inputs = request.posterior
+    reconstruction_settings = request.reconstruction
+    requested_outputs = request.outputs
+    diagnostics = request.diagnostics
+
+    experiment_dataset = inputs.experiment_dataset
+    mean = inputs.mean
+    mean_variance = inputs.mean_variance
+    noise_variance = inputs.noise_variance
+    local_layout = inputs.local_layout
+    disc_type = inputs.disc_type
+    relion_projector_half = inputs.relion_projector_half
+    relion_projector_r_max = inputs.relion_projector_r_max
+
+    current_size = search_settings.current_size
+    reconstruct_significant_only = search_settings.reconstruct_significant_only
+    adaptive_fraction = search_settings.adaptive_fraction
+    max_significants = search_settings.max_significants
+    reconstruction_probability_threshold = search_settings.reconstruction_probability_threshold
+
+    image_batch_size = execution_settings.image_batch_size
+    rotation_block_size = execution_settings.rotation_block_size
+    max_hypotheses_per_microbatch = execution_settings.max_hypotheses_per_microbatch
+    unify_local_bucket_sizes = execution_settings.unify_local_bucket_sizes
+    cache_settings = execution_settings.cache
+
+    score_with_masked_images = scoring_settings.score_with_masked_images
+    half_spectrum_scoring = scoring_settings.half_spectrum_scoring
+    relion_exact_score_translation = scoring_settings.relion_exact_score_translation
+    use_float64_scoring = scoring_settings.use_float64_scoring
+    use_float64_normalization = scoring_settings.use_float64_normalization
+
+    projection_padding_factor = projection_settings.projection_padding_factor
+    reconstruction_padding_factor = projection_settings.reconstruction_padding_factor
+    use_float64_projections = projection_settings.use_float64_projections
+    projection_relion_texture_interp = projection_settings.relion_texture_interp
+    projection_relion_acc_double_floorf_quirk = projection_settings.relion_acc_double_floorf_quirk
+    projection_force_jax = projection_settings.force_jax
+    do_gridding_correction = projection_settings.do_gridding_correction
+    square_window = projection_settings.square_window
+
+    image_corrections = correction_inputs.image_corrections
+    scale_corrections = correction_inputs.scale_corrections
+    group_ids = correction_inputs.group_ids
+    scale_correction_data_vs_prior = correction_inputs.scale_correction_data_vs_prior
+    image_pre_shifts = correction_inputs.image_pre_shifts
+
+    normalization_log_z = posterior_inputs.normalization_log_z
+    class_log_prior = posterior_inputs.class_log_prior
+    normalization_log_evidence = posterior_inputs.normalization_log_evidence
+    translation_prior_centers = posterior_inputs.translation_prior_centers
+
+    mstep_subtract_ctf_projection = reconstruction_settings.mstep_subtract_ctf_projection
+    mstep_relion_x_half = reconstruction_settings.mstep_relion_x_half
+    disable_adjoint_y = reconstruction_settings.disable_adjoint_y
+    disable_adjoint_ctf = reconstruction_settings.disable_adjoint_ctf
+    stats_use_reconstruction_probs = reconstruction_settings.stats_use_reconstruction_probs
+
+    accumulate_noise = requested_outputs.accumulate_noise
+    return_half_volume_accumulators = requested_outputs.return_half_volume_accumulators
+    return_profile = requested_outputs.return_profile
+    return_best_pose_details = requested_outputs.return_best_pose_details
+    return_reconstruction_probability_values = requested_outputs.return_reconstruction_probability_values
+    return_reconstruction_sample_indices = requested_outputs.return_reconstruction_sample_indices
+    return_significant_counts = requested_outputs.return_significant_counts
+
+    debug_iteration = diagnostics.iteration
+    debug_pass_label = diagnostics.pass_label
     mode_plan = plan_local_em_modes(
         scoring=local_request.scoring,
         reconstruction=local_request.reconstruction,
@@ -4171,15 +4084,11 @@ def run_local_em_exact(
         )
 
     if not return_profile:
-        return _local_em_return_tuple(
+        return _make_local_em_result(
             Ft_y,
             Ft_ctf,
             hard_assignment,
             relion_stats,
-            accumulate_noise=accumulate_noise,
-            return_profile=False,
-            return_best_pose_details=return_best_pose_details,
-            return_significant_counts=return_significant_counts,
             best_pose_rotations=best_pose_rotations,
             best_pose_translations=best_pose_translations,
             best_pose_rotation_ids=best_pose_rotation_ids,
@@ -4273,15 +4182,11 @@ def run_local_em_exact(
         )
     if reconstruction_sample_indices_by_image is not None:
         profile_summary["reconstruction_sample_indices_by_image"] = tuple(reconstruction_sample_indices_by_image)
-    return _local_em_return_tuple(
+    return _make_local_em_result(
         Ft_y,
         Ft_ctf,
         hard_assignment,
         relion_stats,
-        accumulate_noise=accumulate_noise,
-        return_profile=True,
-        return_best_pose_details=return_best_pose_details,
-        return_significant_counts=return_significant_counts,
         best_pose_rotations=best_pose_rotations,
         best_pose_translations=best_pose_translations,
         best_pose_rotation_ids=best_pose_rotation_ids,
@@ -4291,88 +4196,149 @@ def run_local_em_exact(
     )
 
 
-def run_local_em(request: LocalEMRequest, *, legacy_runner=None) -> LocalEMResult:
-    """Run exact local EM through the typed host-side request/result boundary.
+def run_local_em_exact(
+    experiment_dataset,
+    mean,
+    mean_variance,
+    noise_variance,
+    local_layout: LocalHypothesisLayout,
+    disc_type: str,
+    *,
+    image_batch_size: int,
+    rotation_block_size: int,
+    current_size: int | None,
+    cache_settings: LocalCacheSettings | None = None,
+    reconstruction_current_size: int | None = None,
+    accumulate_noise: bool = False,
+    projection_padding_factor: int = 1,
+    reconstruction_padding_factor: int = 1,
+    score_with_masked_images: bool = True,
+    half_spectrum_scoring: bool = False,
+    relion_exact_score_translation: bool = False,
+    use_float64_scoring: bool = False,
+    use_float64_normalization: bool = True,
+    use_float64_projections: bool = False,
+    projection_relion_texture_interp: bool = False,
+    projection_relion_acc_double_floorf_quirk: bool = False,
+    projection_force_jax: bool = False,
+    relion_projector_half=None,
+    relion_projector_r_max: int | None = None,
+    do_gridding_correction: bool = False,
+    square_window: bool = False,
+    image_corrections: np.ndarray | None = None,
+    scale_corrections: np.ndarray | None = None,
+    group_ids: np.ndarray | None = None,
+    scale_correction_group_count: int | None = None,
+    scale_correction_data_vs_prior: np.ndarray | None = None,
+    image_pre_shifts: np.ndarray | None = None,
+    mstep_subtract_ctf_projection: bool = False,
+    mstep_relion_x_half: bool = False,
+    return_half_volume_accumulators: bool = False,
+    return_profile: bool = False,
+    disable_adjoint_y: bool = False,
+    disable_adjoint_ctf: bool = False,
+    max_hypotheses_per_microbatch: int | None = None,
+    reconstruct_significant_only: bool = False,
+    adaptive_fraction: float = 0.999,
+    max_significants: int = -1,
+    debug_iteration: int | None = None,
+    debug_pass_label: str | None = None,
+    return_best_pose_details: bool = False,
+    normalization_log_z: np.ndarray | None = None,
+    class_log_prior: float = 0.0,
+    normalization_log_evidence: np.ndarray | None = None,
+    translation_prior_centers: np.ndarray | None = None,
+    unify_local_bucket_sizes: bool | None = None,
+    stats_use_reconstruction_probs: bool = False,
+    include_unweighted_norm_high_shell: bool = True,
+    source_faithful_spectrum_norm: bool = False,
+    reconstruction_probability_threshold: np.ndarray | None = None,
+    return_reconstruction_probability_values: bool = False,
+    return_reconstruction_sample_indices: bool = False,
+    return_significant_counts: bool = False,
+    score_only: bool = False,
+):
+    """Compatibility facade for the historical exact-local tuple API."""
 
-    ``legacy_runner`` exists only to preserve compatibility and test
-    interception while production callers migrate. It defaults to
-    :func:`run_local_em_exact`, whose numerical implementation remains the
-    single source of truth.
-    """
-
-    if legacy_runner is None:
-        legacy_runner = run_local_em_exact
-
-    inputs = request.inputs
-    search = request.search
-    execution = request.execution
-    scoring = request.scoring
-    projection = request.projection
-    corrections = request.corrections
-    posterior = request.posterior
-    reconstruction = request.reconstruction
-    outputs = request.outputs
-    diagnostics = request.diagnostics
-
-    legacy_output = legacy_runner(
-        inputs.experiment_dataset,
-        inputs.mean,
-        inputs.mean_variance,
-        inputs.noise_variance,
-        inputs.local_layout,
-        inputs.disc_type,
-        image_batch_size=execution.image_batch_size,
-        rotation_block_size=execution.rotation_block_size,
-        current_size=search.current_size,
-        cache_settings=execution.cache,
-        reconstruction_current_size=search.reconstruction_current_size,
-        accumulate_noise=outputs.accumulate_noise,
-        projection_padding_factor=projection.projection_padding_factor,
-        reconstruction_padding_factor=projection.reconstruction_padding_factor,
-        score_with_masked_images=scoring.score_with_masked_images,
-        half_spectrum_scoring=scoring.half_spectrum_scoring,
-        relion_exact_score_translation=scoring.relion_exact_score_translation,
-        use_float64_scoring=scoring.use_float64_scoring,
-        use_float64_normalization=scoring.use_float64_normalization,
-        use_float64_projections=projection.use_float64_projections,
-        projection_relion_texture_interp=projection.relion_texture_interp,
-        projection_relion_acc_double_floorf_quirk=projection.relion_acc_double_floorf_quirk,
-        projection_force_jax=projection.force_jax,
-        relion_projector_half=inputs.relion_projector_half,
-        relion_projector_r_max=inputs.relion_projector_r_max,
-        do_gridding_correction=projection.do_gridding_correction,
-        square_window=projection.square_window,
-        image_corrections=corrections.image_corrections,
-        scale_corrections=corrections.scale_corrections,
-        group_ids=corrections.group_ids,
-        scale_correction_group_count=corrections.scale_correction_group_count,
-        scale_correction_data_vs_prior=corrections.scale_correction_data_vs_prior,
-        image_pre_shifts=corrections.image_pre_shifts,
-        mstep_subtract_ctf_projection=reconstruction.mstep_subtract_ctf_projection,
-        mstep_relion_x_half=reconstruction.mstep_relion_x_half,
-        return_half_volume_accumulators=outputs.return_half_volume_accumulators,
-        return_profile=outputs.return_profile,
-        disable_adjoint_y=reconstruction.disable_adjoint_y,
-        disable_adjoint_ctf=reconstruction.disable_adjoint_ctf,
-        max_hypotheses_per_microbatch=execution.max_hypotheses_per_microbatch,
-        reconstruct_significant_only=search.reconstruct_significant_only,
-        adaptive_fraction=search.adaptive_fraction,
-        max_significants=search.max_significants,
-        debug_iteration=diagnostics.iteration,
-        debug_pass_label=diagnostics.pass_label,
-        return_best_pose_details=outputs.return_best_pose_details,
-        normalization_log_z=posterior.normalization_log_z,
-        class_log_prior=posterior.class_log_prior,
-        normalization_log_evidence=posterior.normalization_log_evidence,
-        translation_prior_centers=posterior.translation_prior_centers,
-        unify_local_bucket_sizes=execution.unify_local_bucket_sizes,
-        stats_use_reconstruction_probs=reconstruction.stats_use_reconstruction_probs,
-        include_unweighted_norm_high_shell=reconstruction.include_unweighted_norm_high_shell,
-        source_faithful_spectrum_norm=reconstruction.source_faithful_spectrum_norm,
-        reconstruction_probability_threshold=search.reconstruction_probability_threshold,
-        return_reconstruction_probability_values=outputs.return_reconstruction_probability_values,
-        return_reconstruction_sample_indices=outputs.return_reconstruction_sample_indices,
-        return_significant_counts=outputs.return_significant_counts,
-        score_only=reconstruction.score_only,
+    request = LocalEMRequest(
+        inputs=LocalEMInputs(
+            experiment_dataset=experiment_dataset,
+            mean=mean,
+            mean_variance=mean_variance,
+            noise_variance=noise_variance,
+            local_layout=local_layout,
+            disc_type=disc_type,
+            relion_projector_half=relion_projector_half,
+            relion_projector_r_max=relion_projector_r_max,
+        ),
+        search=LocalSearchSettings(
+            current_size=current_size,
+            reconstruction_current_size=reconstruction_current_size,
+            reconstruct_significant_only=reconstruct_significant_only,
+            adaptive_fraction=adaptive_fraction,
+            max_significants=max_significants,
+            reconstruction_probability_threshold=reconstruction_probability_threshold,
+        ),
+        execution=LocalExecutionSettings(
+            image_batch_size=image_batch_size,
+            rotation_block_size=rotation_block_size,
+            max_hypotheses_per_microbatch=max_hypotheses_per_microbatch,
+            unify_local_bucket_sizes=unify_local_bucket_sizes,
+            cache=cache_settings,
+        ),
+        scoring=LocalScoringSettings(
+            score_with_masked_images=score_with_masked_images,
+            half_spectrum_scoring=half_spectrum_scoring,
+            relion_exact_score_translation=relion_exact_score_translation,
+            use_float64_scoring=use_float64_scoring,
+            use_float64_normalization=use_float64_normalization,
+        ),
+        projection=LocalProjectionSettings(
+            projection_padding_factor=projection_padding_factor,
+            reconstruction_padding_factor=reconstruction_padding_factor,
+            use_float64_projections=use_float64_projections,
+            relion_texture_interp=projection_relion_texture_interp,
+            relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
+            force_jax=projection_force_jax,
+            do_gridding_correction=do_gridding_correction,
+            square_window=square_window,
+        ),
+        corrections=LocalCorrectionInputs(
+            image_corrections=image_corrections,
+            scale_corrections=scale_corrections,
+            group_ids=group_ids,
+            scale_correction_group_count=scale_correction_group_count,
+            scale_correction_data_vs_prior=scale_correction_data_vs_prior,
+            image_pre_shifts=image_pre_shifts,
+        ),
+        posterior=LocalPosteriorInputs(
+            normalization_log_z=normalization_log_z,
+            class_log_prior=class_log_prior,
+            normalization_log_evidence=normalization_log_evidence,
+            translation_prior_centers=translation_prior_centers,
+        ),
+        reconstruction=LocalReconstructionSettings(
+            mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
+            mstep_relion_x_half=mstep_relion_x_half,
+            disable_adjoint_y=disable_adjoint_y,
+            disable_adjoint_ctf=disable_adjoint_ctf,
+            stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+            include_unweighted_norm_high_shell=include_unweighted_norm_high_shell,
+            source_faithful_spectrum_norm=source_faithful_spectrum_norm,
+            score_only=score_only,
+        ),
+        outputs=LocalEMRequestedOutputs(
+            accumulate_noise=accumulate_noise,
+            return_half_volume_accumulators=return_half_volume_accumulators,
+            return_profile=return_profile,
+            return_best_pose_details=return_best_pose_details,
+            return_reconstruction_probability_values=return_reconstruction_probability_values,
+            return_reconstruction_sample_indices=return_reconstruction_sample_indices,
+            return_significant_counts=return_significant_counts,
+        ),
+        diagnostics=LocalEMDiagnostics(
+            iteration=debug_iteration,
+            pass_label=debug_pass_label,
+        ),
     )
-    return LocalEMResult.from_legacy_tuple(legacy_output, outputs.legacy_tuple_spec)
+    return run_local_em(request).to_legacy_tuple(request.outputs.legacy_tuple_spec)

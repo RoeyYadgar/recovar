@@ -120,9 +120,6 @@ from recovar.em.dense_single_volume.k_class import (
 from recovar.em.dense_single_volume.k_class import (  # noqa: F401
     run_local_k_class_em as run_local_k_class_em,
 )
-from recovar.em.dense_single_volume.local_em_engine import (  # noqa: F401
-    run_local_em_exact as run_local_em_exact,
-)
 from recovar.em.dense_single_volume.local_layout import (
     _selected_rotation_matrices,
     build_local_adaptive_pass2_hypothesis_layout,

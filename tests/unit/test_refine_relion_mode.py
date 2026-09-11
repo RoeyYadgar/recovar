@@ -22,6 +22,7 @@ import jax.numpy as jnp
 import recovar.core.fourier_transform_utils as ftu
 import recovar.em.dense_single_volume.iteration_loop as iteration_loop_module
 import recovar.em.dense_single_volume.local_layout as local_layout_module
+import recovar.em.dense_single_volume.local_search_iteration as local_search_iteration_module
 import recovar.em.dense_single_volume.relion_replay as relion_replay_module
 import recovar.reconstruction.regularization as regularization_module
 from recovar import core
@@ -79,6 +80,7 @@ from recovar.em.dense_single_volume.helpers.significance import (
     _compute_significance_batched,
 )
 from recovar.em.dense_single_volume.helpers.types import NoiseStats, RelionStats
+from recovar.em.dense_single_volume.local_em_types import LocalEMResult
 from recovar.em.dense_single_volume.iteration_loop import (
     _align_fourier_volume_sign_to_reference,
     _combined_class_direction_prior_from_halves,
@@ -166,6 +168,7 @@ from recovar.em.dense_single_volume.local_em_engine import (
     _pad_local_big_jit_image_axis,
     _prepare_local_exact_bucket,
     _reorder_bucket_to_indices,
+    run_local_em,
     run_local_em_exact,
 )
 from recovar.em.dense_single_volume.local_layout import (
@@ -1938,11 +1941,15 @@ def test_exact_local_microbatch_boost_can_be_disabled_for_mstep_pass2(monkeypatc
 
 
 def test_exact_local_xhalf_mstep_uses_explicit_microbatch_boost_hook():
-    source = inspect.getsource(run_local_em_exact)
+    from recovar.em.dense_single_volume import local_em_batch_planning
 
-    assert "allow_microbatch_auto_boost = True" in source
-    assert "auto_boost_factor=xhalf_auto_microbatch_boost" in source
-    assert "allow_high_memory_default=not xhalf_bpref_mstep" in source
+    route_source = inspect.getsource(local_em_batch_planning.plan_local_microbatch_route)
+    cap_source = inspect.getsource(local_em_batch_planning.plan_local_microbatch_cap)
+
+    assert "_exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None" in route_source
+    assert "allow_auto_boost=True" in cap_source
+    assert "auto_boost_factor=route.auto_boost_factor" in cap_source
+    assert "allow_high_memory_default=not route.xhalf_bpref_mstep" in cap_source
 
 
 def test_exact_local_microbatch_env_override_keeps_lower_cap(monkeypatch):
@@ -4460,7 +4467,7 @@ def test_exact_local_progress_env_and_hook(monkeypatch):
     with pytest.raises(ValueError, match="non-negative integer"):
         local_em_engine._optional_nonnegative_int_env(local_em_engine.EXACT_LOCAL_PROGRESS_CHUNKS_ENV)
 
-    src = inspect.getsource(local_em_engine.run_local_em_exact)
+    src = inspect.getsource(local_em_engine.run_local_em)
     assert "Exact local bucket loop start" in src
     assert "Exact local bucket loop %s" in src
     assert "_mark_exact_local_bucket_done(bucket)" in src
@@ -4469,7 +4476,7 @@ def test_exact_local_progress_env_and_hook(monkeypatch):
 def test_exact_local_noise_projection_chunks_packed_tail():
     from recovar.em.dense_single_volume import local_em_engine
 
-    src = inspect.getsource(local_em_engine.run_local_em_exact)
+    src = inspect.getsource(local_em_engine.run_local_em)
     assert "_packed_noise_projection_chunk_rows" in src
     assert "for chunk_start in range(0, packed_rotation_count, chunk_rows)" in src
     assert "Exact local noise projection chunking" in src
@@ -4478,7 +4485,7 @@ def test_exact_local_noise_projection_chunks_packed_tail():
 def test_exact_local_cached_noise_projection_chunks_packed_tail():
     from recovar.em.dense_single_volume import local_em_engine
 
-    src = inspect.getsource(local_em_engine.run_local_em_exact)
+    src = inspect.getsource(local_em_engine.run_local_em)
     marker = "Exact local cached noise projection chunking"
     assert marker in src
     cached_chunk_src = src[src.index(marker) :]
@@ -4491,7 +4498,7 @@ def test_exact_local_cached_noise_projection_chunks_packed_tail():
 def test_exact_local_relion_projector_noise_projection_materializes_once():
     from recovar.em.dense_single_volume import local_em_engine
 
-    src = inspect.getsource(local_em_engine.run_local_em_exact)
+    src = inspect.getsource(local_em_engine.run_local_em)
     defer_src = src[src.index("can_defer_local_noise_projection = (") :]
     defer_src = defer_src[: defer_src.index("if accumulate_noise:")]
     assert "relion_projector_half is None" in defer_src
@@ -4507,7 +4514,7 @@ def test_dense_and_local_noise_mask_asymmetric_current_crop():
     from recovar.em.dense_single_volume import em_engine, local_em_engine
 
     dense_src = inspect.getsource(em_engine.run_em)
-    local_src = inspect.getsource(local_em_engine.run_local_em_exact)
+    local_src = inspect.getsource(local_em_engine.run_local_em)
     call = "mask_relion_noise_shell_indices_to_current_window("
 
     assert call in dense_src
@@ -4812,37 +4819,36 @@ def test_run_local_search_iteration_exact_engine_uses_model_sigma_for_translatio
             translation_log_priors=np.zeros((1, np.asarray(translations).shape[0]), dtype=dtype),
         )
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured["reconstruct_significant_only"] = kwargs.get("reconstruct_significant_only")
-        captured["adaptive_fraction"] = kwargs.get("adaptive_fraction")
-        captured["max_significants"] = kwargs.get("max_significants")
-        captured["use_float64_scoring"] = kwargs.get("use_float64_scoring")
-        captured["use_float64_normalization"] = kwargs.get("use_float64_normalization")
-        captured["relion_exact_score_translation"] = kwargs.get("relion_exact_score_translation")
-        output = (
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            np.zeros(mock_dataset.n_units, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["reconstruct_significant_only"] = request.search.reconstruct_significant_only
+        captured["adaptive_fraction"] = request.search.adaptive_fraction
+        captured["max_significants"] = request.search.max_significants
+        captured["use_float64_scoring"] = request.scoring.use_float64_scoring
+        captured["use_float64_normalization"] = request.scoring.use_float64_normalization
+        captured["relion_exact_score_translation"] = request.scoring.relion_exact_score_translation
+        return LocalEMResult(
+            Ft_y=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            Ft_ctf=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            hard_assignment=np.zeros(mock_dataset.n_units, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(mock_dataset.n_units, dtype=jnp.float32),
                 rotation_posterior_sums=jnp.zeros(1, dtype=jnp.float32),
             ),
-            NoiseStats(
+            noise_stats=NoiseStats(
                 wsum_sigma2_noise=jnp.zeros(mock_dataset.image_shape[0] // 2 + 1, dtype=jnp.float32),
                 wsum_img_power=jnp.zeros(mock_dataset.image_shape[0] // 2 + 1, dtype=jnp.float32),
                 wsum_sigma2_offset=0.0,
                 sumw=0.0,
             ),
+            significant_counts=(
+                np.full(mock_dataset.n_units, 7, dtype=np.int32) if request.outputs.return_significant_counts else None
+            ),
         )
-        if kwargs.get("return_significant_counts"):
-            output += (np.full(mock_dataset.n_units, 7, dtype=np.int32),)
-        return output
 
     monkeypatch.setattr(iteration_loop_module, "build_local_hypothesis_layout", fake_build_local_hypothesis_layout)
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
     prior_rotations = np.zeros((1, 3), dtype=np.float32)
     rotation_grid_rotations = get_relion_rotation_grid(0).astype(np.float32)
@@ -4911,10 +4917,15 @@ def test_run_local_search_iteration_dispatches_aligned_mstep_grid(monkeypatch, r
         captured["relion_exact_score_translation"] = kwargs.get("relion_exact_score_translation")
         raise DispatchCaptured
 
+    def capture_local_dispatch(request):
+        captured["layout"] = request.inputs.local_layout
+        captured["relion_exact_score_translation"] = request.scoring.relion_exact_score_translation
+        raise DispatchCaptured
+
     if k_class_enabled:
         monkeypatch.setattr(local_iteration_module, "run_local_k_class_em", capture_dispatch)
     else:
-        monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", capture_dispatch)
+        monkeypatch.setattr(local_iteration_module, "run_local_em", capture_local_dispatch)
 
     with pytest.raises(DispatchCaptured):
         iteration_loop_module._run_local_search_iteration(
@@ -5001,15 +5012,14 @@ def test_run_local_search_iteration_clamps_highres_local_batches(monkeypatch):
     )
     captured = {}
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured["image_batch_size"] = int(kwargs["image_batch_size"])
-        captured["rotation_block_size"] = int(kwargs["rotation_block_size"])
-        return (
-            jnp.zeros(1, dtype=jnp.complex64),
-            jnp.zeros(1, dtype=jnp.complex64),
-            np.zeros(2, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["image_batch_size"] = int(request.execution.image_batch_size)
+        captured["rotation_block_size"] = int(request.execution.rotation_block_size)
+        return LocalEMResult(
+            Ft_y=jnp.zeros(1, dtype=jnp.complex64),
+            Ft_ctf=jnp.zeros(1, dtype=jnp.complex64),
+            hard_assignment=np.zeros(2, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(2, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(2, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(2, dtype=jnp.float32),
@@ -5017,7 +5027,7 @@ def test_run_local_search_iteration_clamps_highres_local_batches(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
     outputs = iteration_loop_module._run_local_search_iteration(
         HighresDataset(),
@@ -5079,15 +5089,14 @@ def test_run_local_search_iteration_relion_xhalf_uses_windowed_batch_guard_by_de
     )
     captured = {}
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured["image_batch_size"] = int(kwargs["image_batch_size"])
-        captured["rotation_block_size"] = int(kwargs["rotation_block_size"])
-        return (
-            jnp.zeros(1, dtype=jnp.complex64),
-            jnp.zeros(1, dtype=jnp.complex64),
-            np.zeros(2, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["image_batch_size"] = int(request.execution.image_batch_size)
+        captured["rotation_block_size"] = int(request.execution.rotation_block_size)
+        return LocalEMResult(
+            Ft_y=jnp.zeros(1, dtype=jnp.complex64),
+            Ft_ctf=jnp.zeros(1, dtype=jnp.complex64),
+            hard_assignment=np.zeros(2, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(2, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(2, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(2, dtype=jnp.float32),
@@ -5095,7 +5104,7 @@ def test_run_local_search_iteration_relion_xhalf_uses_windowed_batch_guard_by_de
             ),
         )
 
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
     monkeypatch.delenv("RECOVAR_LOCAL_XHALF_BATCH_GUARD", raising=False)
 
     iteration_loop_module._run_local_search_iteration(
@@ -5178,23 +5187,25 @@ def test_run_local_search_iteration_plumbs_score_only_to_exact_engine(monkeypatc
     )
     captured = {}
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured.update(kwargs)
-        return (
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            np.zeros(mock_dataset.n_units, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["score_only"] = request.reconstruction.score_only
+        captured["disable_adjoint_y"] = request.reconstruction.disable_adjoint_y
+        captured["disable_adjoint_ctf"] = request.reconstruction.disable_adjoint_ctf
+        captured["accumulate_noise"] = request.outputs.accumulate_noise
+        return LocalEMResult(
+            Ft_y=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            Ft_ctf=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            hard_assignment=np.zeros(mock_dataset.n_units, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(mock_dataset.n_units, dtype=jnp.float32),
                 rotation_posterior_sums=jnp.zeros(3, dtype=jnp.float32),
             ),
-            {"score_only": kwargs["score_only"]},
+            profile_summary={"score_only": request.reconstruction.score_only},
         )
 
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
     outputs = iteration_loop_module._run_local_search_iteration(
         mock_dataset,
@@ -5259,14 +5270,13 @@ def test_run_local_search_iteration_plumbs_normalization_log_evidence(monkeypatc
     captured = {}
     normalization_log_evidence = np.array([1.25, 2.5], dtype=np.float64)
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured.update(kwargs)
-        return (
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            np.zeros(mock_dataset.n_units, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["normalization_log_evidence"] = request.posterior.normalization_log_evidence
+        return LocalEMResult(
+            Ft_y=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            Ft_ctf=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            hard_assignment=np.zeros(mock_dataset.n_units, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(mock_dataset.n_units, dtype=jnp.float32),
@@ -5274,7 +5284,7 @@ def test_run_local_search_iteration_plumbs_normalization_log_evidence(monkeypatc
             ),
         )
 
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
     outputs = iteration_loop_module._run_local_search_iteration(
         mock_dataset,
@@ -5320,14 +5330,13 @@ def test_run_local_search_iteration_plumbs_stats_use_reconstruction_probs(monkey
     )
     captured = {}
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured["stats_use_reconstruction_probs"] = kwargs["stats_use_reconstruction_probs"]
-        return (
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            np.zeros(mock_dataset.n_units, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["stats_use_reconstruction_probs"] = request.reconstruction.stats_use_reconstruction_probs
+        return LocalEMResult(
+            Ft_y=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            Ft_ctf=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            hard_assignment=np.zeros(mock_dataset.n_units, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(mock_dataset.n_units, dtype=jnp.float32),
@@ -5335,7 +5344,7 @@ def test_run_local_search_iteration_plumbs_stats_use_reconstruction_probs(monkey
             ),
         )
 
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
     outputs = iteration_loop_module._run_local_search_iteration(
         mock_dataset,
@@ -5465,22 +5474,21 @@ def test_run_local_search_iteration_exact_engine_uses_factorized_prior_metadata_
             translation_log_priors=np.zeros((1, np.asarray(translations).shape[0]), dtype=dtype),
         )
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        _ = args
-        captured["max_significants"] = kwargs.get("max_significants")
-        captured["use_float64_scoring"] = kwargs.get("use_float64_scoring")
-        captured["use_float64_normalization"] = kwargs.get("use_float64_normalization")
-        return (
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
-            np.zeros(mock_dataset.n_units, dtype=np.int32),
-            RelionStats(
+    def fake_run_local_em(request):
+        captured["max_significants"] = request.search.max_significants
+        captured["use_float64_scoring"] = request.scoring.use_float64_scoring
+        captured["use_float64_normalization"] = request.scoring.use_float64_normalization
+        return LocalEMResult(
+            Ft_y=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            Ft_ctf=jnp.zeros(mock_dataset.volume_size, dtype=mock_dataset.dtype),
+            hard_assignment=np.zeros(mock_dataset.n_units, dtype=np.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 best_log_score_per_image=jnp.zeros(mock_dataset.n_units, dtype=jnp.float32),
                 max_posterior_per_image=jnp.ones(mock_dataset.n_units, dtype=jnp.float32),
                 rotation_posterior_sums=jnp.zeros(rotation_grid_size(1), dtype=jnp.float32),
             ),
-            NoiseStats(
+            noise_stats=NoiseStats(
                 wsum_sigma2_noise=jnp.zeros(mock_dataset.image_shape[0] // 2 + 1, dtype=jnp.float32),
                 wsum_img_power=jnp.zeros(mock_dataset.image_shape[0] // 2 + 1, dtype=jnp.float32),
                 wsum_sigma2_offset=0.0,
@@ -5489,7 +5497,7 @@ def test_run_local_search_iteration_exact_engine_uses_factorized_prior_metadata_
         )
 
     monkeypatch.setattr(iteration_loop_module, "build_local_hypothesis_layout", fake_build_local_hypothesis_layout)
-    monkeypatch.setattr(iteration_loop_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
     healpix_order = 1
     canonical_rotations = get_relion_rotation_grid(healpix_order).astype(np.float32)
@@ -6578,20 +6586,20 @@ def test_local_k_class_can_report_noise_support_class_sums(monkeypatch):
     support_sumw = [0.25, 1.75]
     calls = []
 
-    def fake_run_local_em_exact(*args, **kwargs):
+    def fake_run_local_em(request):
         class_index = len(calls)
-        calls.append(kwargs)
-        return (
-            jnp.full(4, class_index + 1, dtype=jnp.complex64),
-            jnp.full(4, class_index + 1, dtype=jnp.float32),
-            jnp.zeros(2, dtype=jnp.int32),
-            RelionStats(
+        calls.append(request)
+        return LocalEMResult(
+            Ft_y=jnp.full(4, class_index + 1, dtype=jnp.complex64),
+            Ft_ctf=jnp.full(4, class_index + 1, dtype=jnp.float32),
+            hard_assignment=jnp.zeros(2, dtype=jnp.int32),
+            relion_stats=RelionStats(
                 log_evidence_per_image=jnp.asarray(class_log_evidence[class_index], dtype=jnp.float32),
                 best_log_score_per_image=jnp.full(2, class_index, dtype=jnp.float32),
                 max_posterior_per_image=jnp.full(2, 0.5, dtype=jnp.float32),
                 rotation_posterior_sums=jnp.asarray([support_sumw[class_index]], dtype=jnp.float32),
             ),
-            NoiseStats(
+            noise_stats=NoiseStats(
                 wsum_sigma2_noise=jnp.ones(1, dtype=jnp.float32),
                 wsum_img_power=jnp.ones(1, dtype=jnp.float32),
                 wsum_sigma2_offset=0.0,
@@ -6599,7 +6607,7 @@ def test_local_k_class_can_report_noise_support_class_sums(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr(k_class_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(k_class_module, "run_local_em", fake_run_local_em)
 
     result = run_local_k_class_em(
         dataset,
@@ -6617,7 +6625,7 @@ def test_local_k_class_can_report_noise_support_class_sums(monkeypatch):
         class_posterior_sums_from_noise=True,
     )
 
-    assert [call["stats_use_reconstruction_probs"] for call in calls] == [True, True]
+    assert [call.reconstruction.stats_use_reconstruction_probs for call in calls] == [True, True]
     np.testing.assert_allclose(
         np.asarray(result.class_responsibilities),
         [[0.9, 0.9], [0.1, 0.1]],
@@ -6675,14 +6683,13 @@ def test_local_k_class_uses_global_reconstruction_threshold(monkeypatch):
     )
     calls = []
 
-    def fake_run_local_em_exact(*args, **kwargs):
-        del args
-        calls.append(kwargs)
-        is_probe = kwargs.get("disable_adjoint_y", False)
+    def fake_run_local_em(request):
+        calls.append(request)
+        is_probe = request.reconstruction.disable_adjoint_y
         class_index = (
-            (sum(1 for call in calls if call.get("disable_adjoint_y", False)) - 1)
+            (sum(1 for call in calls if call.reconstruction.disable_adjoint_y) - 1)
             if is_probe
-            else (sum(1 for call in calls if not call.get("disable_adjoint_y", False)) - 1)
+            else (sum(1 for call in calls if not call.reconstruction.disable_adjoint_y) - 1)
         )
         stats = RelionStats(
             log_evidence_per_image=jnp.asarray([np.log(class_masses[class_index])], dtype=jnp.float32),
@@ -6690,17 +6697,19 @@ def test_local_k_class_uses_global_reconstruction_threshold(monkeypatch):
             max_posterior_per_image=jnp.ones(1, dtype=jnp.float32),
             rotation_posterior_sums=jnp.ones(1, dtype=jnp.float32),
         )
-        base = (
-            jnp.full(4, class_index + 1, dtype=jnp.complex64),
-            jnp.full(4, class_index + 1, dtype=jnp.float32),
-            jnp.zeros(1, dtype=jnp.int32),
-            stats,
+        return LocalEMResult(
+            Ft_y=jnp.full(4, class_index + 1, dtype=jnp.complex64),
+            Ft_ctf=jnp.full(4, class_index + 1, dtype=jnp.float32),
+            hard_assignment=jnp.zeros(1, dtype=jnp.int32),
+            relion_stats=stats,
+            profile_summary=(
+                {"reconstruction_probability_values_by_image": support_values[class_index]}
+                if request.outputs.return_profile
+                else None
+            ),
         )
-        if kwargs.get("return_profile"):
-            return base + ({"reconstruction_probability_values_by_image": support_values[class_index]},)
-        return base
 
-    monkeypatch.setattr(k_class_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(k_class_module, "run_local_em", fake_run_local_em)
 
     run_local_k_class_em(
         dataset,
@@ -6716,7 +6725,7 @@ def test_local_k_class_uses_global_reconstruction_threshold(monkeypatch):
     )
 
     mstep_thresholds = [
-        call.get("reconstruction_probability_threshold") for call in calls if not call.get("disable_adjoint_y", False)
+        call.search.reconstruction_probability_threshold for call in calls if not call.reconstruction.disable_adjoint_y
     ]
     assert len(mstep_thresholds) == 2
     for threshold in mstep_thresholds:
@@ -8002,7 +8011,7 @@ def test_local_score_debug_force_split_only_splits_target_bucket(monkeypatch, rn
 
 
 def test_local_score_debug_recon_projection_materialization_is_bucket_scoped():
-    src = inspect.getsource(run_local_em_exact)
+    src = inspect.getsource(run_local_em)
     require_block = src[
         src.index("require_materialized_recon_projection = bool(") : src.index("can_defer_local_noise_projection = (")
     ]
@@ -8020,7 +8029,7 @@ def test_local_score_debug_recon_projection_materialization_is_bucket_scoped():
 
 
 def test_local_fused_posterior_debug_does_not_request_scores_without_score_dump():
-    src = inspect.getsource(run_local_em_exact)
+    src = inspect.getsource(run_local_em)
     assert "return_big_jit_debug_scores = bool(score_debug_bucket_matches)" in src
     assert "return_debug_scores=return_big_jit_debug_scores" in src
     assert "if return_big_jit_debug_scores" in src
@@ -8082,7 +8091,7 @@ def test_local_exact_relion_translation_requires_half_spectrum_scoring():
 
 
 def test_local_exact_relion_translation_supports_float64_scoring():
-    src = inspect.getsource(run_local_em_exact)
+    src = inspect.getsource(run_local_em)
     assert "exact RELION score translation is a float32 scoring path" not in src
     assert "dtype=np.float64 if use_float64_scoring else np.float32" in src
 
@@ -13999,9 +14008,7 @@ class TestRelionDefault:
         )
         runtime = load_runtime_configuration(
             {},
-            execution=HostExecutionSettings(
-                dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4)
-            ),
+            execution=HostExecutionSettings(dense_batch_planning=DenseBatchPlanningSettings(projection_fraction=0.4)),
         )
         monkeypatch.setattr(
             iteration_loop_module,

@@ -784,10 +784,10 @@ def _local_em_request_from_legacy_kwargs(
 
 
 def _run_local_em_typed(inputs: LocalEMInputs, engine_kwargs: dict) -> LocalEMResult:
-    """Run a grouped request while retaining the K-class exact-runner hook."""
+    """Run a grouped request through the canonical exact-local engine."""
 
     request = _local_em_request_from_legacy_kwargs(inputs, engine_kwargs)
-    return run_local_em(request, legacy_runner=run_local_em_exact)
+    return run_local_em(request)
 
 
 class _DenseScoreDumpClassLabel:

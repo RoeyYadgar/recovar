@@ -801,7 +801,7 @@ def test_exact_local_contribution_capture_routes_only_the_target_boundary(monkey
     finally:
         sparse_pass2_bucketed.clear_bpref_contribution_dump_context()
 
-    source = inspect.getsource(local_em_engine.run_local_em_exact)
+    source = inspect.getsource(local_em_engine.run_local_em)
     helper_source = inspect.getsource(
         local_em_engine._exact_local_bpref_contribution_capture_for_call
     )

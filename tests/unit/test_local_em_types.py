@@ -4,7 +4,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from recovar.em.dense_single_volume.local_em_engine import run_local_em, run_local_em_exact
+from recovar.em.dense_single_volume import local_em_engine
+from recovar.em.dense_single_volume.local_em_engine import run_local_em_exact
 from recovar.em.dense_single_volume.local_em_types import ExecutionSettings as LegacyExecutionSettings
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
@@ -119,7 +120,7 @@ def test_local_em_requested_captures_enable_legacy_profile_result(probability_va
 
 
 @pytest.mark.unit
-def test_local_em_adapters_round_trip_every_exact_engine_parameter():
+def test_legacy_local_em_facade_builds_the_canonical_request(monkeypatch):
     request = LocalEMRequest(
         inputs=LocalEMInputs(
             "dataset",
@@ -214,15 +215,6 @@ def test_local_em_adapters_round_trip_every_exact_engine_parameter():
         profile_summary={"profile": "summary"},
         significant_counts="significant_counts",
     )
-    captured = {}
-
-    def fake_legacy_runner(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
-
-    result = run_local_em(request, legacy_runner=fake_legacy_runner)
-
     expected_kwargs = {}
     for group in (
         request.search,
@@ -253,27 +245,23 @@ def test_local_em_adapters_round_trip_every_exact_engine_parameter():
         debug_pass_label=request.diagnostics.pass_label,
     )
 
-    assert result == expected_result
-    assert captured["args"] == (
+    captured = {}
+
+    def fake_typed_runner(actual_request):
+        captured["request"] = actual_request
+        return expected_result
+
+    monkeypatch.setattr(local_em_engine, "run_local_em", fake_typed_runner)
+    legacy_result = run_local_em_exact(
         "dataset",
         "mean",
         "mean_variance",
         "noise_variance",
         "local_layout",
         "disc_type",
+        **expected_kwargs,
     )
-    assert captured["kwargs"] == expected_kwargs
+
+    assert captured["request"] == request
+    assert legacy_result == expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
     assert set(expected_kwargs) == set(list(inspect.signature(run_local_em_exact).parameters)[6:])
-
-    from recovar.em.dense_single_volume.k_class import _local_em_request_from_legacy_kwargs
-
-    round_trip_request = _local_em_request_from_legacy_kwargs(request.inputs, captured["kwargs"])
-    round_trip_capture = {}
-
-    def round_trip_runner(*args, **kwargs):
-        round_trip_capture["args"] = args
-        round_trip_capture["kwargs"] = kwargs
-        return expected_result.to_legacy_tuple(round_trip_request.outputs.legacy_tuple_spec)
-
-    assert run_local_em(round_trip_request, legacy_runner=round_trip_runner) == expected_result
-    assert round_trip_capture == captured

@@ -36,6 +36,7 @@ from recovar.em.dense_single_volume.k_class import (
     run_dense_k_class_em_adaptive,
     run_local_k_class_em,
 )
+from recovar.em.dense_single_volume.local_em_types import LocalEMResult
 from recovar.em.dense_single_volume.local_layout import LocalHypothesisLayout
 from recovar.em.dense_single_volume.mean_helpers import update_c1_sigma_offset_from_posterior
 from recovar.em.sampling import read_relion_direction_priors
@@ -1886,33 +1887,25 @@ def test_local_k_class_single_class_skips_score_probe(monkeypatch):
         sample_mask_flat=np.ones((2, 1), dtype=bool),
     )
 
-    def fake_run_local_em_exact(
-        _dataset,
-        mean,
-        _mean_variance,
-        _noise_variance,
-        _local_layout,
-        _disc_type,
-        **kwargs,
-    ):
-        calls.append(kwargs)
+    def fake_run_local_em(request):
+        calls.append(request)
         stats = make_relion_stats(
             log_evidence_per_image=np.asarray([4.0, 5.0], dtype=np.float32),
             best_log_score_per_image=np.asarray([3.0, 4.0], dtype=np.float32),
             max_posterior_per_image=np.asarray([0.5, 0.8], dtype=np.float32),
             rotation_posterior_sums=np.asarray([1.0, 2.0], dtype=np.float32),
         )
-        return (
-            jnp.ones_like(mean),
-            jnp.ones_like(mean) * 2,
-            np.asarray([1, 0], dtype=np.int32),
-            np.repeat(np.eye(3, dtype=np.float32)[None], 2, axis=0),
-            np.zeros((2, 2), dtype=np.float32),
-            np.asarray([1, 0], dtype=np.int32),
-            stats,
+        return LocalEMResult(
+            Ft_y=jnp.ones_like(request.inputs.mean),
+            Ft_ctf=jnp.ones_like(request.inputs.mean) * 2,
+            hard_assignment=np.asarray([1, 0], dtype=np.int32),
+            relion_stats=stats,
+            best_pose_rotations=np.repeat(np.eye(3, dtype=np.float32)[None], 2, axis=0),
+            best_pose_translations=np.zeros((2, 2), dtype=np.float32),
+            best_pose_rotation_ids=np.asarray([1, 0], dtype=np.int32),
         )
 
-    monkeypatch.setattr(k_class_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(k_class_module, "run_local_em", fake_run_local_em)
 
     result = run_local_k_class_em(
         TinyDataset(),
@@ -1928,9 +1921,9 @@ def test_local_k_class_single_class_skips_score_probe(monkeypatch):
     )
 
     assert len(calls) == 1
-    assert calls[0]["return_best_pose_details"] is True
-    assert calls[0]["accumulate_noise"] is False
-    assert calls[0]["normalization_log_evidence"] is None
+    assert calls[0].outputs.return_best_pose_details is True
+    assert calls[0].outputs.accumulate_noise is False
+    assert calls[0].posterior.normalization_log_evidence is None
     np.testing.assert_array_equal(np.asarray(result.class_assignments), np.asarray([0, 0], dtype=np.int32))
     np.testing.assert_array_equal(np.asarray(result.pose_assignments), np.asarray([1, 0], dtype=np.int32))
     np.testing.assert_allclose(np.asarray(result.class_responsibilities), np.ones((1, 2), dtype=np.float32))
@@ -1960,16 +1953,8 @@ def test_local_k_class_accepts_per_class_layouts_and_external_evidence(monkeypat
             sample_mask_flat=np.ones((2, 1), dtype=bool),
         )
 
-    def fake_run_local_em_exact(
-        _dataset,
-        mean,
-        _mean_variance,
-        _noise_variance,
-        local_layout,
-        _disc_type,
-        **kwargs,
-    ):
-        calls.append((local_layout, kwargs))
+    def fake_run_local_em(request):
+        calls.append(request)
         call_index = len(calls)
         stats = make_relion_stats(
             log_evidence_per_image=np.full(2, float(call_index), dtype=np.float32),
@@ -1977,14 +1962,14 @@ def test_local_k_class_accepts_per_class_layouts_and_external_evidence(monkeypat
             max_posterior_per_image=np.full(2, 0.25, dtype=np.float32),
             rotation_posterior_sums=np.zeros(2, dtype=np.float32),
         )
-        return (
-            jnp.zeros_like(mean),
-            jnp.zeros_like(mean),
-            np.zeros(2, dtype=np.int32),
-            stats,
+        return LocalEMResult(
+            Ft_y=jnp.zeros_like(request.inputs.mean),
+            Ft_ctf=jnp.zeros_like(request.inputs.mean),
+            hard_assignment=np.zeros(2, dtype=np.int32),
+            relion_stats=stats,
         )
 
-    monkeypatch.setattr(k_class_module, "run_local_em_exact", fake_run_local_em_exact)
+    monkeypatch.setattr(k_class_module, "run_local_em", fake_run_local_em)
 
     class_log_evidence = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
     normalization_log_evidence = np.logaddexp(class_log_evidence[0], class_log_evidence[1])
@@ -2004,11 +1989,11 @@ def test_local_k_class_accepts_per_class_layouts_and_external_evidence(monkeypat
     )
 
     assert len(calls) == 2
-    np.testing.assert_allclose(calls[0][0].rotation_log_priors_flat, np.asarray([0.0, -1.0]))
-    np.testing.assert_allclose(calls[1][0].rotation_log_priors_flat, np.asarray([-2.0, -3.0]))
-    assert [kwargs["include_unweighted_norm_high_shell"] for _layout, kwargs in calls] == [True, False]
-    for _layout, kwargs in calls:
-        np.testing.assert_allclose(kwargs["normalization_log_evidence"], normalization_log_evidence)
+    np.testing.assert_allclose(calls[0].inputs.local_layout.rotation_log_priors_flat, np.asarray([0.0, -1.0]))
+    np.testing.assert_allclose(calls[1].inputs.local_layout.rotation_log_priors_flat, np.asarray([-2.0, -3.0]))
+    assert [request.reconstruction.include_unweighted_norm_high_shell for request in calls] == [True, False]
+    for request in calls:
+        np.testing.assert_allclose(request.posterior.normalization_log_evidence, normalization_log_evidence)
 
 
 def test_class_direction_prior_normalizes_relion_joint_rows():

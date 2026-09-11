@@ -8,8 +8,8 @@ under their underscored names so existing test monkeypatches at
 ``iteration_loop._run_local_search_iteration`` continue to bind correctly.
 
 Patched symbols that live in iteration_loop's namespace
-(``build_local_hypothesis_layout``, ``run_local_em_exact``,
-``_estimate_relion_em_batch_sizes``) are accessed via the iteration_loop module
+(``build_local_hypothesis_layout`` and ``_estimate_relion_em_batch_sizes``)
+are accessed via the iteration_loop module
 reference (lazy import inside the function) so ``monkeypatch.setattr(iteration_loop, ...)``
 calls in the existing test suite remain effective.
 """
@@ -248,7 +248,7 @@ def _run_local_search_iteration(
     """Run exact local search over image-specific rotation neighborhoods.
 
     ``debug_pass_label`` is diagnostic-only and forwarded verbatim to
-    ``run_local_em_exact``: pass a distinct label per call site whenever a
+    ``run_local_em``: pass a distinct label per call site whenever a
     caller invokes this function more than once for the same image at the
     same ``current_size``/``debug_iteration`` (e.g. local search's pass-1
     "parent" probe vs. its pass-2 fine call), or the later call's
@@ -256,8 +256,8 @@ def _run_local_search_iteration(
     one at the same path.
     """
     # Indirection through the iteration_loop module so test monkeypatches that
-    # target ``iteration_loop.build_local_hypothesis_layout``,
-    # ``iteration_loop.run_local_em_exact``, etc. continue to win at the call
+    # target ``iteration_loop.build_local_hypothesis_layout`` and
+    # ``iteration_loop._estimate_relion_em_batch_sizes`` continue to win at the call
     # site even though this function lives in a sibling module.
     from recovar.em.dense_single_volume import iteration_loop as _il
 
@@ -578,7 +578,6 @@ def _run_local_search_iteration(
                     pass_label=debug_pass_label,
                 ),
             ),
-            legacy_runner=_il.run_local_em_exact,
         )
         result = _LocalSearchIterationResult(
             Ft_y=engine_result.Ft_y,

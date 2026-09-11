@@ -779,7 +779,6 @@ def test_iteration_loop_monkeypatch_ppca_and_vdam_surfaces_survive_merges():
         "read_relion_optimiser_metadata",
         "read_relion_sampling_metadata",
         "run_dense_ppca_refinement_with_kclass_schedule",
-        "run_local_em_exact",
         "run_local_k_class_em",
         "run_local_ppca_refinement_with_kclass_schedule",
     ]
