@@ -1522,7 +1522,7 @@ def _k1_skip_significance_pruning_enabled() -> bool:
     return False
 
 
-from recovar.em.dense_single_volume.debug_dumps import (  # noqa: F401
+from recovar.em.dense_single_volume.diagnostics.controller_capture import (  # noqa: F401
     _maybe_dump_noise_update_debug,
     _save_iteration_intermediates,
     write_controller_npz,

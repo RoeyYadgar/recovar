@@ -130,7 +130,7 @@ from .diagnostics.local_capture import (
     maybe_write_dense_cc_components,
     write_dense_noise_components,
 )
-from .local_debug import (
+from .diagnostics.local_capture import (
     maybe_write_dense_per_pose_score_dump,
     parse_dense_noise_component_dump_request,
     parse_dense_per_pose_score_dump_request,

@@ -118,7 +118,7 @@ from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
     _validate_native_half_batch,
     plan_local_cache_route,
 )
-from recovar.em.dense_single_volume.local_debug import (
+from recovar.em.dense_single_volume.diagnostics.local_capture import (
     noise_split_diagnostics_requested,
 )
 from recovar.em.dense_single_volume.local_diagnostics import (
@@ -1237,7 +1237,7 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
     The request is the canonical host-side boundary. ``debug_pass_label`` is
     diagnostic-only: it is appended verbatim to
     ``RECOVAR_LOCAL_SCORE_DUMP_*`` filenames (see
-    ``local_debug.maybe_write_debug_score_dump``). Callers that invoke this
+    ``diagnostics.local_capture.maybe_write_debug_score_dump``). Callers that invoke this
     function more than once per iteration for the *same* image/current_size/
     debug_iteration (e.g. local search's pass-1 "parent" probe followed by
     its pass-2 fine call) must pass distinct labels, or the later call's

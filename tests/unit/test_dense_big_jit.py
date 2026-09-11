@@ -34,7 +34,7 @@ from recovar.em.dense_single_volume.helpers.scoring import (
     _update_logsumexp,
     _winner_take_all_probs_for_block,
 )
-from recovar.em.dense_single_volume.local_debug import (
+from recovar.em.dense_single_volume.diagnostics.local_capture import (
     DensePerPoseScoreDumpRequest,
     maybe_write_dense_per_pose_score_dump,
 )

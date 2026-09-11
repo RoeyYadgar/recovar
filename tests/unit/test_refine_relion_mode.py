@@ -138,7 +138,7 @@ from recovar.em.dense_single_volume.local_backprojection import (
     flatten_bucket_rotations,
     flatten_bucket_rows,
 )
-from recovar.em.dense_single_volume.local_debug import (
+from recovar.em.dense_single_volume.diagnostics.local_capture import (
     current_size_matches_request,
     iteration_matches_request,
     maybe_write_debug_score_dump,

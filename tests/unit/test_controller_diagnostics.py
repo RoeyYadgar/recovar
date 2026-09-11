@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from recovar.em.dense_single_volume.debug_dumps import _maybe_dump_noise_update_debug
+from recovar.em.dense_single_volume.diagnostics.controller_capture import _maybe_dump_noise_update_debug
 
 
 def test_noise_update_capture_retains_filename_schema_and_dtypes(tmp_path, monkeypatch):
