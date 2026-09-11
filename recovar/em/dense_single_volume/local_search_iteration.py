@@ -14,15 +14,12 @@ from recovar.em.dense_single_volume.helpers.local_search import (
 from recovar.em.dense_single_volume.k_class import run_local_k_class_em
 from recovar.em.dense_single_volume.local_em_engine import run_local_em
 from recovar.em.dense_single_volume.local_em_types import (
-    LocalCorrectionInputs,
-    LocalEMDiagnostics,
     LocalEMInputs,
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalExecutionSettings,
     LocalPosteriorInputs,
     LocalProjectionSettings,
-    LocalReconstructionSettings,
     LocalScoringSettings,
     LocalSearchSettings,
 )
@@ -104,8 +101,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
     max_significants = scoring.max_significants
     reconstruct_significant_only = scoring.reconstruct_significant_only
     apply_max_significants_to_support = scoring.apply_max_significants_to_support
-    stats_use_reconstruction_probs = scoring.stats_use_reconstruction_probs
-    source_faithful_spectrum_norm = scoring.source_faithful_spectrum_norm
+    source_faithful_spectrum_norm = reconstruction.source_faithful_spectrum_norm
     projection_padding_factor = projection.projection_padding_factor
     reconstruction_padding_factor = projection.reconstruction_padding_factor
     use_float64_projections = projection.use_float64_projections
@@ -116,19 +112,10 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
     projection_force_jax = projection.force_jax
     relion_projector_half = projection.relion_projector_half
     relion_projector_r_max = projection.relion_projector_r_max
-    image_corrections = corrections.image_corrections
-    scale_corrections = corrections.scale_corrections
-    group_ids = corrections.group_ids
-    scale_correction_group_count = corrections.scale_correction_group_count
-    scale_correction_data_vs_prior = corrections.scale_correction_data_vs_prior
-    image_pre_shifts = corrections.image_pre_shifts
     normalization_log_z = posterior.normalization_log_z
     normalization_log_evidence = posterior.normalization_log_evidence
     class_log_priors = posterior.class_log_priors
-    mstep_subtract_ctf_projection = reconstruction.mstep_subtract_ctf_projection
     mstep_relion_x_half = reconstruction.mstep_relion_x_half
-    disable_adjoint_y = reconstruction.disable_adjoint_y
-    disable_adjoint_ctf = reconstruction.disable_adjoint_ctf
     score_only = reconstruction.score_only
     accumulate_noise = outputs.accumulate_noise
     return_half_volume_accumulators = outputs.return_half_volume_accumulators
@@ -137,8 +124,6 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
     return_class_details = outputs.return_class_details
     return_reconstruction_sample_indices = outputs.return_reconstruction_sample_indices
     return_significant_counts = outputs.return_significant_counts
-    debug_iteration = diagnostics.iteration
-    debug_pass_label = diagnostics.pass_label
 
     # Indirection through the iteration_loop module so test monkeypatches that
     # target ``iteration_loop.build_local_hypothesis_layout`` and
@@ -299,7 +284,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
             raise NotImplementedError("K-class local search does not support score_only")
         if return_profile:
             raise NotImplementedError("K-class local search does not yet emit local profile summaries")
-        if disable_adjoint_y or disable_adjoint_ctf:
+        if reconstruction.disable_adjoint_y or reconstruction.disable_adjoint_ctf:
             raise NotImplementedError("K-class local search does not support adjoint ablation flags")
         if normalization_log_z is not None:
             raise NotImplementedError("K-class local search requires evidence-space normalization, not pass-2 log_z")
@@ -331,19 +316,19 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
             use_float64_projections=use_float64_projections,
             do_gridding_correction=do_gridding_correction,
             square_window=square_window,
-            image_corrections=image_corrections,
-            scale_corrections=scale_corrections,
-            group_ids=group_ids,
-            scale_correction_group_count=scale_correction_group_count,
-            scale_correction_data_vs_prior=scale_correction_data_vs_prior,
-            image_pre_shifts=image_pre_shifts,
+            image_corrections=corrections.image_corrections,
+            scale_corrections=corrections.scale_corrections,
+            group_ids=corrections.group_ids,
+            scale_correction_group_count=corrections.scale_correction_group_count,
+            scale_correction_data_vs_prior=corrections.scale_correction_data_vs_prior,
+            image_pre_shifts=corrections.image_pre_shifts,
             mstep_relion_x_half=mstep_relion_x_half,
             reconstruct_significant_only=reconstruct_significant_only,
             adaptive_fraction=adaptive_fraction,
             max_significants=-1,
-            stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+            stats_use_reconstruction_probs=reconstruction.stats_use_reconstruction_probs,
             class_posterior_sums_from_noise=bool(reconstruct_significant_only and accumulate_noise),
-            debug_iteration=debug_iteration,
+            debug_iteration=diagnostics.iteration,
             translation_prior_centers=translation_prior_centers,
             cache_settings=(
                 None if execution_settings is None else execution_settings.local_cache
@@ -418,28 +403,13 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
                     do_gridding_correction=do_gridding_correction,
                     square_window=square_window,
                 ),
-                corrections=LocalCorrectionInputs(
-                    image_corrections=image_corrections,
-                    scale_corrections=scale_corrections,
-                    group_ids=group_ids,
-                    scale_correction_group_count=scale_correction_group_count,
-                    scale_correction_data_vs_prior=scale_correction_data_vs_prior,
-                    image_pre_shifts=image_pre_shifts,
-                ),
+                corrections=corrections,
                 posterior=LocalPosteriorInputs(
                     normalization_log_z=normalization_log_z,
                     normalization_log_evidence=normalization_log_evidence,
                     translation_prior_centers=translation_prior_centers,
                 ),
-                reconstruction=LocalReconstructionSettings(
-                    mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
-                    mstep_relion_x_half=mstep_relion_x_half,
-                    disable_adjoint_y=disable_adjoint_y,
-                    disable_adjoint_ctf=disable_adjoint_ctf,
-                    stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-                    source_faithful_spectrum_norm=source_faithful_spectrum_norm,
-                    score_only=score_only,
-                ),
+                reconstruction=reconstruction,
                 outputs=LocalEMRequestedOutputs(
                     accumulate_noise=accumulate_noise,
                     return_half_volume_accumulators=return_half_volume_accumulators,
@@ -448,10 +418,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
                     return_reconstruction_sample_indices=return_reconstruction_sample_indices,
                     return_significant_counts=return_significant_counts,
                 ),
-                diagnostics=LocalEMDiagnostics(
-                    iteration=debug_iteration,
-                    pass_label=debug_pass_label,
-                ),
+                diagnostics=diagnostics,
             ),
         )
         result = LocalSearchIterationResult(

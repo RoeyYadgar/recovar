@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from recovar.em.dense_single_volume.local_em_types import (
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalReconstructionSettings,
+)
 from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
 
 
@@ -67,8 +72,6 @@ class LocalSearchIterationScoring:
     max_significants: int = -1
     reconstruct_significant_only: bool = True
     apply_max_significants_to_support: bool = False
-    stats_use_reconstruction_probs: bool = False
-    source_faithful_spectrum_norm: bool = False
 
 
 @dataclass(frozen=True)
@@ -88,35 +91,12 @@ class LocalSearchIterationProjection:
 
 
 @dataclass(frozen=True)
-class LocalSearchIterationCorrections:
-    """Per-image and per-group correction inputs."""
-
-    image_corrections: Any | None = None
-    scale_corrections: Any | None = None
-    group_ids: Any | None = None
-    scale_correction_group_count: int | None = None
-    scale_correction_data_vs_prior: Any | None = None
-    image_pre_shifts: Any | None = None
-
-
-@dataclass(frozen=True)
 class LocalSearchIterationPosterior:
     """External normalization and class-prior inputs."""
 
     normalization_log_z: Any | None = None
     normalization_log_evidence: Any | None = None
     class_log_priors: Any | None = None
-
-
-@dataclass(frozen=True)
-class LocalSearchIterationReconstruction:
-    """M-step implementation and adjoint policy."""
-
-    mstep_subtract_ctf_projection: bool = False
-    mstep_relion_x_half: bool = False
-    disable_adjoint_y: bool = False
-    disable_adjoint_ctf: bool = False
-    score_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -133,14 +113,6 @@ class LocalSearchIterationOutputs:
 
 
 @dataclass(frozen=True)
-class LocalSearchIterationDiagnostics:
-    """Diagnostic identity that cannot alter numerical policy."""
-
-    iteration: int | None = None
-    pass_label: str | None = None
-
-
-@dataclass(frozen=True)
 class LocalSearchIterationRequest:
     """Cohesive host request for one local-search iteration."""
 
@@ -149,11 +121,11 @@ class LocalSearchIterationRequest:
     execution: LocalSearchIterationExecution
     scoring: LocalSearchIterationScoring = LocalSearchIterationScoring()
     projection: LocalSearchIterationProjection = LocalSearchIterationProjection()
-    corrections: LocalSearchIterationCorrections = LocalSearchIterationCorrections()
+    corrections: LocalCorrectionInputs = LocalCorrectionInputs()
     posterior: LocalSearchIterationPosterior = LocalSearchIterationPosterior()
-    reconstruction: LocalSearchIterationReconstruction = LocalSearchIterationReconstruction()
+    reconstruction: LocalReconstructionSettings = LocalReconstructionSettings()
     outputs: LocalSearchIterationOutputs = LocalSearchIterationOutputs()
-    diagnostics: LocalSearchIterationDiagnostics = LocalSearchIterationDiagnostics()
+    diagnostics: LocalEMDiagnostics = LocalEMDiagnostics()
 
 
 @dataclass(frozen=True)

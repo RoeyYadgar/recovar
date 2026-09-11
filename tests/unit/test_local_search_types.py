@@ -4,16 +4,18 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from recovar.em.dense_single_volume.local_search_iteration import run_local_search_iteration
+from recovar.em.dense_single_volume.local_em_types import (
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalReconstructionSettings,
+)
 from recovar.em.dense_single_volume.local_search_types import (
-    LocalSearchIterationCorrections,
-    LocalSearchIterationDiagnostics,
     LocalSearchIterationExecution,
     LocalSearchIterationGrid,
     LocalSearchIterationInputs,
     LocalSearchIterationOutputs,
     LocalSearchIterationPosterior,
     LocalSearchIterationProjection,
-    LocalSearchIterationReconstruction,
     LocalSearchIterationRequest,
     LocalSearchIterationResult,
     LocalSearchIterationScoring,
@@ -42,11 +44,11 @@ def test_local_search_iteration_request_is_immutable_and_composed():
 
     assert request.scoring == LocalSearchIterationScoring()
     assert request.projection == LocalSearchIterationProjection()
-    assert request.corrections == LocalSearchIterationCorrections()
+    assert request.corrections == LocalCorrectionInputs()
     assert request.posterior == LocalSearchIterationPosterior()
-    assert request.reconstruction == LocalSearchIterationReconstruction()
+    assert request.reconstruction == LocalReconstructionSettings()
     assert request.outputs == LocalSearchIterationOutputs()
-    assert request.diagnostics == LocalSearchIterationDiagnostics()
+    assert request.diagnostics == LocalEMDiagnostics()
     with pytest.raises(FrozenInstanceError):
         request.execution.image_batch_size = 9
 
@@ -78,13 +80,30 @@ def test_local_search_iteration_uses_typed_request_and_result_contract():
             generate_relion_mstep_rotations=True,
         ),
         execution=LocalSearchIterationExecution(5, 7, 40, 44, settings),
-        scoring=LocalSearchIterationScoring(False, True, True, True, 0.75, 19, False, True, True, True),
+        scoring=LocalSearchIterationScoring(
+            score_with_masked_images=False,
+            half_spectrum_scoring=True,
+            relion_exact_score_translation=True,
+            use_float64_scoring=True,
+            adaptive_fraction=0.75,
+            max_significants=19,
+            reconstruct_significant_only=False,
+            apply_max_significants_to_support=True,
+        ),
         projection=LocalSearchIterationProjection(2, 3, True, True, True, None, True, True, "projector", 71),
-        corrections=LocalSearchIterationCorrections("images", "scales", "groups", 11, "data_prior", "shifts"),
+        corrections=LocalCorrectionInputs("images", "scales", "groups", 11, "data_prior", "shifts"),
         posterior=LocalSearchIterationPosterior("log_z", "log_evidence", "class_priors"),
-        reconstruction=LocalSearchIterationReconstruction(True, True, True, True, True),
+        reconstruction=LocalReconstructionSettings(
+            mstep_subtract_ctf_projection=True,
+            mstep_relion_x_half=True,
+            disable_adjoint_y=True,
+            disable_adjoint_ctf=True,
+            stats_use_reconstruction_probs=True,
+            source_faithful_spectrum_norm=True,
+            score_only=True,
+        ),
         outputs=LocalSearchIterationOutputs(True, True, True, True, True, True, True),
-        diagnostics=LocalSearchIterationDiagnostics(13, "fine"),
+        diagnostics=LocalEMDiagnostics(13, "fine"),
     )
     assert tuple(inspect.signature(run_local_search_iteration).parameters) == ("request",)
     assert request.execution.settings is settings

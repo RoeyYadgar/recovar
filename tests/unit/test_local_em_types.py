@@ -6,7 +6,6 @@ import pytest
 
 from recovar.em.dense_single_volume import local_em_engine
 from recovar.em.dense_single_volume.local_em_engine import run_local_em_exact
-from recovar.em.dense_single_volume.local_em_types import ExecutionSettings as LegacyExecutionSettings
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
     LocalEMDiagnostics,
@@ -86,11 +85,6 @@ def test_local_em_request_composes_immutable_default_groups():
     assert request.diagnostics == LocalEMDiagnostics()
     with pytest.raises(FrozenInstanceError):
         request.execution.image_batch_size = 9
-
-
-@pytest.mark.unit
-def test_legacy_execution_settings_name_aliases_local_type():
-    assert LegacyExecutionSettings is LocalExecutionSettings
 
 
 @pytest.mark.unit

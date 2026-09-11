@@ -45,11 +45,6 @@ class LocalExecutionSettings:
     cache: LocalCacheSettings | None = None
 
 
-# Compatibility alias for external callers written before the runtime-level
-# ExecutionSettings snapshot was introduced.
-ExecutionSettings = LocalExecutionSettings
-
-
 @dataclass(frozen=True)
 class LocalScoringSettings:
     """Score representation, masking, and normalization policy."""

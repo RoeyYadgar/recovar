@@ -109,6 +109,11 @@ from recovar.em.dense_single_volume.k_class import (
     run_dense_k_class_em,
     run_dense_k_class_em_adaptive,
 )
+from recovar.em.dense_single_volume.local_em_types import (
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalReconstructionSettings,
+)
 
 # Re-exports kept for test back-compat: tests monkeypatch these names at the
 # ``iteration_loop`` module level (``monkeypatch.setattr(iteration_loop, ...)``)
@@ -131,15 +136,12 @@ from recovar.em.dense_single_volume.local_search_iteration import (
     run_local_search_iteration,
 )
 from recovar.em.dense_single_volume.local_search_types import (
-    LocalSearchIterationCorrections,
-    LocalSearchIterationDiagnostics,
     LocalSearchIterationExecution,
     LocalSearchIterationGrid,
     LocalSearchIterationInputs,
     LocalSearchIterationOutputs,
     LocalSearchIterationPosterior,
     LocalSearchIterationProjection,
-    LocalSearchIterationReconstruction,
     LocalSearchIterationRequest,
     LocalSearchIterationScoring,
 )
@@ -3453,7 +3455,6 @@ def _score_half_local(
                     max_significants=max_significants,
                     reconstruct_significant_only=True,
                     apply_max_significants_to_support=True,
-                    source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                 ),
                 projection=LocalSearchIterationProjection(
                     projection_padding_factor=PROJECTION_PADDING_FACTOR,
@@ -3466,7 +3467,7 @@ def _score_half_local(
                     relion_projector_half=relion_projector_half,
                     relion_projector_r_max=relion_projector_r_max,
                 ),
-                corrections=LocalSearchIterationCorrections(
+                corrections=LocalCorrectionInputs(
                     image_corrections_k,
                     scale_corrections_k,
                     group_ids_k,
@@ -3474,16 +3475,17 @@ def _score_half_local(
                     scale_correction_data_vs_prior,
                     translation_search_base,
                 ),
-                reconstruction=LocalSearchIterationReconstruction(
+                reconstruction=LocalReconstructionSettings(
                     disable_adjoint_y=True,
                     disable_adjoint_ctf=True,
+                    source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                     score_only=True,
                 ),
                 outputs=LocalSearchIterationOutputs(
                     return_profile=True,
                     return_reconstruction_sample_indices=True,
                 ),
-                diagnostics=LocalSearchIterationDiagnostics(
+                diagnostics=LocalEMDiagnostics(
                     local_debug_iteration,
                     "pass1_parent",
                 ),
@@ -3691,7 +3693,6 @@ def _score_half_local(
                         adaptive_fraction=RELION_ADAPTIVE_FRACTION,
                         max_significants=max_significants,
                         reconstruct_significant_only=False,
-                        source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                     ),
                     projection=LocalSearchIterationProjection(
                         projection_padding_factor=PROJECTION_PADDING_FACTOR,
@@ -3702,7 +3703,7 @@ def _score_half_local(
                         relion_projector_half=relion_projector_half,
                         relion_projector_r_max=relion_projector_r_max,
                     ),
-                    corrections=LocalSearchIterationCorrections(
+                    corrections=LocalCorrectionInputs(
                         image_corrections_k,
                         scale_corrections_k,
                         group_ids_k,
@@ -3710,9 +3711,10 @@ def _score_half_local(
                         scale_correction_data_vs_prior,
                         translation_search_base,
                     ),
-                    reconstruction=LocalSearchIterationReconstruction(
+                    reconstruction=LocalReconstructionSettings(
                         disable_adjoint_y=True,
                         disable_adjoint_ctf=True,
+                        source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                         score_only=True,
                     ),
                 ),
@@ -3789,8 +3791,6 @@ def _score_half_local(
                 adaptive_fraction=RELION_ADAPTIVE_FRACTION,
                 max_significants=max_significants,
                 reconstruct_significant_only=local_reconstruct_significant_only,
-                stats_use_reconstruction_probs=local_reconstruct_significant_only,
-                source_faithful_spectrum_norm=source_faithful_spectrum_norm,
             ),
             projection=LocalSearchIterationProjection(
                 projection_padding_factor=PROJECTION_PADDING_FACTOR,
@@ -3806,7 +3806,7 @@ def _score_half_local(
                 relion_projector_half=relion_projector_half,
                 relion_projector_r_max=relion_projector_r_max,
             ),
-            corrections=LocalSearchIterationCorrections(
+            corrections=LocalCorrectionInputs(
                 image_corrections_k,
                 scale_corrections_k,
                 group_ids_k,
@@ -3818,10 +3818,12 @@ def _score_half_local(
                 normalization_log_evidence=local_normalization_log_evidence,
                 class_log_priors=class_log_priors if k_class_enabled else None,
             ),
-            reconstruction=LocalSearchIterationReconstruction(
+            reconstruction=LocalReconstructionSettings(
                 mstep_relion_x_half=local_relion_x_half_mstep,
                 disable_adjoint_y=local_disable_adjoint_y,
                 disable_adjoint_ctf=local_disable_adjoint_ctf,
+                stats_use_reconstruction_probs=local_reconstruct_significant_only,
+                source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                 score_only=diagnostic_score_only,
             ),
             outputs=LocalSearchIterationOutputs(
@@ -3833,7 +3835,7 @@ def _score_half_local(
                 # RELION's coarse pass-1 metadata count.
                 return_significant_counts=False,
             ),
-            diagnostics=LocalSearchIterationDiagnostics(
+            diagnostics=LocalEMDiagnostics(
                 local_debug_iteration,
                 "pass2_final",
             ),

@@ -182,18 +182,20 @@ from recovar.em.dense_single_volume.local_layout import (
     build_pass2_hypothesis_layout,
 )
 from recovar.em.dense_single_volume.local_search_types import (
-    LocalSearchIterationCorrections,
-    LocalSearchIterationDiagnostics,
     LocalSearchIterationExecution,
     LocalSearchIterationGrid,
     LocalSearchIterationInputs,
     LocalSearchIterationOutputs,
     LocalSearchIterationPosterior,
     LocalSearchIterationProjection,
-    LocalSearchIterationReconstruction,
     LocalSearchIterationRequest,
     LocalSearchIterationResult,
     LocalSearchIterationScoring,
+)
+from recovar.em.dense_single_volume.local_em_types import (
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalReconstructionSettings,
 )
 from recovar.em.dense_single_volume.local_score_pass import (
     compute_reconstruction_support,
@@ -540,12 +542,12 @@ def _run_local_search_legacy(*args, **kwargs):
                 "force_jax": "projection_force_jax",
             },
         ),
-        corrections=take(LocalSearchIterationCorrections),
+        corrections=take(LocalCorrectionInputs),
         posterior=take(LocalSearchIterationPosterior),
-        reconstruction=take(LocalSearchIterationReconstruction),
+        reconstruction=take(LocalReconstructionSettings),
         outputs=take(LocalSearchIterationOutputs),
         diagnostics=take(
-            LocalSearchIterationDiagnostics,
+            LocalEMDiagnostics,
             {"iteration": "debug_iteration", "pass_label": "debug_pass_label"},
         ),
     )
