@@ -1398,12 +1398,11 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
     )
     mean_for_proj = precision_policy.cast_projection_volume(mean_for_proj)
 
-    reconstruction_plan = plan_local_em_reconstruction(
+    recon_volume_shape = plan_local_em_reconstruction(
         geometry=geometry_plan,
         projection=projection_settings,
         mode=mode_plan,
     )
-    recon_volume_shape = reconstruction_plan.volume_shape
     if score_only:
         logger.info("Exact local score-only: M-step accumulators disabled")
     elif mstep_relion_x_half:
@@ -1418,7 +1417,7 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
         search=search_settings,
         projection=projection_settings,
         mode=mode_plan,
-        reconstruction=reconstruction_plan,
+        reconstruction_shape=recon_volume_shape,
         relion_projector_half=relion_projector_half,
     )
     recon_accum_shape = fourier_plan.reconstruction_accumulator_shape
@@ -1431,7 +1430,7 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
     mstep_recon_window_indices = fourier_plan.mstep_reconstruction_window_indices
     mstep_adjoint_max_r = fourier_plan.mstep_adjoint_max_r
     n_windowed = window_spec.n_score
-    projection_kwargs = fourier_plan.projection.kwargs()
+    projection_kwargs = fourier_plan.projection_kwargs()
     projection_mode = fourier_plan.projection_mode
 
     half_weights = make_scoring_half_image_weights(
@@ -1598,7 +1597,7 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
 
     microbatch_route = plan_local_microbatch_route(
         geometry=geometry_plan,
-        reconstruction=reconstruction_plan,
+        reconstruction_shape=recon_volume_shape,
         mode=mode_plan,
         relion_projector_half=relion_projector_half,
     )

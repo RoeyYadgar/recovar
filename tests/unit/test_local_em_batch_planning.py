@@ -93,7 +93,7 @@ def _planning_inputs(
         search=search,
         projection=projection,
         mode=mode,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
         relion_projector_half=object() if mstep_relion_x_half else None,
     )
     execution = LocalExecutionSettings(
@@ -108,7 +108,7 @@ def test_local_microbatch_plan_preserves_xhalf_tail_cap():
     layout, geometry, fourier, execution, mode, reconstruction = _planning_inputs()
     route = plan_local_microbatch_route(
         geometry=geometry,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
         mode=mode,
         relion_projector_half=object(),
     )
@@ -144,7 +144,7 @@ def test_local_microbatch_plan_preserves_xhalf_projection_cap():
     )
     route = plan_local_microbatch_route(
         geometry=geometry,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
         mode=mode,
         relion_projector_half=object(),
     )
@@ -170,7 +170,7 @@ def test_local_microbatch_route_disables_xhalf_caps_for_score_only():
 
     route = plan_local_microbatch_route(
         geometry=geometry,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
         mode=mode,
         relion_projector_half=object(),
     )

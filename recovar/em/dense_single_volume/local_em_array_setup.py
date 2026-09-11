@@ -29,35 +29,6 @@ from recovar.em.dense_single_volume.local_em_types import (
 
 
 @dataclass(frozen=True)
-class LocalEMReconstructionPlan:
-    """Resolved reconstruction volume geometry."""
-
-    volume_shape: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class LocalProjectionPlan:
-    """Immutable projection options resolved from the Fourier window."""
-
-    use_window: bool
-    max_r: float | None
-    relion_texture_interp: bool
-    relion_acc_double_floorf_quirk: bool
-    force_jax: bool
-
-    def kwargs(self) -> dict[str, Any]:
-        """Materialize the legacy projection keyword mapping."""
-
-        kwargs: dict[str, Any] = {}
-        if self.use_window:
-            kwargs["max_r"] = self.max_r
-        kwargs["relion_texture_interp"] = self.relion_texture_interp
-        kwargs["relion_acc_double_floorf_quirk"] = self.relion_acc_double_floorf_quirk
-        kwargs["force_jax"] = self.force_jax
-        return kwargs
-
-
-@dataclass(frozen=True)
 class LocalEMFourierPlan:
     """Array metadata built once before exact-local bucket execution."""
 
@@ -67,8 +38,21 @@ class LocalEMFourierPlan:
     window: FourierWindowSpec
     mstep_reconstruction_window_indices: Any
     mstep_adjoint_max_r: float | None
-    projection: LocalProjectionPlan
+    relion_texture_interp: bool
+    relion_acc_double_floorf_quirk: bool
+    force_jax_projection: bool
     projection_mode: str
+
+    def projection_kwargs(self) -> dict[str, Any]:
+        """Materialize projection keywords at the legacy kernel boundary."""
+
+        kwargs: dict[str, Any] = {}
+        if self.window.use_window:
+            kwargs["max_r"] = self.window.projection_max_r
+        kwargs["relion_texture_interp"] = self.relion_texture_interp
+        kwargs["relion_acc_double_floorf_quirk"] = self.relion_acc_double_floorf_quirk
+        kwargs["force_jax"] = self.force_jax_projection
+        return kwargs
 
 
 @dataclass(frozen=True)
@@ -108,7 +92,7 @@ def plan_local_em_reconstruction(
     geometry: LocalEMGeometryPlan,
     projection: LocalProjectionSettings,
     mode: LocalEMModePlan,
-) -> LocalEMReconstructionPlan:
+) -> tuple[int, ...]:
     """Resolve reconstruction volume geometry without allocating arrays."""
 
     volume_shape = geometry.volume_shape
@@ -123,7 +107,7 @@ def plan_local_em_reconstruction(
         )
     elif projection.reconstruction_padding_factor > 1:
         volume_shape = tuple(dimension * projection.reconstruction_padding_factor for dimension in volume_shape)
-    return LocalEMReconstructionPlan(volume_shape=volume_shape)
+    return volume_shape
 
 
 def local_mstep_adjoint_window(
@@ -154,7 +138,7 @@ def local_mstep_adjoint_window(
 
 def _projection_mode(
     window: FourierWindowSpec,
-    projection: LocalProjectionPlan,
+    projection: LocalProjectionSettings,
     relion_projector_half=None,
 ) -> str:
     if relion_projector_half is not None:
@@ -176,12 +160,12 @@ def plan_local_em_fourier(
     search: LocalSearchSettings,
     projection: LocalProjectionSettings,
     mode: LocalEMModePlan,
-    reconstruction: LocalEMReconstructionPlan,
+    reconstruction_shape: tuple[int, ...],
     relion_projector_half=None,
 ) -> LocalEMFourierPlan:
     """Build existing accumulator and Fourier-window metadata in original order."""
 
-    accumulator_shape = half_volume_accumulator_shape(reconstruction.volume_shape)
+    accumulator_shape = half_volume_accumulator_shape(reconstruction_shape)
     accumulator_size = int(np.prod(accumulator_shape))
     window = make_fourier_window_spec(
         geometry.image_shape,
@@ -199,13 +183,6 @@ def plan_local_em_fourier(
         recon_window_indices=window.recon_indices,
         mstep_relion_x_half=mode.mstep_relion_x_half,
     )
-    projection_plan = LocalProjectionPlan(
-        use_window=window.use_window,
-        max_r=window.projection_max_r,
-        relion_texture_interp=projection.relion_texture_interp,
-        relion_acc_double_floorf_quirk=projection.relion_acc_double_floorf_quirk,
-        force_jax=bool(projection.force_jax),
-    )
     return LocalEMFourierPlan(
         reconstruction_accumulator_shape=accumulator_shape,
         reconstruction_accumulator_size=accumulator_size,
@@ -213,8 +190,10 @@ def plan_local_em_fourier(
         window=window,
         mstep_reconstruction_window_indices=mstep_reconstruction_window_indices,
         mstep_adjoint_max_r=mstep_adjoint_max_r,
-        projection=projection_plan,
-        projection_mode=_projection_mode(window, projection_plan, relion_projector_half),
+        relion_texture_interp=projection.relion_texture_interp,
+        relion_acc_double_floorf_quirk=projection.relion_acc_double_floorf_quirk,
+        force_jax_projection=bool(projection.force_jax),
+        projection_mode=_projection_mode(window, projection, relion_projector_half),
     )
 
 

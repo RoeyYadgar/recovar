@@ -11,7 +11,6 @@ import numpy as np
 
 from recovar.em.dense_single_volume.local_em_array_setup import (
     LocalEMFourierPlan,
-    LocalEMReconstructionPlan,
 )
 from recovar.em.dense_single_volume.local_em_planning import LocalEMGeometryPlan, LocalEMModePlan
 from recovar.em.dense_single_volume.local_em_types import LocalExecutionSettings
@@ -422,7 +421,7 @@ def _exact_local_xhalf_projection_microbatch_cap(
 def plan_local_microbatch_route(
     *,
     geometry: LocalEMGeometryPlan,
-    reconstruction: LocalEMReconstructionPlan,
+    reconstruction_shape: tuple[int, ...],
     mode: LocalEMModePlan,
     relion_projector_half=None,
 ) -> LocalMicrobatchRoute:
@@ -431,7 +430,7 @@ def plan_local_microbatch_route(
     xhalf_bpref_mstep = bool(relion_projector_half is not None and mode.mstep_relion_x_half and not mode.score_only)
     auto_boost_factor = _exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None
     full_bpref = bool(
-        xhalf_bpref_mstep and int(reconstruction.volume_shape[0]) >= (2 * int(geometry.image_shape[0]) + 1)
+        xhalf_bpref_mstep and int(reconstruction_shape[0]) >= (2 * int(geometry.image_shape[0]) + 1)
     )
     return LocalMicrobatchRoute(
         xhalf_bpref_mstep=xhalf_bpref_mstep,

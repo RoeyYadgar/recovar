@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import numpy as np
@@ -95,10 +94,8 @@ def test_local_reconstruction_plan_preserves_native_and_relion_shapes():
         mstep_relion_x_half=True,
     )
 
-    assert native.volume_shape == (16, 16, 16)
-    assert relion.volume_shape == (143, 143, 143)
-    with pytest.raises(FrozenInstanceError):
-        native.volume_shape = (8, 8, 8)
+    assert native == (16, 16, 16)
+    assert relion == (143, 143, 143)
 
 
 def test_local_fourier_plan_preserves_full_box_metadata():
@@ -108,7 +105,7 @@ def test_local_fourier_plan_preserves_full_box_metadata():
         search=search,
         projection=projection,
         mode=mode,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
     )
 
     assert isinstance(plan, LocalEMFourierPlan)
@@ -118,7 +115,7 @@ def test_local_fourier_plan_preserves_full_box_metadata():
     assert not plan.window.use_window
     assert plan.mstep_reconstruction_window_indices is None
     assert plan.mstep_adjoint_max_r is None
-    assert plan.projection.kwargs() == {
+    assert plan.projection_kwargs() == {
         "relion_texture_interp": False,
         "relion_acc_double_floorf_quirk": False,
         "force_jax": False,
@@ -138,7 +135,7 @@ def test_local_fourier_plan_preserves_windowed_xhalf_and_score_only_metadata():
         search=search,
         projection=projection,
         mode=mode,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
         relion_projector_half=object(),
     )
 
@@ -148,7 +145,7 @@ def test_local_fourier_plan_preserves_windowed_xhalf_and_score_only_metadata():
     assert plan.window.use_window
     assert plan.mstep_reconstruction_window_indices.dtype == np.int32
     assert plan.mstep_adjoint_max_r == 3.0
-    assert plan.projection.kwargs()["max_r"] == 3.0
+    assert plan.projection_kwargs()["max_r"] == 3.0
     assert plan.projection_mode == "relion_projector"
 
 
@@ -182,7 +179,7 @@ def test_local_fourier_plan_preserves_projection_route_precedence(
         search=search,
         projection=projection,
         mode=mode,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
     )
 
     assert plan.projection_mode == expected_mode
@@ -195,7 +192,7 @@ def test_local_big_jit_static_inputs_preserve_full_window_sentinels():
         search=search,
         projection=projection,
         mode=mode,
-        reconstruction=reconstruction,
+        reconstruction_shape=reconstruction,
     )
     precision = make_local_em_precision(
         scoring=LocalScoringSettings(
