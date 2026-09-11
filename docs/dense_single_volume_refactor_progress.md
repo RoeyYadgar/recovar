@@ -4,6 +4,8 @@ Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan
 
 Audit: [`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volume_refactor_audit_2026-09-11.md)
 
+Inventory: [`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)
+
 Current phase: C4.5 — consolidate C1--C4 foundations before C5
 
 Last updated: 2026-09-11
@@ -17,7 +19,7 @@ Last updated: 2026-09-11
 | C2 Policy/environment boundary | COMPLETE — STRUCTURAL GPU PASS | All 260 named settings are classified, process reads are confined to the two configuration boundaries, and refinement receives one immutable `RuntimeConfiguration`. A100 job `60521289` found improved RELION FSC-AUC, direct control/candidate map FSC-AUC `0.9992773`, and no runtime or memory regression. |
 | C3 Diagnostics extraction | COMPLETE — STRUCTURAL GPU PASS | Serialization and stop policy are outside numerical modules; typed lifecycle/effect routes and a guarded null sink are wired. A100 job `60538896` preserved trajectory and schemas with no runtime or memory regression. Restart event-order regression fixed in `13b97bfa` and exercised by GPU job `60539997`. |
 | C4 Exact-local engine | COMPLETE — NUMERICAL/JIT GATE PASSED; HOST DEBT OPEN | Grouped big-JIT inputs, HLO, compilation, quality, runtime, and memory passed. The audit found that the typed host API still expands into the legacy signature/tuple path and must be consolidated. |
-| C4.5 Foundation consolidation | IN PROGRESS — NEXT IMPLEMENTATION | Invert local, dense, and local-search adapters; remove internal tuple/kwargs bridges and redundant one-lifecycle structures; reduce C4 production source by at least 1,000 lines before C5. |
+| C4.5 Foundation consolidation | IN PROGRESS — LOCAL CORE INVERTED | `a1035d25` makes typed local EM canonical and removes in-package legacy-runner injection; next invert dense EM. Current production delta from C4 is `-38` lines and one >=20-argument call. |
 | C5 Sparse pass 2 | BLOCKED BY C4.5 | Do not split the 19,436-line module until the additive C1--C4 migration pattern is corrected. |
 | C6 Dense/global engine | NOT STARTED | Move the existing typed request/result into the canonical implementation and separate orchestration stages without another adapter layer. |
 | C7 Iteration controller | NOT STARTED | Decompose the current 5,620-line loop after engine boundaries stabilize. |
@@ -2719,6 +2721,39 @@ commits for this audit.
 Next action: begin C4.5 with a consumer inventory and the local typed-core
 adapter inversion. Keep local, dense, local-search, settings, diagnostics, and
 documentation cleanup in separate small commits.
+
+### 2026-09-11 — C4.5 canonical local EM implementation
+
+Hypothesis: the existing exact-local body can move mechanically behind
+`run_local_em(LocalEMRequest) -> LocalEMResult` without changing calculations,
+array order, execution routing, JIT inputs, diagnostics, or compatibility
+outputs.
+
+Code commit: `a1035d25` — `refactor: make typed local EM canonical`.
+
+Result: `run_local_em` now owns the algorithm and returns a stable result
+directly. `run_local_em_exact` is a one-way compatibility facade. Local-search
+and K-class production paths no longer inject the legacy runner, the obsolete
+iteration-loop re-export was removed, and tests patch the canonical request
+boundary instead of an old owner module.
+
+Focused validation:
+
+- local request/facade contracts: 22 passed;
+- every selected real exact-local route: 21 passed, 355 deselected;
+- local-search request plumbing: 10 passed, 366 deselected;
+- K-class local seams: 6 passed across two focused selections;
+- source/ownership guards: 12 passed across focused selections;
+- CPU fast guard: 16 passed in `51.65 s`.
+
+Structural delta from C4: production lines 71,509 -> 71,471; nonblank lines
+65,975 -> 65,930; calls with at least 20 arguments 75 -> 74. File, class,
+function, and long-function counts are unchanged. Full compatibility/type
+classification is in the C4.5 inventory.
+
+Decision: accepted as the first C4.5 slice. The long legacy facade remains for
+direct compatibility tests but is absent from normal in-package execution.
+Next action: invert dense EM separately.
 
 ## Per-slice update template
 

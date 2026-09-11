@@ -11,6 +11,9 @@ Progress log: [`dense_single_volume_refactor_progress.md`](dense_single_volume_r
 C1--C4 audit:
 [`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volume_refactor_audit_2026-09-11.md)
 
+C4.5 inventory:
+[`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)
+
 ## 1. Goal
 
 Refactor dense single-volume EM so that the control flow, data ownership, and
