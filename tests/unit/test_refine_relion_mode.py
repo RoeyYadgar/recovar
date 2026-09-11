@@ -7,6 +7,8 @@ Verifies:
 4. data_vs_prior_trajectory and ave_Pmax_trajectory are populated
 """
 
+# ruff: noqa: E402 -- importorskip must run before optional dependency imports.
+
 import inspect
 from dataclasses import fields, replace
 from pathlib import Path
@@ -27,7 +29,13 @@ import recovar.em.dense_single_volume.relion_replay as relion_replay_module
 import recovar.reconstruction.regularization as regularization_module
 from recovar import core
 from recovar.core.configs import ForwardModelConfig
+from recovar.em.dense_single_volume import local_em_batch_planning
 from recovar.em.dense_single_volume.dense_em_types import DenseEMResult
+from recovar.em.dense_single_volume.diagnostics.local_capture import (
+    current_size_matches_request,
+    iteration_matches_request,
+    maybe_write_debug_score_dump,
+)
 from recovar.em.dense_single_volume.em_engine import _batch_parameter_rows, run_em
 from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch as _fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.convergence import (
@@ -81,20 +89,98 @@ from recovar.em.dense_single_volume.helpers.significance import (
     _compute_significance_batched,
 )
 from recovar.em.dense_single_volume.helpers.types import NoiseStats, RelionStats
-from recovar.em.dense_single_volume.local_em_types import LocalEMResult
 from recovar.em.dense_single_volume.iteration_loop import (
     _align_fourier_volume_sign_to_reference,
     _combined_class_direction_prior_from_halves,
     _combined_noise_stats,
     _estimate_relion_em_batch_sizes,
     _exhaustive_grid_order_for_state,
+    _normalize_noise_variance_per_half,
     _relion_expectation_coarse_size_order,
     _relion_local_pass1_current_size,
-    _normalize_noise_variance_per_half,
     _replay_control_model_iteration,
     _rotation_eulers_for_canonical_or_custom_grid,
     refine_single_volume,
     update_relion_norm_scale_corrections,
+)
+from recovar.em.dense_single_volume.k_class import (
+    KClassEMResult,
+    _resolve_class_mstep_posterior_sums,
+    _sum_noise_stats,
+    run_dense_k_class_em,
+    run_local_k_class_em,
+)
+from recovar.em.dense_single_volume.local_backprojection import (
+    compute_local_ctf_sums,
+    compute_local_weighted_sums,
+    flatten_bucket_rotations,
+    flatten_bucket_rows,
+)
+from recovar.em.dense_single_volume.local_diagnostics import LOCAL_SCORE_DUMP_TARGET_ONLY_ENV
+from recovar.em.dense_single_volume.local_em_engine import (
+    EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV,
+    EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV,
+    EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV,
+    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM_ENV,
+    EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB_ENV,
+    EXACT_LOCAL_SCORE_TILE_FREE_MEMORY_FRACTION,
+    EXACT_LOCAL_SCORE_TILE_LIVE_FACTOR,
+    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
+    EXACT_LOCAL_TARGET_ROW_PIXELS_ENV,
+    EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV,
+    _adjoint_slice_volume_maybe_windowed_row_chunks,
+    _build_reconstruction_pack_indices,
+    _exact_local_effective_max_hypotheses_per_microbatch,
+    _exact_local_max_hypotheses_per_microbatch,
+    _exact_local_xhalf_projection_microbatch_cap,
+    _exact_local_xhalf_tail_microbatch_cap,
+    _local_processed_half_cache_enabled,
+    _local_raw_cache_enabled,
+    _pad_local_big_jit_image_axis,
+    _prepare_local_exact_bucket,
+    _reorder_bucket_to_indices,
+    run_local_em,
+    run_local_em_exact,
+)
+from recovar.em.dense_single_volume.local_em_types import (
+    LocalCorrectionInputs,
+    LocalEMDiagnostics,
+    LocalEMRequestedOutputs,
+    LocalEMResult,
+    LocalProjectionSettings,
+    LocalReconstructionSettings,
+    LocalScoringSettings,
+    LocalSearchSettings,
+)
+from recovar.em.dense_single_volume.local_layout import (
+    LocalBucketSpec,
+    LocalHypothesisLayout,
+    _selected_rotation_matrices,
+    bucket_local_hypothesis_layout,
+    build_local_adaptive_pass2_hypothesis_layout,
+    build_local_hypothesis_layout,
+    build_pass2_hypothesis_layout,
+)
+from recovar.em.dense_single_volume.local_score_pass import (
+    compute_reconstruction_support,
+    compute_reconstruction_support_from_threshold,
+    fused_score_normalize_support_abs2_on_demand,
+    normalize_local_scores,
+    normalize_local_scores_float32,
+    normalize_local_scores_with_log_z,
+    normalize_local_scores_with_log_z_float32,
+    score_local_bucket,
+    score_local_bucket_abs2_weighted_on_demand,
+)
+from recovar.em.dense_single_volume.local_search_types import (
+    LocalSearchIterationExecution,
+    LocalSearchIterationGrid,
+    LocalSearchIterationInputs,
+    LocalSearchIterationPosterior,
+    LocalSearchIterationRequest,
+    LocalSearchIterationResult,
 )
 from recovar.em.dense_single_volume.refinement_options import (
     AdaptiveOptions,
@@ -124,89 +210,6 @@ from recovar.em.dense_single_volume.runtime_options import (
 )
 from recovar.em.dense_single_volume.runtime_options import (
     ExecutionSettings as HostExecutionSettings,
-)
-from recovar.em.dense_single_volume.k_class import (
-    KClassEMResult,
-    _resolve_class_mstep_posterior_sums,
-    _sum_noise_stats,
-    run_dense_k_class_em,
-    run_local_k_class_em,
-)
-from recovar.em.dense_single_volume.local_backprojection import (
-    compute_local_ctf_sums,
-    compute_local_weighted_sums,
-    flatten_bucket_rotations,
-    flatten_bucket_rows,
-)
-from recovar.em.dense_single_volume.diagnostics.local_capture import (
-    current_size_matches_request,
-    iteration_matches_request,
-    maybe_write_debug_score_dump,
-)
-from recovar.em.dense_single_volume import local_em_batch_planning
-from recovar.em.dense_single_volume.local_diagnostics import LOCAL_SCORE_DUMP_TARGET_ONLY_ENV
-from recovar.em.dense_single_volume.local_em_engine import (
-    EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV,
-    EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV,
-    EXACT_LOCAL_AUTO_MICROBATCH_BOOST_ENV,
-    EXACT_LOCAL_PROCESSED_HALF_CACHE_MAX_GB_ENV,
-    EXACT_LOCAL_RAW_CACHE_MAX_GB_ENV,
-    EXACT_LOCAL_RECONSTRUCTION_PACK_QUANTUM_ENV,
-    EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GB_ENV,
-    EXACT_LOCAL_SCORE_TILE_FREE_MEMORY_FRACTION,
-    EXACT_LOCAL_SCORE_TILE_LIVE_FACTOR,
-    EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
-    EXACT_LOCAL_TARGET_ROW_PIXELS_ENV,
-    EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV,
-    _build_reconstruction_pack_indices,
-    _exact_local_effective_max_hypotheses_per_microbatch,
-    _exact_local_max_hypotheses_per_microbatch,
-    _exact_local_xhalf_projection_microbatch_cap,
-    _exact_local_xhalf_tail_microbatch_cap,
-    _adjoint_slice_volume_maybe_windowed_row_chunks,
-    _local_processed_half_cache_enabled,
-    _local_raw_cache_enabled,
-    _pad_local_big_jit_image_axis,
-    _prepare_local_exact_bucket,
-    _reorder_bucket_to_indices,
-    run_local_em,
-    run_local_em_exact,
-)
-from recovar.em.dense_single_volume.local_layout import (
-    LocalBucketSpec,
-    LocalHypothesisLayout,
-    _selected_rotation_matrices,
-    bucket_local_hypothesis_layout,
-    build_local_adaptive_pass2_hypothesis_layout,
-    build_local_hypothesis_layout,
-    build_pass2_hypothesis_layout,
-)
-from recovar.em.dense_single_volume.local_search_types import (
-    LocalSearchIterationExecution,
-    LocalSearchIterationGrid,
-    LocalSearchIterationInputs,
-    LocalSearchIterationOutputs,
-    LocalSearchIterationPosterior,
-    LocalSearchIterationProjection,
-    LocalSearchIterationRequest,
-    LocalSearchIterationResult,
-    LocalSearchIterationScoring,
-)
-from recovar.em.dense_single_volume.local_em_types import (
-    LocalCorrectionInputs,
-    LocalEMDiagnostics,
-    LocalReconstructionSettings,
-)
-from recovar.em.dense_single_volume.local_score_pass import (
-    compute_reconstruction_support,
-    compute_reconstruction_support_from_threshold,
-    fused_score_normalize_support_abs2_on_demand,
-    normalize_local_scores,
-    normalize_local_scores_float32,
-    normalize_local_scores_with_log_z,
-    normalize_local_scores_with_log_z_float32,
-    score_local_bucket,
-    score_local_bucket_abs2_weighted_on_demand,
 )
 from recovar.em.sampling import (
     _get_relion_rotation_grid_eulers_float64,
@@ -519,6 +522,8 @@ def _run_local_search_legacy(*args, **kwargs):
     )
     values = dict(kwargs)
     values.update(zip(positional_names, args, strict=False))
+    values.pop("rotation_grid_eulers", None)
+    values.pop("offset_range_pixels", None)
 
     def take(contract, renames=None):
         renames = renames or {}
@@ -532,10 +537,11 @@ def _run_local_search_legacy(*args, **kwargs):
     request = LocalSearchIterationRequest(
         inputs=take(LocalSearchIterationInputs),
         grid=take(LocalSearchIterationGrid),
+        search=take(LocalSearchSettings),
         execution=take(LocalSearchIterationExecution, {"settings": "execution_settings"}),
-        scoring=take(LocalSearchIterationScoring),
+        scoring=take(LocalScoringSettings),
         projection=take(
-            LocalSearchIterationProjection,
+            LocalProjectionSettings,
             {
                 "relion_texture_interp": "projection_relion_texture_interp",
                 "relion_acc_double_floorf_quirk": "projection_relion_acc_double_floorf_quirk",
@@ -545,7 +551,7 @@ def _run_local_search_legacy(*args, **kwargs):
         corrections=take(LocalCorrectionInputs),
         posterior=take(LocalSearchIterationPosterior),
         reconstruction=take(LocalReconstructionSettings),
-        outputs=take(LocalSearchIterationOutputs),
+        outputs=take(LocalEMRequestedOutputs),
         diagnostics=take(
             LocalEMDiagnostics,
             {"iteration": "debug_iteration", "pass_label": "debug_pass_label"},
@@ -555,9 +561,7 @@ def _run_local_search_legacy(*args, **kwargs):
     result = local_search_iteration_module.run_local_search_iteration(request)
     output = [result.Ft_y, result.Ft_ctf, result.hard_assignment]
     if request.outputs.return_best_pose_details:
-        output.extend(
-            [result.best_pose_rotations, result.best_pose_translations, result.best_pose_rotation_ids]
-        )
+        output.extend([result.best_pose_rotations, result.best_pose_translations, result.best_pose_rotation_ids])
     output.append(result.relion_stats)
     if request.outputs.accumulate_noise:
         output.append(result.noise_stats)
@@ -566,9 +570,7 @@ def _run_local_search_legacy(*args, **kwargs):
     if request.outputs.return_significant_counts:
         output.append(result.significant_counts)
     if request.outputs.return_class_details:
-        output.extend(
-            [result.class_assignments, result.class_posterior_sums, result.class_full_posterior_sums]
-        )
+        output.extend([result.class_assignments, result.class_posterior_sums, result.class_full_posterior_sums])
     return tuple(output)
 
 
@@ -653,6 +655,8 @@ def _adapt_legacy_local_runner(legacy_runner):
         )
 
     return typed_runner
+
+
 SEED = 42
 
 
@@ -4602,8 +4606,7 @@ def test_packed_local_noise_projection_accepts_relion_projector(monkeypatch):
 
 
 def test_local_relion_projection_cache_forwards_texture_selection(monkeypatch):
-    from recovar.em.dense_single_volume import local_em_engine
-    from recovar.em.dense_single_volume import local_projection_cache
+    from recovar.em.dense_single_volume import local_em_engine, local_projection_cache
 
     bucket = LocalBucketSpec(
         image_indices=np.array([0], dtype=np.int32),
@@ -11725,6 +11728,7 @@ class TestRelionModeSmokeTest:
         """Exercise the opt-in K=1 coarse scorer through significance."""
 
         import jax
+
         from recovar import cuda_backproject
 
         monkeypatch.setenv("RECOVAR_CUDA_LIB", str(custom_cuda_lib))
