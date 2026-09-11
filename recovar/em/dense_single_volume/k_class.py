@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple
 
 import jax
@@ -16,32 +15,17 @@ from recovar.utils.nvtx_shim import nvtx
 from recovar.em.dense_single_volume.diagnostics.config import diagnostic_environment_overrides
 from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
 
-from .dense_em_types import DenseEMInputs, DenseEMResult
-from .em_engine import dense_em_request_from_legacy_kwargs, run_dense_em, run_em
+from .dense_em_types import DenseEMInputs, DenseEMRequest
+from .em_engine import make_dense_em_request, run_dense_em
 from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significance import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
-from .local_em_engine import run_local_em, run_local_em_exact
-from .local_em_types import (
-    LocalCorrectionInputs,
-    LocalEMDiagnostics,
-    LocalEMInputs,
-    LocalEMRequest,
-    LocalEMRequestedOutputs,
-    LocalEMResult,
-    LocalExecutionSettings,
-    LocalPosteriorInputs,
-    LocalProjectionSettings,
-    LocalReconstructionSettings,
-    LocalScoringSettings,
-    LocalSearchSettings,
-)
+from .local_em_engine import make_local_em_request, run_local_em
+from .local_em_types import LocalEMInputs, LocalEMRequest
 from .local_layout import LocalHypothesisLayout
 
 logger = logging.getLogger(__name__)
 NVTX_DOMAIN_EM = "recovar_em"
-_RUN_EM_ALLOWED_KWARGS = frozenset(inspect.signature(run_em).parameters)
-_RUN_LOCAL_EM_EXACT_SIGNATURE = inspect.signature(run_local_em_exact)
 _SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE_ENV = "RECOVAR_SPARSE_KCLASS_RELION_FINE_MSTEP_PRUNE"
 _RELION_X_HALF_BP_FUSED_ATOMICS_ENV = "RECOVAR_RELION_X_HALF_BP_FUSED_ATOMICS"
 _DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES_ENV = "RECOVAR_DIAGNOSTIC_FIRSTITER_CLASS_OVERRIDES"
@@ -613,8 +597,14 @@ def _strict_exact_fine_gaussian_requested(
     return bool(engine_kwargs.get("relion_exact_fine_gaussian", True) and score_mode == "gaussian")
 
 
-def _dense_engine_kwargs_for_class(engine_kwargs: dict, class_index: int, n_classes: int) -> dict:
-    kwargs = dict(engine_kwargs)
+def _dense_options_for_class(
+    engine_options: dict,
+    class_index: int,
+    n_classes: int,
+) -> dict:
+    """Select class-owned values still consumed by sparse K-class routes."""
+
+    kwargs = dict(engine_options)
     coarse_translation_log_prior = kwargs.pop("coarse_translation_log_prior", None)
     if coarse_translation_log_prior is not None and kwargs.get("translation_log_prior") is None:
         kwargs["translation_log_prior"] = coarse_translation_log_prior
@@ -649,145 +639,53 @@ def _dense_engine_kwargs_for_class(engine_kwargs: dict, class_index: int, n_clas
                     f"{n_classes}, got {mask_array.shape}",
                 )
             kwargs["rotation_translation_mask"] = mask_array[class_index]
-    # Drop any leftover InitialModel/VDAM-specific engine kwargs that run_em
-    # doesn't accept (e.g. ``debug_iteration``, ``adaptive_fraction``,
-    # ``recon_square_window``, ``reconstruction_subtract_projected_reference``).
-    # The adaptive K-class wrapper consumes these higher up; the non-adaptive
-    # path forwards directly to run_em so they have to be filtered here.
-    kwargs = {k: v for k, v in kwargs.items() if k in _RUN_EM_ALLOWED_KWARGS}
     return kwargs
 
 
-def _local_engine_kwargs_for_class(engine_kwargs: dict, class_index: int, n_classes: int) -> dict:
-    """Select class-indexed local-engine kwargs before calling the single-class kernel."""
+def _dense_em_request_for_class(
+    inputs: DenseEMInputs,
+    engine_options: dict,
+    class_index: int,
+    n_classes: int,
+) -> DenseEMRequest:
+    """Select class-owned values and return the typed dense engine view."""
 
-    kwargs = dict(engine_kwargs)
-    # RELION adds the unweighted high-shell power_img term once per particle,
-    # outside the class loop. Local K-class runs return class-local noise
-    # statistics which are summed downstream, so assign the shared term to one
-    # class while leaving the single-class route unchanged.
-    kwargs["include_unweighted_norm_high_shell"] = class_index == 0
-    projector_half = kwargs.get("relion_projector_half")
-    if projector_half is not None:
-        projector_half_arr = jnp.asarray(projector_half)
-        if projector_half_arr.ndim >= 4 and int(projector_half_arr.shape[0]) == n_classes:
-            kwargs["relion_projector_half"] = projector_half_arr[class_index]
-    scale_dvp = kwargs.get("scale_correction_data_vs_prior")
-    if scale_dvp is not None:
-        kwargs["scale_correction_data_vs_prior"] = _select_class_value(
-            scale_dvp,
+    return make_dense_em_request(inputs, _dense_options_for_class(engine_options, class_index, n_classes))
+
+
+def _local_em_request_for_class(
+    inputs: LocalEMInputs,
+    engine_options: dict,
+    class_index: int,
+    n_classes: int,
+) -> LocalEMRequest:
+    """Select class-owned values and return the typed exact-local view."""
+
+    inputs = replace(
+        inputs,
+        relion_projector_half=_select_projector_half_for_class(
+            engine_options.get("relion_projector_half"),
             class_index,
             n_classes,
-        )
-    return kwargs
-
-
-def _local_em_request_from_legacy_kwargs(
-    inputs: LocalEMInputs,
-    engine_kwargs: dict,
-) -> LocalEMRequest:
-    """Group the K-class compatibility API's flat kwargs into one local request."""
-
-    bound = _RUN_LOCAL_EM_EXACT_SIGNATURE.bind(
-        inputs.experiment_dataset,
-        inputs.mean,
-        inputs.mean_variance,
-        inputs.noise_variance,
-        inputs.local_layout,
-        inputs.disc_type,
-        **engine_kwargs,
+        ),
+        relion_projector_r_max=engine_options.get("relion_projector_r_max"),
     )
-    bound.apply_defaults()
-    values = bound.arguments
-
-    return LocalEMRequest(
-        inputs=LocalEMInputs(
-            experiment_dataset=inputs.experiment_dataset,
-            mean=inputs.mean,
-            mean_variance=inputs.mean_variance,
-            noise_variance=inputs.noise_variance,
-            local_layout=inputs.local_layout,
-            disc_type=inputs.disc_type,
-            relion_projector_half=values["relion_projector_half"],
-            relion_projector_r_max=values["relion_projector_r_max"],
+    request = make_local_em_request(inputs, engine_options)
+    scale_dvp = request.corrections.scale_correction_data_vs_prior
+    return replace(
+        request,
+        corrections=replace(
+            request.corrections,
+            scale_correction_data_vs_prior=(
+                None if scale_dvp is None else _select_class_value(scale_dvp, class_index, n_classes)
+            ),
         ),
-        search=LocalSearchSettings(
-            current_size=values["current_size"],
-            reconstruction_current_size=values["reconstruction_current_size"],
-            reconstruct_significant_only=values["reconstruct_significant_only"],
-            adaptive_fraction=values["adaptive_fraction"],
-            max_significants=values["max_significants"],
-            reconstruction_probability_threshold=values["reconstruction_probability_threshold"],
-        ),
-        execution=LocalExecutionSettings(
-            image_batch_size=values["image_batch_size"],
-            rotation_block_size=values["rotation_block_size"],
-            max_hypotheses_per_microbatch=values["max_hypotheses_per_microbatch"],
-            unify_local_bucket_sizes=values["unify_local_bucket_sizes"],
-            cache=values["cache_settings"],
-        ),
-        scoring=LocalScoringSettings(
-            score_with_masked_images=values["score_with_masked_images"],
-            half_spectrum_scoring=values["half_spectrum_scoring"],
-            relion_exact_score_translation=values["relion_exact_score_translation"],
-            use_float64_scoring=values["use_float64_scoring"],
-            use_float64_normalization=values["use_float64_normalization"],
-        ),
-        projection=LocalProjectionSettings(
-            projection_padding_factor=values["projection_padding_factor"],
-            reconstruction_padding_factor=values["reconstruction_padding_factor"],
-            use_float64_projections=values["use_float64_projections"],
-            relion_texture_interp=values["projection_relion_texture_interp"],
-            relion_acc_double_floorf_quirk=values["projection_relion_acc_double_floorf_quirk"],
-            force_jax=values["projection_force_jax"],
-            do_gridding_correction=values["do_gridding_correction"],
-            square_window=values["square_window"],
-        ),
-        corrections=LocalCorrectionInputs(
-            image_corrections=values["image_corrections"],
-            scale_corrections=values["scale_corrections"],
-            group_ids=values["group_ids"],
-            scale_correction_group_count=values["scale_correction_group_count"],
-            scale_correction_data_vs_prior=values["scale_correction_data_vs_prior"],
-            image_pre_shifts=values["image_pre_shifts"],
-        ),
-        posterior=LocalPosteriorInputs(
-            normalization_log_z=values["normalization_log_z"],
-            class_log_prior=values["class_log_prior"],
-            normalization_log_evidence=values["normalization_log_evidence"],
-            translation_prior_centers=values["translation_prior_centers"],
-        ),
-        reconstruction=LocalReconstructionSettings(
-            mstep_subtract_ctf_projection=values["mstep_subtract_ctf_projection"],
-            mstep_relion_x_half=values["mstep_relion_x_half"],
-            disable_adjoint_y=values["disable_adjoint_y"],
-            disable_adjoint_ctf=values["disable_adjoint_ctf"],
-            stats_use_reconstruction_probs=values["stats_use_reconstruction_probs"],
-            include_unweighted_norm_high_shell=values["include_unweighted_norm_high_shell"],
-            source_faithful_spectrum_norm=values["source_faithful_spectrum_norm"],
-            score_only=values["score_only"],
-        ),
-        outputs=LocalEMRequestedOutputs(
-            accumulate_noise=values["accumulate_noise"],
-            return_half_volume_accumulators=values["return_half_volume_accumulators"],
-            return_profile=values["return_profile"],
-            return_best_pose_details=values["return_best_pose_details"],
-            return_reconstruction_probability_values=values["return_reconstruction_probability_values"],
-            return_reconstruction_sample_indices=values["return_reconstruction_sample_indices"],
-            return_significant_counts=values["return_significant_counts"],
-        ),
-        diagnostics=LocalEMDiagnostics(
-            iteration=values["debug_iteration"],
-            pass_label=values["debug_pass_label"],
+        reconstruction=replace(
+            request.reconstruction,
+            # RELION adds this shared image-power term once, outside the class loop.
+            include_unweighted_norm_high_shell=class_index == 0,
         ),
     )
-
-
-def _run_local_em_typed(inputs: LocalEMInputs, engine_kwargs: dict) -> LocalEMResult:
-    """Run a grouped request through the canonical exact-local engine."""
-
-    request = _local_em_request_from_legacy_kwargs(inputs, engine_kwargs)
-    return run_local_em(request)
 
 
 class _DenseScoreDumpClassLabel:
@@ -939,13 +837,6 @@ def _reject_kwargs(kwargs: dict, names: tuple[str, ...], caller: str) -> None:
     present = sorted(name for name in names if name in kwargs)
     if present:
         raise ValueError(f"{caller} controls these arguments directly: {', '.join(present)}")
-
-
-def _run_dense_em_typed(inputs: DenseEMInputs, engine_kwargs: dict) -> DenseEMResult:
-    """Run a grouped dense request while retaining the K-class runner hook."""
-
-    request = dense_em_request_from_legacy_kwargs(inputs, engine_kwargs)
-    return run_dense_em(request)
 
 
 def _stack_or_none(values):
@@ -1713,26 +1604,29 @@ def _run_dense_k_class_score_probe(
     hard_assignments = []
     per_class_stats = []
     for class_index in range(n_classes):
-        class_engine_kwargs = _dense_engine_kwargs_for_class(base_engine_kwargs, class_index, n_classes)
         with _DenseScoreDumpClassLabel(class_index):
-            probe = _run_dense_em_typed(
-                DenseEMInputs(
-                    experiment_dataset=experiment_dataset,
-                    mean=means_array[class_index],
-                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
-                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
-                    rotations=rotations,
-                    translations=translations,
-                    disc_type=disc_type,
-                ),
-                dict(
-                    class_engine_kwargs,
-                    return_stats=True,
-                    accumulate_noise=False,
-                    class_log_prior=float(log_priors[class_index]),
-                    disable_adjoint_y=True,
-                    disable_adjoint_ctf=True,
-                    score_only=True,
+            probe = run_dense_em(
+                _dense_em_request_for_class(
+                    DenseEMInputs(
+                        experiment_dataset=experiment_dataset,
+                        mean=means_array[class_index],
+                        mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                        noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                        rotations=rotations,
+                        translations=translations,
+                        disc_type=disc_type,
+                    ),
+                    dict(
+                        base_engine_kwargs,
+                        return_stats=True,
+                        accumulate_noise=False,
+                        class_log_prior=float(log_priors[class_index]),
+                        disable_adjoint_y=True,
+                        disable_adjoint_ctf=True,
+                        score_only=True,
+                    ),
+                    class_index,
+                    n_classes,
                 ),
             )
         hard_assignments.append(np.asarray(probe.hard_assignment, dtype=np.int32))
@@ -2114,7 +2008,7 @@ def _run_firstiter_global_winner_subset_pass2(
 
         subset_dataset = experiment_dataset.subset(image_indices)
         subset_sig = [sig_sample_indices_by_class[class_index][int(i)] for i in image_indices]
-        class_kwargs = _dense_engine_kwargs_for_class(pass2_kwargs, class_index, n_classes)
+        class_kwargs = _dense_options_for_class(pass2_kwargs, class_index, n_classes)
         class_kwargs = _subset_image_axis_engine_kwargs(class_kwargs, image_indices, n_images)
         class_kwargs["rotation_translation_mask"] = _PerClassFineGridSignificanceMask(
             significant_sample_indices=subset_sig,
@@ -2129,21 +2023,23 @@ def _run_firstiter_global_winner_subset_pass2(
             global_winner=None,
         )
         with _DenseScoreDumpClassLabel(class_index):
-            output = _run_dense_em_typed(
-                DenseEMInputs(
-                    experiment_dataset=subset_dataset,
-                    mean=means_array[class_index],
-                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
-                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
-                    rotations=rotations_np,
-                    translations=translations_np,
-                    disc_type=disc_type,
-                ),
-                dict(
-                    class_kwargs,
-                    return_stats=True,
-                    accumulate_noise=accumulate_noise,
-                    class_log_prior=float(log_priors[class_index]),
+            output = run_dense_em(
+                make_dense_em_request(
+                    DenseEMInputs(
+                        experiment_dataset=subset_dataset,
+                        mean=means_array[class_index],
+                        mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                        noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                        rotations=rotations_np,
+                        translations=translations_np,
+                        disc_type=disc_type,
+                    ),
+                    dict(
+                        class_kwargs,
+                        return_stats=True,
+                        accumulate_noise=accumulate_noise,
+                        class_log_prior=float(log_priors[class_index]),
+                    ),
                 ),
             )
         hard_full = np.zeros(n_images, dtype=np.int32)
@@ -2352,7 +2248,7 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
 
         subset_dataset = experiment_dataset.subset(image_indices)
         subset_sig = [sig_sample_indices_by_class[class_index][int(i)] for i in image_indices]
-        class_kwargs = _dense_engine_kwargs_for_class(pass2_kwargs, class_index, n_classes)
+        class_kwargs = _dense_options_for_class(pass2_kwargs, class_index, n_classes)
         class_kwargs = _subset_image_axis_engine_kwargs(class_kwargs, image_indices, n_images)
 
         output = compute_pass2_stats_sparse(
@@ -2489,22 +2385,25 @@ def run_dense_k_class_em(
 
     overall_t0 = time.time()
     if n_classes == 1:
-        class_engine_kwargs = _dense_engine_kwargs_for_class(base_engine_kwargs, 0, n_classes)
-        output = _run_dense_em_typed(
-            DenseEMInputs(
-                experiment_dataset=experiment_dataset,
-                mean=means_array[0],
-                mean_variance=_select_class_value(mean_variance, 0, n_classes),
-                noise_variance=_select_class_value(noise_variance, 0, n_classes),
-                rotations=rotations,
-                translations=translations,
-                disc_type=disc_type,
-            ),
-            dict(
-                class_engine_kwargs,
-                return_stats=True,
-                accumulate_noise=accumulate_noise,
-                class_log_prior=float(log_priors[0]),
+        output = run_dense_em(
+            _dense_em_request_for_class(
+                DenseEMInputs(
+                    experiment_dataset=experiment_dataset,
+                    mean=means_array[0],
+                    mean_variance=_select_class_value(mean_variance, 0, n_classes),
+                    noise_variance=_select_class_value(noise_variance, 0, n_classes),
+                    rotations=rotations,
+                    translations=translations,
+                    disc_type=disc_type,
+                ),
+                dict(
+                    base_engine_kwargs,
+                    return_stats=True,
+                    accumulate_noise=accumulate_noise,
+                    class_log_prior=float(log_priors[0]),
+                ),
+                0,
+                n_classes,
             ),
         )
         best_pose_rotations = None
@@ -2572,24 +2471,27 @@ def run_dense_k_class_em(
         logger.info("Dense K-class EM: keeping per-class M-step accumulators in half-volume layout")
     mstep_t0 = time.time()
     for class_index in range(n_classes):
-        class_engine_kwargs = _dense_engine_kwargs_for_class(mstep_engine_kwargs, class_index, n_classes)
         with _DenseScoreDumpClassLabel(class_index):
-            output = _run_dense_em_typed(
-                DenseEMInputs(
-                    experiment_dataset=experiment_dataset,
-                    mean=means_array[class_index],
-                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
-                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
-                    rotations=rotations,
-                    translations=translations,
-                    disc_type=disc_type,
-                ),
-                dict(
-                    class_engine_kwargs,
-                    return_stats=True,
-                    accumulate_noise=accumulate_noise,
-                    class_log_prior=float(log_priors[class_index]),
-                    normalization_log_evidence=global_log_evidence,
+            output = run_dense_em(
+                _dense_em_request_for_class(
+                    DenseEMInputs(
+                        experiment_dataset=experiment_dataset,
+                        mean=means_array[class_index],
+                        mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                        noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                        rotations=rotations,
+                        translations=translations,
+                        disc_type=disc_type,
+                    ),
+                    dict(
+                        mstep_engine_kwargs,
+                        return_stats=True,
+                        accumulate_noise=accumulate_noise,
+                        class_log_prior=float(log_priors[class_index]),
+                        normalization_log_evidence=global_log_evidence,
+                    ),
+                    class_index,
+                    n_classes,
                 ),
             )
         new_means.append(output.new_mean)
@@ -2713,24 +2615,27 @@ def run_local_k_class_em(
                 0,
                 n_classes,
             )
-            class_engine_kwargs = _local_engine_kwargs_for_class(base_engine_kwargs, 0, n_classes)
             with _LocalDebugDumpPhaseLabel("single_class"):
-                output = _run_local_em_typed(
-                    LocalEMInputs(
-                        experiment_dataset=experiment_dataset,
-                        mean=means_array[0],
-                        mean_variance=_select_class_value(mean_variance, 0, n_classes),
-                        noise_variance=_select_class_value(noise_variance, 0, n_classes),
-                        local_layout=class_layout,
-                        disc_type=disc_type,
-                    ),
-                    dict(
-                        class_engine_kwargs,
-                        accumulate_noise=accumulate_noise,
-                        return_profile=return_profile,
-                        return_best_pose_details=return_best_pose_details,
-                        class_log_prior=float(log_priors[0]),
-                        stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                output = run_local_em(
+                    _local_em_request_for_class(
+                        LocalEMInputs(
+                            experiment_dataset=experiment_dataset,
+                            mean=means_array[0],
+                            mean_variance=_select_class_value(mean_variance, 0, n_classes),
+                            noise_variance=_select_class_value(noise_variance, 0, n_classes),
+                            local_layout=class_layout,
+                            disc_type=disc_type,
+                        ),
+                        dict(
+                            base_engine_kwargs,
+                            accumulate_noise=accumulate_noise,
+                            return_profile=return_profile,
+                            return_best_pose_details=return_best_pose_details,
+                            class_log_prior=float(log_priors[0]),
+                            stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                        ),
+                        0,
+                        n_classes,
                     ),
                 )
             return _assemble_result(
@@ -2769,27 +2674,30 @@ def run_local_k_class_em(
                 class_index,
                 n_classes,
             )
-            class_engine_kwargs = _local_engine_kwargs_for_class(base_engine_kwargs, class_index, n_classes)
             with _LocalDebugDumpPhaseLabel(f"probe_class{class_index:03d}"):
-                probe = _run_local_em_typed(
-                    LocalEMInputs(
-                        experiment_dataset=experiment_dataset,
-                        mean=means_array[class_index],
-                        mean_variance=_select_class_value(mean_variance, class_index, n_classes),
-                        noise_variance=_select_class_value(noise_variance, class_index, n_classes),
-                        local_layout=class_layout,
-                        disc_type=disc_type,
-                    ),
-                    dict(
-                        class_engine_kwargs,
-                        accumulate_noise=False,
-                        return_best_pose_details=False,
-                        class_log_prior=float(log_priors[class_index]),
-                        disable_adjoint_y=True,
-                        disable_adjoint_ctf=True,
-                        stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-                        return_profile=return_profile or collect_global_reconstruction_threshold,
-                        return_reconstruction_probability_values=collect_global_reconstruction_threshold,
+                probe = run_local_em(
+                    _local_em_request_for_class(
+                        LocalEMInputs(
+                            experiment_dataset=experiment_dataset,
+                            mean=means_array[class_index],
+                            mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                            noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                            local_layout=class_layout,
+                            disc_type=disc_type,
+                        ),
+                        dict(
+                            base_engine_kwargs,
+                            accumulate_noise=False,
+                            return_best_pose_details=False,
+                            class_log_prior=float(log_priors[class_index]),
+                            disable_adjoint_y=True,
+                            disable_adjoint_ctf=True,
+                            stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                            return_profile=return_profile or collect_global_reconstruction_threshold,
+                            return_reconstruction_probability_values=collect_global_reconstruction_threshold,
+                        ),
+                        class_index,
+                        n_classes,
                     ),
                 )
             class_log_evidence.append(np.asarray(probe.relion_stats.log_evidence_per_image, dtype=np.float64))
@@ -2834,25 +2742,28 @@ def run_local_k_class_em(
             class_index,
             n_classes,
         )
-        class_engine_kwargs = _local_engine_kwargs_for_class(base_engine_kwargs, class_index, n_classes)
         with _LocalDebugDumpPhaseLabel(f"mstep_class{class_index:03d}"):
-            output = _run_local_em_typed(
-                LocalEMInputs(
-                    experiment_dataset=experiment_dataset,
-                    mean=means_array[class_index],
-                    mean_variance=_select_class_value(mean_variance, class_index, n_classes),
-                    noise_variance=_select_class_value(noise_variance, class_index, n_classes),
-                    local_layout=class_layout,
-                    disc_type=disc_type,
-                ),
-                dict(
-                    class_engine_kwargs,
-                    accumulate_noise=accumulate_noise,
-                    return_profile=return_profile,
-                    return_best_pose_details=return_best_pose_details,
-                    class_log_prior=float(log_priors[class_index]),
-                    normalization_log_evidence=global_log_evidence,
-                    stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+            output = run_local_em(
+                _local_em_request_for_class(
+                    LocalEMInputs(
+                        experiment_dataset=experiment_dataset,
+                        mean=means_array[class_index],
+                        mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+                        noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+                        local_layout=class_layout,
+                        disc_type=disc_type,
+                    ),
+                    dict(
+                        base_engine_kwargs,
+                        accumulate_noise=accumulate_noise,
+                        return_profile=return_profile,
+                        return_best_pose_details=return_best_pose_details,
+                        class_log_prior=float(log_priors[class_index]),
+                        normalization_log_evidence=global_log_evidence,
+                        stats_use_reconstruction_probs=stats_use_reconstruction_probs,
+                    ),
+                    class_index,
+                    n_classes,
                 ),
             )
         Ft_y.append(output.Ft_y)

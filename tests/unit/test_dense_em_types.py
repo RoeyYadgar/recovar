@@ -19,8 +19,7 @@ from recovar.em.dense_single_volume.dense_em_types import (
     DenseSearchSettings,
 )
 from recovar.em.dense_single_volume.em_engine import (
-    dense_em_request_from_legacy_kwargs,
-    run_dense_em,
+    make_dense_em_request,
     run_em,
 )
 
@@ -205,4 +204,4 @@ def test_dense_em_compatibility_facade_groups_every_legacy_engine_parameter(monk
     assert legacy_output == expected_result.to_legacy_tuple(request.outputs)
     assert captured["request"] == request
     assert set(expected_kwargs) == set(list(inspect.signature(run_em).parameters)[7:])
-    assert dense_em_request_from_legacy_kwargs(request.inputs, expected_kwargs) == request
+    assert make_dense_em_request(request.inputs, expected_kwargs) == request

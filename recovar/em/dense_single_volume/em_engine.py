@@ -34,10 +34,9 @@ Fourier windowing:
    scattered back to a full half-spectrum before adjoint_slice_volume.
 """
 
-import inspect
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import jax.numpy as jnp
 import numpy as np
@@ -2276,122 +2275,38 @@ def run_em(
 ):
     """Compatibility facade for callers that still use the legacy arguments."""
 
-    request = dense_em_request_from_legacy_kwargs(
-        DenseEMInputs(
-            experiment_dataset=experiment_dataset,
-            mean=mean,
-            mean_variance=mean_variance,
-            noise_variance=noise_variance,
-            rotations=rotations,
-            translations=translations,
-            disc_type=disc_type,
-        ),
-        {
-            "image_batch_size": image_batch_size,
-            "rotation_block_size": rotation_block_size,
-            "current_size": current_size,
-            "rotation_log_prior": rotation_log_prior,
-            "translation_log_prior": translation_log_prior,
-            "image_indices": image_indices,
-            "rotation_translation_mask": rotation_translation_mask,
-            "class_log_prior": class_log_prior,
-            "normalization_log_evidence": normalization_log_evidence,
-            "score_with_masked_images": score_with_masked_images,
-            "return_stats": return_stats,
-            "accumulate_noise": accumulate_noise,
-            "half_spectrum_scoring": half_spectrum_scoring,
-            "projection_padding_factor": projection_padding_factor,
-            "reconstruction_padding_factor": reconstruction_padding_factor,
-            "image_corrections": image_corrections,
-            "scale_corrections": scale_corrections,
-            "image_pre_shifts": image_pre_shifts,
-            "translation_prior_centers": translation_prior_centers,
-            "relion_firstiter_score_mode": relion_firstiter_score_mode,
-            "relion_firstiter_winner_take_all": relion_firstiter_winner_take_all,
-            "use_float64_scoring": use_float64_scoring,
-            "use_float64_projections": use_float64_projections,
-            "do_gridding_correction": do_gridding_correction,
-            "square_window": square_window,
-            "return_profile": return_profile,
-            "sparse_pass2": sparse_pass2,
-            "disable_adjoint_y": disable_adjoint_y,
-            "disable_adjoint_ctf": disable_adjoint_ctf,
-            "score_only": score_only,
-            "relion_half_volume_mstep": relion_half_volume_mstep,
-            "return_half_volume_accumulators": return_half_volume_accumulators,
-        },
+    inputs = DenseEMInputs(
+        experiment_dataset=experiment_dataset,
+        mean=mean,
+        mean_variance=mean_variance,
+        noise_variance=noise_variance,
+        rotations=rotations,
+        translations=translations,
+        disc_type=disc_type,
     )
+    request = make_dense_em_request(inputs, locals())
     return run_dense_em(request).to_legacy_tuple(request.outputs)
 
 
-_RUN_EM_SIGNATURE = inspect.signature(run_em)
+def _settings_from_options(settings_type, options):
+    """Construct one typed settings group from matching flat option names."""
+
+    return settings_type(**{field.name: options[field.name] for field in fields(settings_type) if field.name in options})
 
 
-def dense_em_request_from_legacy_kwargs(inputs: DenseEMInputs, engine_kwargs: dict) -> DenseEMRequest:
-    """Build a grouped request with ``run_em``'s exact validation/defaults."""
+def make_dense_em_request(inputs: DenseEMInputs, options) -> DenseEMRequest:
+    """Group dense-engine options at a host compatibility boundary."""
 
-    bound = _RUN_EM_SIGNATURE.bind(
-        inputs.experiment_dataset,
-        inputs.mean,
-        inputs.mean_variance,
-        inputs.noise_variance,
-        inputs.rotations,
-        inputs.translations,
-        inputs.disc_type,
-        **engine_kwargs,
-    )
-    bound.apply_defaults()
-    values = bound.arguments
     return DenseEMRequest(
         inputs=inputs,
-        search=DenseSearchSettings(
-            current_size=values["current_size"],
-            rotation_log_prior=values["rotation_log_prior"],
-            translation_log_prior=values["translation_log_prior"],
-            image_indices=values["image_indices"],
-            rotation_translation_mask=values["rotation_translation_mask"],
-        ),
-        execution=DenseExecutionSettings(
-            image_batch_size=values["image_batch_size"],
-            rotation_block_size=values["rotation_block_size"],
-            sparse_pass2=values["sparse_pass2"],
-        ),
-        scoring=DenseScoringSettings(
-            score_with_masked_images=values["score_with_masked_images"],
-            half_spectrum_scoring=values["half_spectrum_scoring"],
-            relion_firstiter_score_mode=values["relion_firstiter_score_mode"],
-            relion_firstiter_winner_take_all=values["relion_firstiter_winner_take_all"],
-            use_float64_scoring=values["use_float64_scoring"],
-        ),
-        projection=DenseProjectionSettings(
-            projection_padding_factor=values["projection_padding_factor"],
-            reconstruction_padding_factor=values["reconstruction_padding_factor"],
-            use_float64_projections=values["use_float64_projections"],
-            do_gridding_correction=values["do_gridding_correction"],
-            square_window=values["square_window"],
-        ),
-        corrections=DenseCorrectionInputs(
-            image_corrections=values["image_corrections"],
-            scale_corrections=values["scale_corrections"],
-            image_pre_shifts=values["image_pre_shifts"],
-        ),
-        posterior=DensePosteriorInputs(
-            class_log_prior=values["class_log_prior"],
-            normalization_log_evidence=values["normalization_log_evidence"],
-            translation_prior_centers=values["translation_prior_centers"],
-        ),
-        reconstruction=DenseReconstructionSettings(
-            disable_adjoint_y=values["disable_adjoint_y"],
-            disable_adjoint_ctf=values["disable_adjoint_ctf"],
-            score_only=values["score_only"],
-            relion_half_volume_mstep=values["relion_half_volume_mstep"],
-        ),
-        outputs=DenseEMRequestedOutputs(
-            return_stats=values["return_stats"],
-            accumulate_noise=values["accumulate_noise"],
-            return_profile=values["return_profile"],
-            return_half_volume_accumulators=values["return_half_volume_accumulators"],
-        ),
+        search=_settings_from_options(DenseSearchSettings, options),
+        execution=_settings_from_options(DenseExecutionSettings, options),
+        scoring=_settings_from_options(DenseScoringSettings, options),
+        projection=_settings_from_options(DenseProjectionSettings, options),
+        corrections=_settings_from_options(DenseCorrectionInputs, options),
+        posterior=_settings_from_options(DensePosteriorInputs, options),
+        reconstruction=_settings_from_options(DenseReconstructionSettings, options),
+        outputs=_settings_from_options(DenseEMRequestedOutputs, options),
     )
 
 

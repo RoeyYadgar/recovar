@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,7 +48,7 @@ from recovar.em.dense_single_volume.diagnostics.sinks import (
     build_diagnostics_sink,
 )
 from recovar.em.dense_single_volume.em_engine import (
-    dense_em_request_from_legacy_kwargs,
+    make_dense_em_request,
     run_dense_em,
 )
 from recovar.em.dense_single_volume.firstiter_cc import (
@@ -172,7 +171,6 @@ from recovar.em.dense_single_volume.refinement_options import (
 )
 from recovar.em.dense_single_volume.runtime_options import (
     FINAL_ALL_DATA_GRID_CORRECT_ENV as _FINAL_ALL_DATA_GRID_CORRECT_ENV,
-    K1_RELION_EXACT_TRANSLATION_GRID_ENV as _K1_RELION_EXACT_TRANSLATION_GRID_ENV,
     AlgorithmSettings,
     FirstIterationBatchSettings,
     current_algorithm_settings,
@@ -3085,7 +3083,7 @@ def _score_half_dense(
     direct_em_kwargs.pop("relion_exact_fine_gaussian", None)
     direct_em_kwargs.pop("reconstruction_current_size", None)
     dense_result = run_dense_em(
-        dense_em_request_from_legacy_kwargs(
+        make_dense_em_request(
             DenseEMInputs(
                 experiment_dataset=experiment_dataset,
                 mean=means_k,

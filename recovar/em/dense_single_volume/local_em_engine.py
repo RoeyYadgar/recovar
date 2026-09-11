@@ -5,7 +5,7 @@ from __future__ import annotations
 import gc
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import jax
 import jax.numpy as jnp
@@ -122,9 +122,6 @@ from recovar.em.dense_single_volume.diagnostics.local_capture import (
     noise_split_diagnostics_requested,
 )
 from recovar.em.dense_single_volume.local_diagnostics import (
-    LOCAL_SCORE_DUMP_FORCE_SPLIT_ENV,
-    LOCAL_SCORE_DUMP_OPERANDS_ENV,
-    LOCAL_SCORE_DUMP_TARGET_ONLY_ENV,
     LocalDiagnosticsSession,
 )
 from recovar.em.dense_single_volume.local_em_array_setup import (
@@ -4189,6 +4186,51 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
     )
 
 
+def _local_settings_from_options(settings_type, options, aliases=None):
+    """Construct one typed local settings group from flat host options."""
+
+    aliases = {} if aliases is None else aliases
+    values = {
+        field.name: options[aliases.get(field.name, field.name)]
+        for field in fields(settings_type)
+        if aliases.get(field.name, field.name) in options
+    }
+    return settings_type(**values)
+
+
+def make_local_em_request(inputs: LocalEMInputs, options) -> LocalEMRequest:
+    """Group exact-local engine options at a host compatibility boundary."""
+
+    return LocalEMRequest(
+        inputs=inputs,
+        search=_local_settings_from_options(LocalSearchSettings, options),
+        execution=_local_settings_from_options(
+            LocalExecutionSettings,
+            options,
+            {"cache": "cache_settings"},
+        ),
+        scoring=_local_settings_from_options(LocalScoringSettings, options),
+        projection=_local_settings_from_options(
+            LocalProjectionSettings,
+            options,
+            {
+                "relion_texture_interp": "projection_relion_texture_interp",
+                "relion_acc_double_floorf_quirk": "projection_relion_acc_double_floorf_quirk",
+                "force_jax": "projection_force_jax",
+            },
+        ),
+        corrections=_local_settings_from_options(LocalCorrectionInputs, options),
+        posterior=_local_settings_from_options(LocalPosteriorInputs, options),
+        reconstruction=_local_settings_from_options(LocalReconstructionSettings, options),
+        outputs=_local_settings_from_options(LocalEMRequestedOutputs, options),
+        diagnostics=_local_settings_from_options(
+            LocalEMDiagnostics,
+            options,
+            {"iteration": "debug_iteration", "pass_label": "debug_pass_label"},
+        ),
+    )
+
+
 def run_local_em_exact(
     experiment_dataset,
     mean,
@@ -4253,85 +4295,15 @@ def run_local_em_exact(
 ):
     """Compatibility facade for the historical exact-local tuple API."""
 
-    request = LocalEMRequest(
-        inputs=LocalEMInputs(
-            experiment_dataset=experiment_dataset,
-            mean=mean,
-            mean_variance=mean_variance,
-            noise_variance=noise_variance,
-            local_layout=local_layout,
-            disc_type=disc_type,
-            relion_projector_half=relion_projector_half,
-            relion_projector_r_max=relion_projector_r_max,
-        ),
-        search=LocalSearchSettings(
-            current_size=current_size,
-            reconstruction_current_size=reconstruction_current_size,
-            reconstruct_significant_only=reconstruct_significant_only,
-            adaptive_fraction=adaptive_fraction,
-            max_significants=max_significants,
-            reconstruction_probability_threshold=reconstruction_probability_threshold,
-        ),
-        execution=LocalExecutionSettings(
-            image_batch_size=image_batch_size,
-            rotation_block_size=rotation_block_size,
-            max_hypotheses_per_microbatch=max_hypotheses_per_microbatch,
-            unify_local_bucket_sizes=unify_local_bucket_sizes,
-            cache=cache_settings,
-        ),
-        scoring=LocalScoringSettings(
-            score_with_masked_images=score_with_masked_images,
-            half_spectrum_scoring=half_spectrum_scoring,
-            relion_exact_score_translation=relion_exact_score_translation,
-            use_float64_scoring=use_float64_scoring,
-            use_float64_normalization=use_float64_normalization,
-        ),
-        projection=LocalProjectionSettings(
-            projection_padding_factor=projection_padding_factor,
-            reconstruction_padding_factor=reconstruction_padding_factor,
-            use_float64_projections=use_float64_projections,
-            relion_texture_interp=projection_relion_texture_interp,
-            relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
-            force_jax=projection_force_jax,
-            do_gridding_correction=do_gridding_correction,
-            square_window=square_window,
-        ),
-        corrections=LocalCorrectionInputs(
-            image_corrections=image_corrections,
-            scale_corrections=scale_corrections,
-            group_ids=group_ids,
-            scale_correction_group_count=scale_correction_group_count,
-            scale_correction_data_vs_prior=scale_correction_data_vs_prior,
-            image_pre_shifts=image_pre_shifts,
-        ),
-        posterior=LocalPosteriorInputs(
-            normalization_log_z=normalization_log_z,
-            class_log_prior=class_log_prior,
-            normalization_log_evidence=normalization_log_evidence,
-            translation_prior_centers=translation_prior_centers,
-        ),
-        reconstruction=LocalReconstructionSettings(
-            mstep_subtract_ctf_projection=mstep_subtract_ctf_projection,
-            mstep_relion_x_half=mstep_relion_x_half,
-            disable_adjoint_y=disable_adjoint_y,
-            disable_adjoint_ctf=disable_adjoint_ctf,
-            stats_use_reconstruction_probs=stats_use_reconstruction_probs,
-            include_unweighted_norm_high_shell=include_unweighted_norm_high_shell,
-            source_faithful_spectrum_norm=source_faithful_spectrum_norm,
-            score_only=score_only,
-        ),
-        outputs=LocalEMRequestedOutputs(
-            accumulate_noise=accumulate_noise,
-            return_half_volume_accumulators=return_half_volume_accumulators,
-            return_profile=return_profile,
-            return_best_pose_details=return_best_pose_details,
-            return_reconstruction_probability_values=return_reconstruction_probability_values,
-            return_reconstruction_sample_indices=return_reconstruction_sample_indices,
-            return_significant_counts=return_significant_counts,
-        ),
-        diagnostics=LocalEMDiagnostics(
-            iteration=debug_iteration,
-            pass_label=debug_pass_label,
-        ),
+    inputs = LocalEMInputs(
+        experiment_dataset=experiment_dataset,
+        mean=mean,
+        mean_variance=mean_variance,
+        noise_variance=noise_variance,
+        local_layout=local_layout,
+        disc_type=disc_type,
+        relion_projector_half=relion_projector_half,
+        relion_projector_r_max=relion_projector_r_max,
     )
+    request = make_local_em_request(inputs, locals())
     return run_local_em(request).to_legacy_tuple(request.outputs)

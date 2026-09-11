@@ -525,7 +525,7 @@ def compute_pass2_stats(
     )
 
     from ..dense_em_types import DenseEMInputs
-    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em
+    from ..em_engine import make_dense_em_request, run_dense_em
 
     n_images = experiment_dataset.n_units
     n_coarse_rot = coarse_rotations.shape[0]
@@ -648,7 +648,7 @@ def compute_pass2_stats(
     # The significance pruning's benefit is that len(oversampled_rots) <<
     # len(coarse_rotations) * 4^oversampling_order.
     em_result = run_dense_em(
-        dense_em_request_from_legacy_kwargs(
+        make_dense_em_request(
             DenseEMInputs(
                 experiment_dataset=experiment_dataset,
                 mean=volume,
@@ -1023,7 +1023,7 @@ def _compute_pass2_stats_sparse_perimage_reference(
     )
 
     from ..dense_em_types import DenseEMInputs
-    from ..em_engine import dense_em_request_from_legacy_kwargs, run_dense_em
+    from ..em_engine import make_dense_em_request, run_dense_em
 
     if normalization_log_z is not None:
         raise NotImplementedError(
@@ -1149,7 +1149,7 @@ def _compute_pass2_stats_sparse_perimage_reference(
         valid_candidate_counts.append(int(candidate_mask.sum()))
 
         em_result = run_dense_em(
-            dense_em_request_from_legacy_kwargs(
+            make_dense_em_request(
                 DenseEMInputs(
                     experiment_dataset=experiment_dataset,
                     mean=volume,

@@ -144,6 +144,7 @@ from recovar.em.dense_single_volume.diagnostics.local_capture import (
     maybe_write_debug_score_dump,
 )
 from recovar.em.dense_single_volume import local_em_batch_planning
+from recovar.em.dense_single_volume.local_diagnostics import LOCAL_SCORE_DUMP_TARGET_ONLY_ENV
 from recovar.em.dense_single_volume.local_em_engine import (
     EXACT_LOCAL_BIG_JIT_DEFER_PACKED_MSTEP_ENV,
     EXACT_LOCAL_BIG_JIT_MATMUL_MAX_GB_ENV,
@@ -157,7 +158,6 @@ from recovar.em.dense_single_volume.local_em_engine import (
     EXACT_LOCAL_SPARSE_BIG_JIT_MSTEP_MAX_GB_ENV,
     EXACT_LOCAL_TARGET_ROW_PIXELS_ENV,
     EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS_ENV,
-    LOCAL_SCORE_DUMP_TARGET_ONLY_ENV,
     _build_reconstruction_pack_indices,
     _exact_local_effective_max_hypotheses_per_microbatch,
     _exact_local_max_hypotheses_per_microbatch,

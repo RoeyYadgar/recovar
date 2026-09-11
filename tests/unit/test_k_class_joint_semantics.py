@@ -27,7 +27,7 @@ from recovar.em.dense_single_volume.k_class import (
     _build_fine_grid_significance_mask,
     _ClassFineGridSignificanceMask,
     _compact_sparse_pass2_preferred_over_dense,
-    _dense_engine_kwargs_for_class,
+    _dense_options_for_class,
     _expand_subset_noise_stats,
     _run_sparse_firstiter_global_winner_subset_pass2,
     _run_sparse_k_class_adaptive_pass2,
@@ -1466,7 +1466,7 @@ def test_lazy_k_class_adaptive_mask_matches_dense_blocks_without_materializing()
 
     with pytest.raises(TypeError):
         np.asarray(lazy)
-    selected = _dense_engine_kwargs_for_class(
+    selected = _dense_options_for_class(
         {"class_rotation_translation_mask": lazy},
         class_index=1,
         n_classes=n_classes,
