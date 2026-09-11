@@ -3,7 +3,7 @@
 This file contains the three core algorithm functions:
 - ``refine_single_volume`` — public entry point
 - ``_run_relion_iteration_loop`` — RELION-parity iteration loop
-- ``_run_local_search_iteration`` — exact local angular search
+- ``run_local_search_iteration`` — exact local angular search
 
 All supporting helpers live in ``helpers/``.
 See ``docs/math/relion_refinement_algorithm.md`` for the full algorithm map.
@@ -128,7 +128,6 @@ from recovar.em.dense_single_volume.local_layout import (  # noqa: F401
 )
 from recovar.em.dense_single_volume.local_search_iteration import (
     _precompute_exact_local_fine_grid_enabled,
-    _run_local_search_iteration,
     run_local_search_iteration,
 )
 from recovar.em.dense_single_volume.local_search_types import (
@@ -3229,7 +3228,7 @@ def _score_half_local(
     Sizes the per-chunk M-step batches against the cone-restricted
     rotation count (not the full HEALPix grid) so chunk_size doesn't
     collapse at high HEALPix orders. Routes through
-    ``_run_local_search_iteration`` which itself handles K-class /
+    ``run_local_search_iteration`` which itself handles K-class /
     K=1 internally via ``return_class_details=k_class_enabled``.
 
     Caller handles ``noise_stats_per_half[k]``, ``pose_rotations[k] = None``,
@@ -3412,7 +3411,7 @@ def _score_half_local(
             local_pass1_current_size,
         )
         logger.info("RELION local adaptive pass 1: using manual supplied-PPref interpolation")
-        parent_outputs = run_local_search_iteration(
+        parent_result = run_local_search_iteration(
             LocalSearchIterationRequest(
                 inputs=LocalSearchIterationInputs(
                     experiment_dataset,
@@ -3489,9 +3488,8 @@ def _score_half_local(
                     "pass1_parent",
                 ),
             ),
-            legacy_runner=_run_local_search_iteration,
         )
-        parent_profile = parent_outputs[-1]
+        parent_profile = parent_result.profile_summary
         significant_sample_indices = parent_profile["reconstruction_sample_indices_by_image"]
         pruned_parent_significant_sample_indices = significant_sample_indices
         # RELION's rlnNrOfSignificantSamples records the number of retained
@@ -3647,7 +3645,7 @@ def _score_half_local(
         with diagnostic_environment_overrides(
             **{name: None for name in local_debug_env_names},
         ):
-            denominator_outputs = run_local_search_iteration(
+            denominator_result = run_local_search_iteration(
                 LocalSearchIterationRequest(
                     inputs=LocalSearchIterationInputs(
                         experiment_dataset,
@@ -3718,9 +3716,8 @@ def _score_half_local(
                         score_only=True,
                     ),
                 ),
-                legacy_runner=_run_local_search_iteration,
             )
-        denominator_stats = denominator_outputs[3]
+        denominator_stats = denominator_result.relion_stats
         local_normalization_log_evidence = np.asarray(
             denominator_stats.log_evidence_per_image,
             dtype=np.float64,
@@ -3745,7 +3742,7 @@ def _score_half_local(
         "RELION local fine pass 2: supplied-PPref interpolation follows "
         "RECOVAR_RELION_PROJECTOR_TEXTURE_INTERP (default texture)"
     )
-    local_outputs = run_local_search_iteration(
+    local_result = run_local_search_iteration(
         LocalSearchIterationRequest(
             inputs=LocalSearchIterationInputs(
                 experiment_dataset,
@@ -3841,25 +3838,16 @@ def _score_half_local(
                 "pass2_final",
             ),
         ),
-        legacy_runner=_run_local_search_iteration,
     )
-    _local_cursor = 0
-    Ft_y_k, Ft_ctf_k, ha_k = local_outputs[_local_cursor : _local_cursor + 3]
-    _local_cursor += 3
-    best_rots_k, best_trans_k, _best_rot_ids_k = local_outputs[_local_cursor : _local_cursor + 3]
-    _local_cursor += 3
-    em_stats_k = local_outputs[_local_cursor]
-    _local_cursor += 1
-    if local_accumulate_noise:
-        noise_stats_k = local_outputs[_local_cursor]
-        _local_cursor += 1
-    else:
-        noise_stats_k = None
-    _local_tail = local_outputs[_local_cursor:]
-    _tail_idx = 0
+    Ft_y_k = local_result.Ft_y
+    Ft_ctf_k = local_result.Ft_ctf
+    ha_k = local_result.hard_assignment
+    best_rots_k = local_result.best_pose_rotations
+    best_trans_k = local_result.best_pose_translations
+    em_stats_k = local_result.relion_stats
+    noise_stats_k = local_result.noise_stats
     if collect_local_search_profile:
-        local_profile_k = _local_tail[_tail_idx]
-        _tail_idx += 1
+        local_profile_k = local_result.profile_summary
         profile_row = dict(local_profile_k)
         profile_row["iteration"] = np.int32(iteration)
         profile_row["half_index"] = np.int32(k)
@@ -3876,17 +3864,13 @@ def _score_half_local(
                 **local_profile_k,
             )
     if k_class_enabled:
-        class_assignments_k, class_posterior_sums_k = _local_tail[_tail_idx : _tail_idx + 2]
-        _tail_idx += 2
-        if len(_local_tail) > _tail_idx:
-            class_full_posterior_sums_k = _local_tail[_tail_idx]
-            _tail_idx += 1
-        else:
-            class_full_posterior_sums_k = class_posterior_sums_k
-        class_assignments[k] = np.asarray(class_assignments_k, dtype=np.int32)
-        class_posterior_per_half[k] = np.asarray(class_posterior_sums_k, dtype=np.float64)
+        class_assignments[k] = np.asarray(local_result.class_assignments, dtype=np.int32)
+        class_posterior_per_half[k] = np.asarray(local_result.class_posterior_sums, dtype=np.float64)
         if class_full_posterior_per_half is not None:
-            class_full_posterior_per_half[k] = np.asarray(class_full_posterior_sums_k, dtype=np.float64)
+            class_full_posterior_per_half[k] = np.asarray(
+                local_result.class_full_posterior_sums,
+                dtype=np.float64,
+            )
     pose_dtype = _dense_global_scoring_dtype()
     best_pose_rotations[k] = np.asarray(best_rots_k, dtype=pose_dtype)
     best_pose_rotation_eulers[k] = utils.R_to_relion(

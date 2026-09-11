@@ -154,3 +154,22 @@ class LocalSearchIterationRequest:
     reconstruction: LocalSearchIterationReconstruction = LocalSearchIterationReconstruction()
     outputs: LocalSearchIterationOutputs = LocalSearchIterationOutputs()
     diagnostics: LocalSearchIterationDiagnostics = LocalSearchIterationDiagnostics()
+
+
+@dataclass(frozen=True)
+class LocalSearchIterationResult:
+    """Stable named result from one local-search iteration."""
+
+    Ft_y: Any
+    Ft_ctf: Any
+    hard_assignment: Any
+    relion_stats: Any
+    noise_stats: Any | None = None
+    profile_summary: dict | None = None
+    significant_counts: Any | None = None
+    best_pose_rotations: Any | None = None
+    best_pose_translations: Any | None = None
+    best_pose_rotation_ids: Any | None = None
+    class_assignments: Any | None = None
+    class_posterior_sums: Any | None = None
+    class_full_posterior_sums: Any | None = None

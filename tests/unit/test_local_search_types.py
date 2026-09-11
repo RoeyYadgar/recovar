@@ -3,10 +3,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from recovar.em.dense_single_volume.local_search_iteration import (
-    _run_local_search_iteration,
-    run_local_search_iteration,
-)
+from recovar.em.dense_single_volume.local_search_iteration import run_local_search_iteration
 from recovar.em.dense_single_volume.local_search_types import (
     LocalSearchIterationCorrections,
     LocalSearchIterationDiagnostics,
@@ -18,6 +15,7 @@ from recovar.em.dense_single_volume.local_search_types import (
     LocalSearchIterationProjection,
     LocalSearchIterationReconstruction,
     LocalSearchIterationRequest,
+    LocalSearchIterationResult,
     LocalSearchIterationScoring,
 )
 from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
@@ -54,7 +52,7 @@ def test_local_search_iteration_request_is_immutable_and_composed():
 
 
 @pytest.mark.unit
-def test_local_search_iteration_adapter_maps_every_legacy_parameter():
+def test_local_search_iteration_uses_typed_request_and_result_contract():
     settings = ExecutionSettings()
     request = LocalSearchIterationRequest(
         inputs=LocalSearchIterationInputs("dataset", "mean", "variance", "noise", "disc"),
@@ -88,22 +86,10 @@ def test_local_search_iteration_adapter_maps_every_legacy_parameter():
         outputs=LocalSearchIterationOutputs(True, True, True, True, True, True, True),
         diagnostics=LocalSearchIterationDiagnostics(13, "fine"),
     )
-    captured = {}
-
-    def fake_legacy_runner(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return "result"
-
-    assert run_local_search_iteration(request, legacy_runner=fake_legacy_runner) == "result"
-
-    legacy_signature = inspect.signature(_run_local_search_iteration)
-    bound = legacy_signature.bind(*captured["args"], **captured["kwargs"])
-    bound.apply_defaults()
-    assert set(bound.arguments) == set(legacy_signature.parameters)
-    assert bound.arguments["experiment_dataset"] == "dataset"
-    assert bound.arguments["rotation_grid_mstep_rotations"] == "mstep_rotations"
-    assert bound.arguments["projection_relion_texture_interp"] is None
-    assert bound.arguments["source_faithful_spectrum_norm"] is True
-    assert bound.arguments["execution_settings"] is settings
+    assert tuple(inspect.signature(run_local_search_iteration).parameters) == ("request",)
     assert request.execution.settings is settings
+
+    result = LocalSearchIterationResult("Ft_y", "Ft_ctf", "assignment", "stats")
+    assert result.Ft_y == "Ft_y"
+    with pytest.raises(FrozenInstanceError):
+        result.Ft_y = "changed"

@@ -8,7 +8,7 @@ Verifies:
 """
 
 import inspect
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -180,6 +180,20 @@ from recovar.em.dense_single_volume.local_layout import (
     build_local_adaptive_pass2_hypothesis_layout,
     build_local_hypothesis_layout,
     build_pass2_hypothesis_layout,
+)
+from recovar.em.dense_single_volume.local_search_types import (
+    LocalSearchIterationCorrections,
+    LocalSearchIterationDiagnostics,
+    LocalSearchIterationExecution,
+    LocalSearchIterationGrid,
+    LocalSearchIterationInputs,
+    LocalSearchIterationOutputs,
+    LocalSearchIterationPosterior,
+    LocalSearchIterationProjection,
+    LocalSearchIterationReconstruction,
+    LocalSearchIterationRequest,
+    LocalSearchIterationResult,
+    LocalSearchIterationScoring,
 )
 from recovar.em.dense_single_volume.local_score_pass import (
     compute_reconstruction_support,
@@ -468,6 +482,167 @@ def _adapt_legacy_dense_runner(legacy_runner):
         if isinstance(output, DenseEMResult):
             return output
         return DenseEMResult.from_legacy_tuple(output, request.outputs.legacy_tuple_spec)
+
+    return typed_runner
+
+
+def _run_local_search_legacy(*args, **kwargs):
+    """Keep legacy-shaped test setup outside the production API."""
+
+    positional_names = (
+        "experiment_dataset",
+        "mean",
+        "mean_variance",
+        "noise_variance",
+        "prior_rotations",
+        "rotation_grid_rotations",
+        "rotation_grid_eulers",
+        "healpix_order",
+        "sigma_rot",
+        "sigma_psi",
+        "translations",
+        "prior_translations",
+        "sigma_offset_angstrom",
+        "offset_range_pixels",
+        "disc_type",
+        "image_batch_size",
+        "rotation_block_size",
+        "current_size",
+    )
+    values = dict(kwargs)
+    values.update(zip(positional_names, args, strict=False))
+
+    def take(contract, renames=None):
+        renames = renames or {}
+        selected = {}
+        for field in fields(contract):
+            source_name = renames.get(field.name, field.name)
+            if source_name in values:
+                selected[field.name] = values.pop(source_name)
+        return contract(**selected)
+
+    request = LocalSearchIterationRequest(
+        inputs=take(LocalSearchIterationInputs),
+        grid=take(LocalSearchIterationGrid),
+        execution=take(LocalSearchIterationExecution, {"settings": "execution_settings"}),
+        scoring=take(LocalSearchIterationScoring),
+        projection=take(
+            LocalSearchIterationProjection,
+            {
+                "relion_texture_interp": "projection_relion_texture_interp",
+                "relion_acc_double_floorf_quirk": "projection_relion_acc_double_floorf_quirk",
+                "force_jax": "projection_force_jax",
+            },
+        ),
+        corrections=take(LocalSearchIterationCorrections),
+        posterior=take(LocalSearchIterationPosterior),
+        reconstruction=take(LocalSearchIterationReconstruction),
+        outputs=take(LocalSearchIterationOutputs),
+        diagnostics=take(
+            LocalSearchIterationDiagnostics,
+            {"iteration": "debug_iteration", "pass_label": "debug_pass_label"},
+        ),
+    )
+    assert not values, f"unmapped legacy local-search test inputs: {sorted(values)}"
+    result = local_search_iteration_module.run_local_search_iteration(request)
+    output = [result.Ft_y, result.Ft_ctf, result.hard_assignment]
+    if request.outputs.return_best_pose_details:
+        output.extend(
+            [result.best_pose_rotations, result.best_pose_translations, result.best_pose_rotation_ids]
+        )
+    output.append(result.relion_stats)
+    if request.outputs.accumulate_noise:
+        output.append(result.noise_stats)
+    if request.outputs.return_profile:
+        output.append(result.profile_summary)
+    if request.outputs.return_significant_counts:
+        output.append(result.significant_counts)
+    if request.outputs.return_class_details:
+        output.extend(
+            [result.class_assignments, result.class_posterior_sums, result.class_full_posterior_sums]
+        )
+    return tuple(output)
+
+
+def _adapt_legacy_local_runner(legacy_runner):
+    """Adapt tuple-returning local-search test doubles to the typed seam."""
+
+    def typed_runner(request):
+        inputs = request.inputs
+        grid = request.grid
+        kwargs = {
+            **vars(request.execution),
+            **vars(request.scoring),
+            **vars(request.projection),
+            **vars(request.corrections),
+            **vars(request.posterior),
+            **vars(request.reconstruction),
+            **vars(request.outputs),
+            **vars(request.diagnostics),
+        }
+        kwargs.update(
+            translation_prior_reference_translations=grid.translation_prior_reference_translations,
+            translation_prior_centers=grid.translation_prior_centers,
+            rotation_log_prior=grid.rotation_log_prior,
+            rotation_grid_random_perturbation=grid.rotation_grid_random_perturbation,
+            rotation_grid_angular_sampling_deg=grid.rotation_grid_angular_sampling_deg,
+            local_parent_oversampling_order=grid.local_parent_oversampling_order,
+            pass2_layout=grid.pass2_layout,
+            rotation_grid_mstep_rotations=grid.rotation_grid_mstep_rotations,
+            generate_relion_mstep_rotations=grid.generate_relion_mstep_rotations,
+            execution_settings=request.execution.settings,
+            debug_iteration=request.diagnostics.iteration,
+            debug_pass_label=request.diagnostics.pass_label,
+            projection_relion_texture_interp=request.projection.relion_texture_interp,
+            projection_relion_acc_double_floorf_quirk=request.projection.relion_acc_double_floorf_quirk,
+            projection_force_jax=request.projection.force_jax,
+        )
+        output = legacy_runner(
+            inputs.experiment_dataset,
+            inputs.mean,
+            inputs.mean_variance,
+            inputs.noise_variance,
+            grid.prior_rotations,
+            grid.rotation_grid_rotations,
+            grid.rotation_grid_eulers,
+            grid.healpix_order,
+            grid.sigma_rot,
+            grid.sigma_psi,
+            grid.translations,
+            grid.prior_translations,
+            grid.sigma_offset_angstrom,
+            grid.offset_range_pixels,
+            inputs.disc_type,
+            **kwargs,
+        )
+        cursor = 3
+        Ft_y, Ft_ctf, hard_assignment = output[:cursor]
+        best_rotations = best_translations = best_rotation_ids = None
+        if request.outputs.return_best_pose_details:
+            best_rotations, best_translations, best_rotation_ids = output[cursor : cursor + 3]
+            cursor += 3
+        stats = output[cursor]
+        cursor += 1
+        noise_stats = output[cursor] if request.outputs.accumulate_noise else None
+        cursor += int(request.outputs.accumulate_noise)
+        profile = output[cursor] if request.outputs.return_profile else None
+        cursor += int(request.outputs.return_profile)
+        significant_counts = output[cursor] if request.outputs.return_significant_counts else None
+        cursor += int(request.outputs.return_significant_counts)
+        class_details = output[cursor : cursor + 3] if request.outputs.return_class_details else (None, None, None)
+        return LocalSearchIterationResult(
+            Ft_y,
+            Ft_ctf,
+            hard_assignment,
+            stats,
+            noise_stats,
+            profile,
+            significant_counts,
+            best_rotations,
+            best_translations,
+            best_rotation_ids,
+            *class_details,
+        )
 
     return typed_runner
 SEED = 42
@@ -3350,7 +3525,11 @@ def test_score_half_local_forwards_mstep_grid_to_k1_and_k4_dispatch(monkeypatch,
         lambda: AlgorithmSettings(use_float64_scoring=True, use_float64_projections=True),
     )
     monkeypatch.delenv("RECOVAR_DIAGNOSTIC_FLOAT64_PASS2_ITERATIONS", raising=False)
-    monkeypatch.setattr(iteration_loop_module, "_run_local_search_iteration", fake_run_local_search_iteration)
+    monkeypatch.setattr(
+        iteration_loop_module,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_run_local_search_iteration),
+    )
     with pytest.raises(DispatchCaptured):
         iteration_loop_module._score_half_local(
             k=0,
@@ -4888,7 +5067,7 @@ def test_run_local_search_iteration_exact_engine_uses_model_sigma_for_translatio
     translations = np.array([[0.0, 0.0], [1.0, 0.0]], dtype=np.float32)
     reference_translations = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=np.float32)
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         mock_dataset,
         jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
         jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -4960,7 +5139,7 @@ def test_run_local_search_iteration_dispatches_aligned_mstep_grid(monkeypatch, r
         monkeypatch.setattr(local_iteration_module, "run_local_em", capture_local_dispatch)
 
     with pytest.raises(DispatchCaptured):
-        iteration_loop_module._run_local_search_iteration(
+        _run_local_search_legacy(
             dataset,
             jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
             jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -5061,7 +5240,7 @@ def test_run_local_search_iteration_clamps_highres_local_batches(monkeypatch):
 
     monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         HighresDataset(),
         jnp.zeros(1, dtype=jnp.complex64),
         jnp.ones(1, dtype=jnp.float32),
@@ -5139,7 +5318,7 @@ def test_run_local_search_iteration_relion_xhalf_uses_windowed_batch_guard_by_de
     monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
     monkeypatch.delenv("RECOVAR_LOCAL_XHALF_BATCH_GUARD", raising=False)
 
-    iteration_loop_module._run_local_search_iteration(
+    _run_local_search_legacy(
         Dataset256(),
         jnp.zeros(1, dtype=jnp.complex64),
         jnp.ones(1, dtype=jnp.float32),
@@ -5171,7 +5350,7 @@ def test_run_local_search_iteration_relion_xhalf_uses_windowed_batch_guard_by_de
     assert captured["rotation_block_size"] == 58
 
     monkeypatch.setenv("RECOVAR_LOCAL_XHALF_BATCH_GUARD", "full")
-    iteration_loop_module._run_local_search_iteration(
+    _run_local_search_legacy(
         Dataset256(),
         jnp.zeros(1, dtype=jnp.complex64),
         jnp.ones(1, dtype=jnp.float32),
@@ -5239,7 +5418,7 @@ def test_run_local_search_iteration_plumbs_score_only_to_exact_engine(monkeypatc
 
     monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         mock_dataset,
         jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
         jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -5275,8 +5454,8 @@ def test_run_local_search_iteration_plumbs_score_only_to_exact_engine(monkeypatc
 
 def test_local_adaptive_parent_support_probe_is_score_only():
     source = Path(iteration_loop_module.__file__).read_text()
-    start = source.index("parent_outputs = run_local_search_iteration(")
-    end = source.index("parent_profile = parent_outputs[-1]", start)
+    start = source.index("parent_result = run_local_search_iteration(")
+    end = source.index("parent_profile = parent_result.profile_summary", start)
     parent_call = source[start:end]
 
     assert "disable_adjoint_y=True" in parent_call
@@ -5318,7 +5497,7 @@ def test_run_local_search_iteration_plumbs_normalization_log_evidence(monkeypatc
 
     monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         mock_dataset,
         jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
         jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -5378,7 +5557,7 @@ def test_run_local_search_iteration_plumbs_stats_use_reconstruction_probs(monkey
 
     monkeypatch.setattr(local_search_iteration_module, "run_local_em", fake_run_local_em)
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         mock_dataset,
         jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
         jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -5423,7 +5602,7 @@ def test_run_local_search_iteration_rejects_k_class_score_only(rng):
     )
 
     with pytest.raises(NotImplementedError, match="K-class local search does not support score_only"):
-        iteration_loop_module._run_local_search_iteration(
+        _run_local_search_legacy(
             mock_dataset,
             jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
             jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -5553,7 +5732,7 @@ def test_run_local_search_iteration_exact_engine_uses_factorized_prior_metadata_
         == "full"
     )
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         mock_dataset,
         jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
         jnp.ones(VOLUME_SIZE, dtype=jnp.float32),
@@ -6785,7 +6964,7 @@ def test_local_search_iteration_k_class_returns_class_details(rng):
         translation_log_priors=np.zeros((2, 1), dtype=np.float32),
     )
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         dataset,
         means,
         mean_variance,
@@ -6901,7 +7080,7 @@ def test_local_search_iteration_k_class_keeps_mstep_and_full_class_mass_separate
 
     monkeypatch.setattr(local_search_iteration, "run_local_k_class_em", fake_run_local_k_class_em)
 
-    outputs = iteration_loop_module._run_local_search_iteration(
+    outputs = _run_local_search_legacy(
         dataset,
         means,
         mean_variance,
@@ -8804,7 +8983,7 @@ def test_tracked_local_engine_todo_ids_are_resolved():
 
 def test_local_engine_selector_is_removed():
     assert "local_engine" not in inspect.signature(refine_single_volume).parameters
-    assert "local_engine" not in inspect.signature(iteration_loop_module._run_local_search_iteration).parameters
+    assert "local_engine" not in inspect.signature(local_search_iteration_module.run_local_search_iteration).parameters
 
 
 def _identity_ctf(params, image_shape=None, voxel_size=None, *, half_image=False):
@@ -10531,7 +10710,11 @@ class TestRelionModeSmokeTest:
             "rotation_grid_n_in_planes",
             fake_rotation_grid_n_in_planes,
         )
-        monkeypatch.setattr(iteration_loop_module, "_run_local_search_iteration", fake_local_search)
+        monkeypatch.setattr(
+            iteration_loop_module,
+            "run_local_search_iteration",
+            _adapt_legacy_local_runner(fake_local_search),
+        )
 
         result = refine_single_volume(
             half_datasets,
@@ -14444,7 +14627,11 @@ def test_local_search_uses_lazy_parent_expanded_fine_rotation_grid_when_oversamp
     monkeypatch.setattr(refine_mod, "_precompute_exact_local_fine_grid_enabled", lambda order: False)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -14662,7 +14849,11 @@ def test_local_search_applies_perturbation_to_generated_fine_rotation_grid(
         fake_apply_relion_rotation_perturbation_to_eulers,
     )
     monkeypatch.setattr(refine_mod.utils, "R_to_relion", fake_r_to_relion)
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -14845,7 +15036,11 @@ def test_local_search_uses_negative_previous_offsets_for_translation_prior(
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -15026,7 +15221,11 @@ def test_local_search_coarse_translation_prior_mode_uses_unperturbed_base_grid(
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -15141,7 +15340,11 @@ def test_local_search_os0_keeps_full_local_support_for_mstep(
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -15244,7 +15447,11 @@ def _run_refine_with_stubbed_exact_local_batch_sizes(
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -15431,7 +15638,11 @@ def test_local_search_coarse_translation_prior_mode_uses_replay_sampling_grid_wh
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -15624,7 +15835,11 @@ def test_first_local_iteration_uses_previous_best_rotations_without_dense_bootst
         )
 
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -15800,7 +16015,11 @@ def test_init_previous_best_rotation_eulers_seed_first_local_iteration(
         )
 
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",
@@ -16440,7 +16659,11 @@ def test_local_search_decodes_hard_assignments_on_fine_grid(
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid", fake_get_grid)
     monkeypatch.setattr(refine_mod, "get_relion_rotation_grid_eulers", fake_get_grid_eulers)
     monkeypatch.setattr(refine_mod, "run_dense_em", _adapt_legacy_dense_runner(fake_run_em))
-    monkeypatch.setattr(refine_mod, "_run_local_search_iteration", fake_grouped_local_search)
+    monkeypatch.setattr(
+        refine_mod,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_grouped_local_search),
+    )
     monkeypatch.setattr(
         refine_mod,
         "collapse_rotation_posterior_to_direction_prior",

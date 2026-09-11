@@ -16,10 +16,96 @@ import pytest
 
 import recovar.em.dense_single_volume.iteration_loop as iteration_loop
 import recovar.em.dense_single_volume.local_search_iteration as local_search_iteration
+from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationResult, LocalSearchIterationScoring
 from recovar.em.initial_model.iteration_loop import run_vdam_iterations
 from recovar.em.dense_single_volume.runtime_options import AlgorithmSettings
 
 pytestmark = pytest.mark.unit
+
+
+def _adapt_legacy_local_runner(legacy_runner):
+    """Adapt tuple-returning local-search test doubles to the typed seam."""
+
+    def typed_runner(request):
+        inputs = request.inputs
+        grid = request.grid
+        kwargs = {
+            **vars(request.execution),
+            **vars(request.scoring),
+            **vars(request.projection),
+            **vars(request.corrections),
+            **vars(request.posterior),
+            **vars(request.reconstruction),
+            **vars(request.outputs),
+            **vars(request.diagnostics),
+        }
+        kwargs.update(
+            translation_prior_reference_translations=grid.translation_prior_reference_translations,
+            translation_prior_centers=grid.translation_prior_centers,
+            rotation_log_prior=grid.rotation_log_prior,
+            rotation_grid_random_perturbation=grid.rotation_grid_random_perturbation,
+            rotation_grid_angular_sampling_deg=grid.rotation_grid_angular_sampling_deg,
+            local_parent_oversampling_order=grid.local_parent_oversampling_order,
+            pass2_layout=grid.pass2_layout,
+            rotation_grid_mstep_rotations=grid.rotation_grid_mstep_rotations,
+            generate_relion_mstep_rotations=grid.generate_relion_mstep_rotations,
+            execution_settings=request.execution.settings,
+            debug_iteration=request.diagnostics.iteration,
+            debug_pass_label=request.diagnostics.pass_label,
+            projection_relion_texture_interp=request.projection.relion_texture_interp,
+            projection_relion_acc_double_floorf_quirk=request.projection.relion_acc_double_floorf_quirk,
+            projection_force_jax=request.projection.force_jax,
+        )
+        kwargs["score_only"] = request.reconstruction.score_only
+        kwargs["return_significant_counts"] = request.outputs.return_significant_counts
+        output = legacy_runner(
+            inputs.experiment_dataset,
+            inputs.mean,
+            inputs.mean_variance,
+            inputs.noise_variance,
+            grid.prior_rotations,
+            grid.rotation_grid_rotations,
+            grid.rotation_grid_eulers,
+            grid.healpix_order,
+            grid.sigma_rot,
+            grid.sigma_psi,
+            grid.translations,
+            grid.prior_translations,
+            grid.sigma_offset_angstrom,
+            grid.offset_range_pixels,
+            inputs.disc_type,
+            **kwargs,
+        )
+        cursor = 3
+        Ft_y, Ft_ctf, hard_assignment = output[:cursor]
+        best_rotations = best_translations = best_rotation_ids = None
+        if request.outputs.return_best_pose_details:
+            best_rotations, best_translations, best_rotation_ids = output[cursor : cursor + 3]
+            cursor += 3
+        stats = output[cursor]
+        cursor += 1
+        noise_stats = output[cursor] if request.outputs.accumulate_noise else None
+        cursor += int(request.outputs.accumulate_noise)
+        profile = output[cursor] if request.outputs.return_profile else None
+        cursor += int(request.outputs.return_profile)
+        significant_counts = output[cursor] if request.outputs.return_significant_counts else None
+        cursor += int(request.outputs.return_significant_counts)
+        class_details = output[cursor : cursor + 3] if request.outputs.return_class_details else (None, None, None)
+        return LocalSearchIterationResult(
+            Ft_y,
+            Ft_ctf,
+            hard_assignment,
+            stats,
+            noise_stats,
+            profile,
+            significant_counts,
+            best_rotations,
+            best_translations,
+            best_rotation_ids,
+            *class_details,
+        )
+
+    return typed_runner
 
 
 def test_per_half_output_shape_stays_bundled_and_trimmed():
@@ -216,16 +302,16 @@ def test_k1_local_search_significant_reconstruction_uses_actual_local_oversampli
 
 def test_k1_local_search_stats_use_relion_retained_weights():
     source = inspect.getsource(iteration_loop._score_half_local)
-    wrapper_source = inspect.getsource(local_search_iteration._run_local_search_iteration)
+    wrapper_source = inspect.getsource(local_search_iteration.run_local_search_iteration)
 
     assert "stats_use_reconstruction_probs=local_reconstruct_significant_only" in source
-    assert "stats_use_reconstruction_probs=False" in wrapper_source
+    assert LocalSearchIterationScoring().stats_use_reconstruction_probs is False
     assert "stats_use_reconstruction_probs=stats_use_reconstruction_probs" in wrapper_source
 
 
 def test_fresh_k1_spectrum_norm_reaches_local_noise_update_only():
     score_source = inspect.getsource(iteration_loop._score_half_local)
-    wrapper_source = inspect.getsource(local_search_iteration._run_local_search_iteration)
+    wrapper_source = inspect.getsource(local_search_iteration.run_local_search_iteration)
     loop_source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
 
     assert "if source_faithful_spectrum_norm and k_class_enabled:" in score_source
@@ -247,15 +333,15 @@ def test_k1_local_full_parent_diagnostic_counts_unmasked_parent_layout():
 def test_k1_local_parent_probe_applies_relion_max_significants_cap():
     score_source = inspect.getsource(iteration_loop._score_half_local)
     parent_call = score_source[
-        score_source.index("parent_outputs = run_local_search_iteration") : score_source.index(
-            "parent_profile = parent_outputs[-1]"
+        score_source.index("parent_result = run_local_search_iteration") : score_source.index(
+            "parent_profile = parent_result.profile_summary"
         )
     ]
     assert "max_significants=max_significants" in parent_call
     assert "apply_max_significants_to_support=True" in parent_call
 
-    wrapper_source = inspect.getsource(local_search_iteration._run_local_search_iteration)
-    assert "apply_max_significants_to_support=False" in wrapper_source
+    wrapper_source = inspect.getsource(local_search_iteration.run_local_search_iteration)
+    assert LocalSearchIterationScoring().apply_max_significants_to_support is False
     assert "max_significants=max_significants if apply_max_significants_to_support else -1" in wrapper_source
 
 
@@ -330,7 +416,11 @@ def test_k1_local_search_passes_relion_x_half_mstep(monkeypatch):
 
     monkeypatch.delenv("RECOVAR_K1_RELION_X_HALF_MSTEP", raising=False)
     monkeypatch.setattr(iteration_loop, "_k1_relion_x_half_mstep_default_available", lambda: True)
-    monkeypatch.setattr(iteration_loop, "_run_local_search_iteration", fake_run_local_search_iteration)
+    monkeypatch.setattr(
+        iteration_loop,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_run_local_search_iteration),
+    )
 
     result = iteration_loop._score_half_local(
         k=0,
@@ -459,7 +549,11 @@ def test_k1_local_search_records_parent_counts_without_changing_fine_mstep(monke
     monkeypatch.setattr(iteration_loop, "_local_adaptive_pass2_rotation_only_enabled", lambda: False)
     monkeypatch.setattr(iteration_loop, "_local_adaptive_pass2_denominator_support_mode", lambda: None)
     monkeypatch.setattr(iteration_loop, "_k1_relion_x_half_mstep_enabled", lambda: False)
-    monkeypatch.setattr(iteration_loop, "_run_local_search_iteration", fake_run_local_search_iteration)
+    monkeypatch.setattr(
+        iteration_loop,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_run_local_search_iteration),
+    )
 
     result = iteration_loop._score_half_local(
         k=0,
@@ -564,7 +658,11 @@ def test_kclass_local_search_passes_relion_x_half_mstep(monkeypatch):
         )
 
     monkeypatch.setattr(iteration_loop, "_k_class_relion_x_half_mstep_enabled", lambda: True)
-    monkeypatch.setattr(iteration_loop, "_run_local_search_iteration", fake_run_local_search_iteration)
+    monkeypatch.setattr(
+        iteration_loop,
+        "run_local_search_iteration",
+        _adapt_legacy_local_runner(fake_run_local_search_iteration),
+    )
 
     result = iteration_loop._score_half_local(
         k=0,
