@@ -688,29 +688,8 @@ def _local_em_request_for_class(
     )
 
 
-class _DenseScoreDumpClassLabel:
-    """Temporarily label env-gated dense score dumps by K-class index."""
-
-    def __init__(self, class_index: int):
-        self._label = f"class{int(class_index):03d}"
-        self._scope = None
-
-    def __enter__(self):
-        label = _append_dense_score_dump_label(
-            _runtime_environment().get("RECOVAR_DEBUG_PER_POSE_DUMP_LABEL"),
-            self._label,
-        )
-        self._scope = diagnostic_environment_overrides(
-            RECOVAR_DEBUG_PER_POSE_DUMP_LABEL=label,
-        )
-        return self._scope.__enter__()
-
-    def __exit__(self, exc_type, exc, tb):
-        return self._scope.__exit__(exc_type, exc, tb)
-
-
-class _DenseScoreDumpPhaseLabel:
-    """Temporarily label env-gated dense score dumps by adaptive pass."""
+class _DenseScoreDumpLabel:
+    """Temporarily append a label to env-gated dense score dumps."""
 
     def __init__(self, label: str):
         self._label = label
@@ -1604,7 +1583,7 @@ def _run_dense_k_class_score_probe(
     hard_assignments = []
     per_class_stats = []
     for class_index in range(n_classes):
-        with _DenseScoreDumpClassLabel(class_index):
+        with _DenseScoreDumpLabel(f"class{class_index:03d}"):
             probe = run_dense_em(
                 _dense_em_request_for_class(
                     DenseEMInputs(
@@ -2022,7 +2001,7 @@ def _run_firstiter_global_winner_subset_pass2(
             class_index=class_index,
             global_winner=None,
         )
-        with _DenseScoreDumpClassLabel(class_index):
+        with _DenseScoreDumpLabel(f"class{class_index:03d}"):
             output = run_dense_em(
                 make_dense_em_request(
                     DenseEMInputs(
@@ -2471,7 +2450,7 @@ def run_dense_k_class_em(
         logger.info("Dense K-class EM: keeping per-class M-step accumulators in half-volume layout")
     mstep_t0 = time.time()
     for class_index in range(n_classes):
-        with _DenseScoreDumpClassLabel(class_index):
+        with _DenseScoreDumpLabel(f"class{class_index:03d}"):
             output = run_dense_em(
                 _dense_em_request_for_class(
                     DenseEMInputs(
@@ -3197,7 +3176,7 @@ def run_dense_k_class_em_adaptive(
             # coordinates. Keep the established float32 pose/prior grid, but
             # do not derive strict K=1 score phases from that rounded copy.
             coarse_probe_kwargs["translation_phase_source"] = coarse_translation_phase_source
-        with _DenseScoreDumpPhaseLabel("coarse"):
+        with _DenseScoreDumpLabel("coarse"):
             with nvtx.annotate("kclass.adaptive.coarse_probe", color="yellow", domain=NVTX_DOMAIN_EM):
                 coarse_result = _run_dense_k_class_score_probe(
                     experiment_dataset,
@@ -3690,7 +3669,7 @@ def run_dense_k_class_em_adaptive(
         # class/pose winner selected by the joint coarse probe.
         global_winner = np.asarray(coarse_class_assignments_for_override, dtype=np.int64)
     if global_winner is not None and hasattr(experiment_dataset, "subset"):
-        with _DenseScoreDumpPhaseLabel("fine"):
+        with _DenseScoreDumpLabel("fine"):
             with nvtx.annotate("kclass.adaptive.fine_subset_em", color="green", domain=NVTX_DOMAIN_EM):
                 pass2_t0 = time.time()
                 result = _run_firstiter_global_winner_subset_pass2(
@@ -3766,7 +3745,7 @@ def run_dense_k_class_em_adaptive(
         )
     mask_s = time.time() - mask_t0
 
-    with _DenseScoreDumpPhaseLabel("fine"):
+    with _DenseScoreDumpLabel("fine"):
         with nvtx.annotate("kclass.adaptive.fine_dense_em", color="green", domain=NVTX_DOMAIN_EM):
             pass2_t0 = time.time()
             pass2_kwargs.pop("reconstruction_current_size", None)

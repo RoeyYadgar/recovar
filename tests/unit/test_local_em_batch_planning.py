@@ -12,7 +12,6 @@ from recovar.em.dense_single_volume.local_em_array_setup import (
 )
 from recovar.em.dense_single_volume.local_em_batch_planning import (
     EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS,
-    LocalBucketPlan,
     LocalBucketSummary,
     LocalMicrobatchPlan,
     plan_local_buckets,
@@ -209,15 +208,14 @@ def test_local_bucket_plan_wraps_existing_builder_in_immutable_topology():
         projection_target_row_pixels=None,
     )
 
-    plan = plan_local_buckets(
+    buckets, total_local_rotations, summary = plan_local_buckets(
         local_layout=layout,
         execution=execution,
         microbatch=microbatch,
     )
 
-    assert isinstance(plan, LocalBucketPlan)
-    assert isinstance(plan.buckets, tuple)
-    assert plan.total_local_rotations == 200
-    assert plan.summary.bucket_count == 1
-    assert plan.summary.image_count == 1
-    assert plan.summary.rotation_size_max == 256
+    assert isinstance(buckets, tuple)
+    assert total_local_rotations == 200
+    assert summary.bucket_count == 1
+    assert summary.image_count == 1
+    assert summary.rotation_size_max == 256

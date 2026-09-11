@@ -85,15 +85,6 @@ class LocalBucketSummary:
     top_rotation_sizes: tuple[tuple[int, int], ...]
 
 
-@dataclass(frozen=True)
-class LocalBucketPlan:
-    """Production bucket topology before any diagnostic-only filtering."""
-
-    buckets: tuple[LocalBucketSpec, ...]
-    total_local_rotations: int
-    summary: LocalBucketSummary
-
-
 def _visible_gpu_memory_bytes() -> int | None:
     """Return visible GPU memory in bytes when nvidia-smi is available."""
 
@@ -523,7 +514,7 @@ def plan_local_buckets(
     local_layout: LocalHypothesisLayout,
     execution: LocalExecutionSettings,
     microbatch: LocalMicrobatchPlan,
-) -> LocalBucketPlan:
+) -> tuple[tuple[LocalBucketSpec, ...], int, LocalBucketSummary]:
     """Build the established production bucket sequence and its summary."""
 
     buckets = tuple(
@@ -535,8 +526,4 @@ def plan_local_buckets(
             unify_bucket_sizes=execution.unify_local_bucket_sizes,
         )
     )
-    return LocalBucketPlan(
-        buckets=buckets,
-        total_local_rotations=int(local_layout.total_local_rotations),
-        summary=summarize_local_buckets(buckets),
-    )
+    return buckets, int(local_layout.total_local_rotations), summarize_local_buckets(buckets)

@@ -1635,14 +1635,12 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
                 microbatch_plan.projection_target_row_pixels,
             )
     bucket_build_t0 = time.time()
-    bucket_plan = plan_local_buckets(
+    bucket_specs, total_local_rotations, bucket_summary = plan_local_buckets(
         local_layout=local_layout,
         execution=execution_settings,
         microbatch=microbatch_plan,
     )
-    bucket_specs = list(bucket_plan.buckets)
-    total_local_rotations = bucket_plan.total_local_rotations
-    bucket_summary = bucket_plan.summary
+    bucket_specs = list(bucket_specs)
     timing.bucket_build_s += time.time() - bucket_build_t0
     # ``score_only`` also implements the science-critical local parent pass
     # supplying pass-2 support. Target-only execution remains an explicit
