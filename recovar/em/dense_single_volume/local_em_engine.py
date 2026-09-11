@@ -149,7 +149,6 @@ from recovar.em.dense_single_volume.local_em_batch_planning import (  # noqa: F4
     _visible_gpu_memory_bytes,
     plan_local_buckets,
     plan_local_microbatch_cap,
-    plan_local_microbatch_route,
     summarize_local_buckets,
 )
 from recovar.em.dense_single_volume.local_em_planning import (
@@ -1595,18 +1594,21 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
             if values.size:
                 reconstruction_probability_values_by_image[int(image_index)].append(values.copy())
 
-    microbatch_route = plan_local_microbatch_route(
+    microbatch_plan = plan_local_microbatch_cap(
+        local_layout=local_layout,
         geometry=geometry_plan,
-        reconstruction_shape=recon_volume_shape,
+        fourier=fourier_plan,
+        execution=execution_settings,
         mode=mode_plan,
+        reconstruction_shape=recon_volume_shape,
         relion_projector_half=relion_projector_half,
     )
     if (
-        microbatch_route.xhalf_bpref_mstep
+        microbatch_plan.xhalf_bpref_mstep
         and execution_settings.max_hypotheses_per_microbatch is None
         and not _exact_local_microbatch_env_overridden()
     ):
-        bpreftype = "full-BPref" if microbatch_route.full_bpref else "current-size BPref"
+        bpreftype = "full-BPref" if microbatch_plan.full_bpref else "current-size BPref"
         logger.info(
             "Exact local RELION x-half %s M-step: using conservative microbatch cap "
             "(image_shape=%s, recon_volume_shape=%s)",
@@ -1614,16 +1616,8 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
             tuple(int(x) for x in image_shape),
             tuple(int(x) for x in recon_volume_shape),
         )
-    microbatch_plan = plan_local_microbatch_cap(
-        local_layout=local_layout,
-        geometry=geometry_plan,
-        fourier=fourier_plan,
-        execution=execution_settings,
-        mode=mode_plan,
-        route=microbatch_route,
-    )
     max_hypotheses_per_microbatch = microbatch_plan.effective_cap
-    if microbatch_route.xhalf_bpref_mstep:
+    if microbatch_plan.xhalf_bpref_mstep:
         if microbatch_plan.tail_cap < microbatch_plan.initial_cap:
             logger.info(
                 "Exact local RELION x-half tail microbatch cap: %d -> %d "

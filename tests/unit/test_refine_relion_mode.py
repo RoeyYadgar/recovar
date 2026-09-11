@@ -2158,13 +2158,12 @@ def test_exact_local_microbatch_boost_can_be_disabled_for_mstep_pass2(monkeypatc
 def test_exact_local_xhalf_mstep_uses_explicit_microbatch_boost_hook():
     from recovar.em.dense_single_volume import local_em_batch_planning
 
-    route_source = inspect.getsource(local_em_batch_planning.plan_local_microbatch_route)
     cap_source = inspect.getsource(local_em_batch_planning.plan_local_microbatch_cap)
 
-    assert "_exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None" in route_source
+    assert "_exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None" in cap_source
     assert "allow_auto_boost=True" in cap_source
-    assert "auto_boost_factor=route.auto_boost_factor" in cap_source
-    assert "allow_high_memory_default=not route.xhalf_bpref_mstep" in cap_source
+    assert "auto_boost_factor=auto_boost_factor" in cap_source
+    assert "allow_high_memory_default=not xhalf_bpref_mstep" in cap_source
 
 
 def test_exact_local_microbatch_env_override_keeps_lower_cap(monkeypatch):

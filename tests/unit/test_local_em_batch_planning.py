@@ -17,7 +17,6 @@ from recovar.em.dense_single_volume.local_em_batch_planning import (
     LocalMicrobatchPlan,
     plan_local_buckets,
     plan_local_microbatch_cap,
-    plan_local_microbatch_route,
     summarize_local_buckets,
 )
 from recovar.em.dense_single_volume.local_em_planning import (
@@ -106,25 +105,23 @@ def _planning_inputs(
 
 def test_local_microbatch_plan_preserves_xhalf_tail_cap():
     layout, geometry, fourier, execution, mode, reconstruction = _planning_inputs()
-    route = plan_local_microbatch_route(
-        geometry=geometry,
-        reconstruction_shape=reconstruction,
-        mode=mode,
-        relion_projector_half=object(),
-    )
     plan = plan_local_microbatch_cap(
         local_layout=layout,
         geometry=geometry,
         fourier=fourier,
         execution=execution,
         mode=mode,
-        route=route,
+        reconstruction_shape=reconstruction,
+        relion_projector_half=object(),
     )
 
-    assert route.xhalf_bpref_mstep
-    assert not route.full_bpref
-    assert route.auto_boost_factor == 1.0
+    assert plan.xhalf_bpref_mstep
+    assert not plan.full_bpref
+    assert plan.auto_boost_factor == 1.0
     assert plan == LocalMicrobatchPlan(
+        xhalf_bpref_mstep=True,
+        full_bpref=False,
+        auto_boost_factor=1.0,
         initial_cap=1000,
         tail_cap=256,
         effective_cap=256,
@@ -142,23 +139,18 @@ def test_local_microbatch_plan_preserves_xhalf_projection_cap():
         image_batch_size=100,
         explicit_cap=10000,
     )
-    route = plan_local_microbatch_route(
-        geometry=geometry,
-        reconstruction_shape=reconstruction,
-        mode=mode,
-        relion_projector_half=object(),
-    )
     plan = plan_local_microbatch_cap(
         local_layout=layout,
         geometry=geometry,
         fourier=fourier,
         execution=execution,
         mode=mode,
-        route=route,
+        reconstruction_shape=reconstruction,
+        relion_projector_half=object(),
     )
 
     expected_projection_cap = EXACT_LOCAL_XHALF_PROJECTION_TARGET_ROW_PIXELS // fourier.window.n_projection
-    assert route.full_bpref
+    assert plan.full_bpref
     assert plan.initial_cap == 10000
     assert plan.tail_cap == 10000
     assert plan.effective_cap == expected_projection_cap
@@ -166,18 +158,21 @@ def test_local_microbatch_plan_preserves_xhalf_projection_cap():
 
 
 def test_local_microbatch_route_disables_xhalf_caps_for_score_only():
-    _, geometry, _, _, mode, reconstruction = _planning_inputs(score_only=True)
+    layout, geometry, fourier, execution, mode, reconstruction = _planning_inputs(score_only=True)
 
-    route = plan_local_microbatch_route(
+    plan = plan_local_microbatch_cap(
+        local_layout=layout,
         geometry=geometry,
-        reconstruction_shape=reconstruction,
+        fourier=fourier,
+        execution=execution,
         mode=mode,
+        reconstruction_shape=reconstruction,
         relion_projector_half=object(),
     )
 
-    assert not route.xhalf_bpref_mstep
-    assert not route.full_bpref
-    assert route.auto_boost_factor is None
+    assert not plan.xhalf_bpref_mstep
+    assert not plan.full_bpref
+    assert plan.auto_boost_factor is None
 
 
 def test_local_bucket_summary_preserves_shape_frequencies_and_image_counts():
@@ -205,6 +200,9 @@ def test_local_bucket_summary_preserves_shape_frequencies_and_image_counts():
 def test_local_bucket_plan_wraps_existing_builder_in_immutable_topology():
     layout, _, _, execution, _, _ = _planning_inputs()
     microbatch = LocalMicrobatchPlan(
+        xhalf_bpref_mstep=False,
+        full_bpref=False,
+        auto_boost_factor=None,
         initial_cap=256,
         tail_cap=256,
         effective_cap=256,

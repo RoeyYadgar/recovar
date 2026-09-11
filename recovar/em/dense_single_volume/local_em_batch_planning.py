@@ -58,18 +58,12 @@ _VISIBLE_GPU_MEMORY_BYTES_CACHE: int | None = None
 
 
 @dataclass(frozen=True)
-class LocalMicrobatchRoute:
-    """Resolved x-half mode that controls exact-local memory caps."""
+class LocalMicrobatchPlan:
+    """Resolved x-half route and caps for exact-local execution."""
 
     xhalf_bpref_mstep: bool
     full_bpref: bool
     auto_boost_factor: float | None
-
-
-@dataclass(frozen=True)
-class LocalMicrobatchPlan:
-    """Effective cap after the generic and x-half-specific stages."""
-
     initial_cap: int
     tail_cap: int
     effective_cap: int
@@ -418,27 +412,6 @@ def _exact_local_xhalf_projection_microbatch_cap(
     return min(cap, safe_cap)
 
 
-def plan_local_microbatch_route(
-    *,
-    geometry: LocalEMGeometryPlan,
-    reconstruction_shape: tuple[int, ...],
-    mode: LocalEMModePlan,
-    relion_projector_half=None,
-) -> LocalMicrobatchRoute:
-    """Resolve the x-half memory route before calculating its caps."""
-
-    xhalf_bpref_mstep = bool(relion_projector_half is not None and mode.mstep_relion_x_half and not mode.score_only)
-    auto_boost_factor = _exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None
-    full_bpref = bool(
-        xhalf_bpref_mstep and int(reconstruction_shape[0]) >= (2 * int(geometry.image_shape[0]) + 1)
-    )
-    return LocalMicrobatchRoute(
-        xhalf_bpref_mstep=xhalf_bpref_mstep,
-        full_bpref=full_bpref,
-        auto_boost_factor=auto_boost_factor,
-    )
-
-
 def plan_local_microbatch_cap(
     *,
     local_layout: LocalHypothesisLayout,
@@ -446,10 +419,16 @@ def plan_local_microbatch_cap(
     fourier: LocalEMFourierPlan,
     execution: LocalExecutionSettings,
     mode: LocalEMModePlan,
-    route: LocalMicrobatchRoute,
+    reconstruction_shape: tuple[int, ...],
+    relion_projector_half=None,
 ) -> LocalMicrobatchPlan:
     """Apply the established generic, tail, and projection caps in order."""
 
+    xhalf_bpref_mstep = bool(relion_projector_half is not None and mode.mstep_relion_x_half and not mode.score_only)
+    auto_boost_factor = _exact_local_xhalf_auto_microbatch_boost() if xhalf_bpref_mstep else None
+    full_bpref = bool(
+        xhalf_bpref_mstep and int(reconstruction_shape[0]) >= (2 * int(geometry.image_shape[0]) + 1)
+    )
     initial_cap = _exact_local_effective_max_hypotheses_per_microbatch(
         execution.max_hypotheses_per_microbatch,
         fourier.window.n_score,
@@ -459,14 +438,14 @@ def plan_local_microbatch_cap(
         image_batch_size=execution.image_batch_size,
         rotation_block_size=execution.rotation_block_size,
         allow_auto_boost=True,
-        auto_boost_factor=route.auto_boost_factor,
-        allow_high_memory_default=not route.xhalf_bpref_mstep,
+        auto_boost_factor=auto_boost_factor,
+        allow_high_memory_default=not xhalf_bpref_mstep,
         score_only=mode.score_only,
     )
     tail_cap = initial_cap
     effective_cap = initial_cap
     projection_target_row_pixels = None
-    if route.xhalf_bpref_mstep:
+    if xhalf_bpref_mstep:
         tail_cap = _exact_local_xhalf_tail_microbatch_cap(
             initial_cap,
             local_layout,
@@ -482,6 +461,9 @@ def plan_local_microbatch_cap(
         if effective_cap < tail_cap:
             projection_target_row_pixels = _exact_local_xhalf_projection_target_row_pixels()
     return LocalMicrobatchPlan(
+        xhalf_bpref_mstep=xhalf_bpref_mstep,
+        full_bpref=full_bpref,
+        auto_boost_factor=auto_boost_factor,
         initial_cap=int(initial_cap),
         tail_cap=int(tail_cap),
         effective_cap=int(effective_cap),
