@@ -78,7 +78,11 @@ def plan_local_em_modes(
         score_only=bool(reconstruction.score_only),
         accumulate_noise=bool(outputs.accumulate_noise),
         return_half_volume_accumulators=bool(outputs.return_half_volume_accumulators),
-        return_profile=bool(outputs.legacy_tuple_spec.return_profile),
+        return_profile=bool(
+            outputs.return_profile
+            or outputs.return_reconstruction_probability_values
+            or outputs.return_reconstruction_sample_indices
+        ),
         mstep_subtract_ctf_projection=bool(reconstruction.mstep_subtract_ctf_projection),
         mstep_relion_x_half=bool(reconstruction.mstep_relion_x_half),
         disable_adjoint_y=bool(reconstruction.disable_adjoint_y),

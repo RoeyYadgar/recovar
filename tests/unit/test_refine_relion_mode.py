@@ -481,7 +481,13 @@ def _adapt_legacy_dense_runner(legacy_runner):
         )
         if isinstance(output, DenseEMResult):
             return output
-        return DenseEMResult.from_legacy_tuple(output, request.outputs.legacy_tuple_spec)
+        cursor = 4
+        relion_stats = output[cursor] if request.outputs.return_stats else None
+        cursor += int(request.outputs.return_stats)
+        noise_stats = output[cursor] if request.outputs.accumulate_noise else None
+        cursor += int(request.outputs.accumulate_noise)
+        profile_stats = output[cursor] if request.outputs.return_profile else None
+        return DenseEMResult(*output[:4], relion_stats, noise_stats, profile_stats)
 
     return typed_runner
 

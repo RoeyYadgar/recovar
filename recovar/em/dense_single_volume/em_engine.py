@@ -2321,7 +2321,7 @@ def run_em(
             "return_half_volume_accumulators": return_half_volume_accumulators,
         },
     )
-    return run_dense_em(request).to_legacy_tuple(request.outputs.legacy_tuple_spec)
+    return run_dense_em(request).to_legacy_tuple(request.outputs)
 
 
 _RUN_EM_SIGNATURE = inspect.signature(run_em)

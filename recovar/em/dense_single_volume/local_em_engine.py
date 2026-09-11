@@ -4341,4 +4341,4 @@ def run_local_em_exact(
             pass_label=debug_pass_label,
         ),
     )
-    return run_local_em(request).to_legacy_tuple(request.outputs.legacy_tuple_spec)
+    return run_local_em(request).to_legacy_tuple(request.outputs)

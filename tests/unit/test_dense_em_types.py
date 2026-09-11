@@ -8,7 +8,6 @@ import recovar.em.dense_single_volume.em_engine as em_engine
 from recovar.em.dense_single_volume.dense_em_types import (
     DenseCorrectionInputs,
     DenseEMInputs,
-    DenseEMOutputSpec,
     DenseEMRequest,
     DenseEMRequestedOutputs,
     DenseEMResult,
@@ -31,12 +30,12 @@ from recovar.em.dense_single_volume.em_engine import (
     ("return_stats", "accumulate_noise", "return_profile"),
     itertools.product((False, True), repeat=3),
 )
-def test_dense_em_result_round_trips_every_legacy_tuple_shape(
+def test_dense_em_result_serializes_every_legacy_tuple_shape(
     return_stats,
     accumulate_noise,
     return_profile,
 ):
-    output_spec = DenseEMOutputSpec(
+    outputs = DenseEMRequestedOutputs(
         return_stats=return_stats,
         accumulate_noise=accumulate_noise,
         return_profile=return_profile,
@@ -51,26 +50,16 @@ def test_dense_em_result_round_trips_every_legacy_tuple_shape(
         profile_stats="profile_stats",
     )
 
-    legacy_output = result.to_legacy_tuple(output_spec)
+    legacy_output = result.to_legacy_tuple(outputs)
 
-    assert len(legacy_output) == output_spec.legacy_tuple_size
-    assert DenseEMResult.from_legacy_tuple(legacy_output, output_spec) == DenseEMResult(
-        new_mean="new_mean",
-        hard_assignment="hard_assignment",
-        Ft_y="Ft_y",
-        Ft_ctf="Ft_ctf",
-        relion_stats="relion_stats" if return_stats else None,
-        noise_stats="noise_stats" if accumulate_noise else None,
-        profile_stats="profile_stats" if return_profile else None,
-    )
-
-
-@pytest.mark.unit
-def test_dense_em_result_rejects_legacy_tuple_with_wrong_shape():
-    output_spec = DenseEMOutputSpec(return_profile=True)
-
-    with pytest.raises(ValueError, match="expected 5 values, received 4"):
-        DenseEMResult.from_legacy_tuple((1, 2, 3, 4), output_spec)
+    expected = ["new_mean", "hard_assignment", "Ft_y", "Ft_ctf"]
+    if return_stats:
+        expected.append("relion_stats")
+    if accumulate_noise:
+        expected.append("noise_stats")
+    if return_profile:
+        expected.append("profile_stats")
+    assert legacy_output == tuple(expected)
 
 
 @pytest.mark.unit
@@ -100,7 +89,7 @@ def test_dense_em_request_composes_immutable_default_groups():
 
 
 @pytest.mark.unit
-def test_dense_requested_outputs_define_only_legacy_tuple_suffixes():
+def test_dense_requested_outputs_serialize_only_requested_suffixes():
     outputs = DenseEMRequestedOutputs(
         return_stats=True,
         accumulate_noise=True,
@@ -108,12 +97,8 @@ def test_dense_requested_outputs_define_only_legacy_tuple_suffixes():
         return_half_volume_accumulators=True,
     )
 
-    assert outputs.legacy_tuple_spec == DenseEMOutputSpec(
-        return_stats=True,
-        accumulate_noise=True,
-        return_profile=True,
-    )
-    assert outputs.legacy_tuple_spec.legacy_tuple_size == 7
+    result = DenseEMResult(1, 2, 3, 4, 5, 6, 7)
+    assert result.to_legacy_tuple(outputs) == (1, 2, 3, 4, 5, 6, 7)
 
 
 @pytest.mark.unit
@@ -217,7 +202,7 @@ def test_dense_em_compatibility_facade_groups_every_legacy_engine_parameter(monk
         **expected_kwargs,
     )
 
-    assert legacy_output == expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
+    assert legacy_output == expected_result.to_legacy_tuple(request.outputs)
     assert captured["request"] == request
     assert set(expected_kwargs) == set(list(inspect.signature(run_em).parameters)[7:])
     assert dense_em_request_from_legacy_kwargs(request.inputs, expected_kwargs) == request

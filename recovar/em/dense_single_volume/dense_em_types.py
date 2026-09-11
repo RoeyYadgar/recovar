@@ -3,22 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
-
-
-@dataclass(frozen=True)
-class DenseEMOutputSpec:
-    """Describe which optional values are present in the legacy result tuple."""
-
-    return_stats: bool = False
-    accumulate_noise: bool = False
-    return_profile: bool = False
-
-    @property
-    def legacy_tuple_size(self) -> int:
-        """Return the exact tuple length selected by this output specification."""
-
-        return 4 + int(self.return_stats) + int(self.accumulate_noise) + int(self.return_profile)
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -113,17 +98,6 @@ class DenseEMRequestedOutputs:
     return_profile: bool = False
     return_half_volume_accumulators: bool = False
 
-    @property
-    def legacy_tuple_spec(self) -> DenseEMOutputSpec:
-        """Return the tuple shape produced by the compatibility engine."""
-
-        return DenseEMOutputSpec(
-            return_stats=self.return_stats,
-            accumulate_noise=self.accumulate_noise,
-            return_profile=self.return_profile,
-        )
-
-
 @dataclass(frozen=True)
 class DenseEMRequest:
     """Composed host-side request for dense EM."""
@@ -156,48 +130,14 @@ class DenseEMResult:
     noise_stats: Any | None = None
     profile_stats: Any | None = None
 
-    def to_legacy_tuple(self, output_spec: DenseEMOutputSpec) -> tuple[Any, ...]:
+    def to_legacy_tuple(self, outputs: DenseEMRequestedOutputs) -> tuple[Any, ...]:
         """Serialize this result using ``run_em``'s tuple contract."""
 
         result = [self.new_mean, self.hard_assignment, self.Ft_y, self.Ft_ctf]
-        if output_spec.return_stats:
+        if outputs.return_stats:
             result.append(self.relion_stats)
-        if output_spec.accumulate_noise:
+        if outputs.accumulate_noise:
             result.append(self.noise_stats)
-        if output_spec.return_profile:
+        if outputs.return_profile:
             result.append(self.profile_stats)
         return tuple(result)
-
-    @classmethod
-    def from_legacy_tuple(
-        cls,
-        output: Sequence[Any],
-        output_spec: DenseEMOutputSpec,
-    ) -> DenseEMResult:
-        """Parse and validate a ``run_em`` compatibility tuple."""
-
-        expected_size = output_spec.legacy_tuple_size
-        if len(output) != expected_size:
-            raise ValueError(
-                "Dense EM output tuple does not match its output specification: "
-                f"expected {expected_size} values, received {len(output)}"
-            )
-
-        cursor = 0
-        new_mean, hard_assignment, Ft_y, Ft_ctf = output[cursor : cursor + 4]
-        cursor += 4
-        relion_stats = output[cursor] if output_spec.return_stats else None
-        cursor += int(output_spec.return_stats)
-        noise_stats = output[cursor] if output_spec.accumulate_noise else None
-        cursor += int(output_spec.accumulate_noise)
-        profile_stats = output[cursor] if output_spec.return_profile else None
-
-        return cls(
-            new_mean=new_mean,
-            hard_assignment=hard_assignment,
-            Ft_y=Ft_y,
-            Ft_ctf=Ft_ctf,
-            relion_stats=relion_stats,
-            noise_stats=noise_stats,
-            profile_stats=profile_stats,
-        )

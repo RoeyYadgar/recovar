@@ -11,7 +11,6 @@ from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
     LocalEMDiagnostics,
     LocalEMInputs,
-    LocalEMOutputSpec,
     LocalEMRequest,
     LocalEMRequestedOutputs,
     LocalEMResult,
@@ -30,13 +29,13 @@ from recovar.em.dense_single_volume.runtime_options import LocalCacheSettings
     ("accumulate_noise", "return_profile", "return_best_pose_details", "return_significant_counts"),
     itertools.product((False, True), repeat=4),
 )
-def test_local_em_result_round_trips_every_legacy_tuple_shape(
+def test_local_em_result_serializes_every_legacy_tuple_shape(
     accumulate_noise,
     return_profile,
     return_best_pose_details,
     return_significant_counts,
 ):
-    output_spec = LocalEMOutputSpec(
+    outputs = LocalEMRequestedOutputs(
         accumulate_noise=accumulate_noise,
         return_profile=return_profile,
         return_best_pose_details=return_best_pose_details,
@@ -55,29 +54,19 @@ def test_local_em_result_round_trips_every_legacy_tuple_shape(
         significant_counts="significant_counts",
     )
 
-    legacy_output = result.to_legacy_tuple(output_spec)
+    legacy_output = result.to_legacy_tuple(outputs)
 
-    assert len(legacy_output) == output_spec.legacy_tuple_size
-    assert LocalEMResult.from_legacy_tuple(legacy_output, output_spec) == LocalEMResult(
-        Ft_y="Ft_y",
-        Ft_ctf="Ft_ctf",
-        hard_assignment="hard_assignment",
-        relion_stats="relion_stats",
-        best_pose_rotations="best_pose_rotations" if return_best_pose_details else None,
-        best_pose_translations="best_pose_translations" if return_best_pose_details else None,
-        best_pose_rotation_ids="best_pose_rotation_ids" if return_best_pose_details else None,
-        noise_stats="noise_stats" if accumulate_noise else None,
-        profile_summary={"profile": "summary"} if return_profile else None,
-        significant_counts="significant_counts" if return_significant_counts else None,
-    )
-
-
-@pytest.mark.unit
-def test_local_em_result_rejects_legacy_tuple_with_wrong_shape():
-    output_spec = LocalEMOutputSpec(return_profile=True)
-
-    with pytest.raises(ValueError, match="expected 5 values, received 4"):
-        LocalEMResult.from_legacy_tuple((1, 2, 3, 4), output_spec)
+    expected = ["Ft_y", "Ft_ctf", "hard_assignment"]
+    if return_best_pose_details:
+        expected.extend(["best_pose_rotations", "best_pose_translations", "best_pose_rotation_ids"])
+    expected.append("relion_stats")
+    if accumulate_noise:
+        expected.append("noise_stats")
+    if return_profile:
+        expected.append({"profile": "summary"})
+    if return_significant_counts:
+        expected.append("significant_counts")
+    assert legacy_output == tuple(expected)
 
 
 @pytest.mark.unit
@@ -115,8 +104,10 @@ def test_local_em_requested_captures_enable_legacy_profile_result(probability_va
         return_reconstruction_sample_indices=sample_indices,
     )
 
+    result = LocalEMResult(1, 2, 3, 4, profile_summary={"profile": "summary"})
+
     assert outputs.return_profile is False
-    assert outputs.legacy_tuple_spec.return_profile is True
+    assert result.to_legacy_tuple(outputs)[-1] == {"profile": "summary"}
 
 
 @pytest.mark.unit
@@ -263,5 +254,5 @@ def test_legacy_local_em_facade_builds_the_canonical_request(monkeypatch):
     )
 
     assert captured["request"] == request
-    assert legacy_result == expected_result.to_legacy_tuple(request.outputs.legacy_tuple_spec)
+    assert legacy_result == expected_result.to_legacy_tuple(request.outputs)
     assert set(expected_kwargs) == set(list(inspect.signature(run_local_em_exact).parameters)[6:])

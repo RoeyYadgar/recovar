@@ -3,31 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from recovar.em.dense_single_volume.runtime_options import LocalCacheSettings
-
-
-@dataclass(frozen=True)
-class LocalEMOutputSpec:
-    """Describe which optional values are present in the legacy result tuple."""
-
-    accumulate_noise: bool = False
-    return_profile: bool = False
-    return_best_pose_details: bool = False
-    return_significant_counts: bool = False
-
-    @property
-    def legacy_tuple_size(self) -> int:
-        """Return the exact tuple length selected by this output specification."""
-
-        return (
-            4
-            + 3 * int(self.return_best_pose_details)
-            + int(self.accumulate_noise)
-            + int(self.return_profile)
-            + int(self.return_significant_counts)
-        )
 
 
 @dataclass(frozen=True)
@@ -145,26 +123,6 @@ class LocalEMRequestedOutputs:
     return_reconstruction_sample_indices: bool = False
     return_significant_counts: bool = False
 
-    @property
-    def legacy_tuple_spec(self) -> LocalEMOutputSpec:
-        """Return the tuple shape produced by the compatibility engine.
-
-        Probability-value and sample-index capture are stored in the profile,
-        so the legacy engine implicitly enables its profile result for either.
-        """
-
-        return LocalEMOutputSpec(
-            accumulate_noise=self.accumulate_noise,
-            return_profile=(
-                self.return_profile
-                or self.return_reconstruction_probability_values
-                or self.return_reconstruction_sample_indices
-            ),
-            return_best_pose_details=self.return_best_pose_details,
-            return_significant_counts=self.return_significant_counts,
-        )
-
-
 @dataclass(frozen=True)
 class LocalEMDiagnostics:
     """Diagnostic call identity, separate from numerical settings."""
@@ -209,11 +167,11 @@ class LocalEMResult:
     profile_summary: Mapping[str, Any] | None = None
     significant_counts: Any | None = None
 
-    def to_legacy_tuple(self, output_spec: LocalEMOutputSpec) -> tuple[Any, ...]:
+    def to_legacy_tuple(self, outputs: LocalEMRequestedOutputs) -> tuple[Any, ...]:
         """Serialize this result using ``run_local_em_exact``'s tuple contract."""
 
         result = [self.Ft_y, self.Ft_ctf, self.hard_assignment]
-        if output_spec.return_best_pose_details:
+        if outputs.return_best_pose_details:
             result.extend(
                 [
                     self.best_pose_rotations,
@@ -222,55 +180,14 @@ class LocalEMResult:
                 ]
             )
         result.append(self.relion_stats)
-        if output_spec.accumulate_noise:
+        if outputs.accumulate_noise:
             result.append(self.noise_stats)
-        if output_spec.return_profile:
+        if (
+            outputs.return_profile
+            or outputs.return_reconstruction_probability_values
+            or outputs.return_reconstruction_sample_indices
+        ):
             result.append(self.profile_summary)
-        if output_spec.return_significant_counts:
+        if outputs.return_significant_counts:
             result.append(self.significant_counts)
         return tuple(result)
-
-    @classmethod
-    def from_legacy_tuple(
-        cls,
-        output: Sequence[Any],
-        output_spec: LocalEMOutputSpec,
-    ) -> LocalEMResult:
-        """Parse and validate a ``run_local_em_exact`` compatibility tuple."""
-
-        expected_size = output_spec.legacy_tuple_size
-        if len(output) != expected_size:
-            raise ValueError(
-                "Local EM output tuple does not match its output specification: "
-                f"expected {expected_size} values, received {len(output)}"
-            )
-
-        cursor = 0
-        Ft_y, Ft_ctf, hard_assignment = output[cursor : cursor + 3]
-        cursor += 3
-
-        best_pose_rotations = best_pose_translations = best_pose_rotation_ids = None
-        if output_spec.return_best_pose_details:
-            best_pose_rotations, best_pose_translations, best_pose_rotation_ids = output[cursor : cursor + 3]
-            cursor += 3
-
-        relion_stats = output[cursor]
-        cursor += 1
-        noise_stats = output[cursor] if output_spec.accumulate_noise else None
-        cursor += int(output_spec.accumulate_noise)
-        profile_summary = output[cursor] if output_spec.return_profile else None
-        cursor += int(output_spec.return_profile)
-        significant_counts = output[cursor] if output_spec.return_significant_counts else None
-
-        return cls(
-            Ft_y=Ft_y,
-            Ft_ctf=Ft_ctf,
-            hard_assignment=hard_assignment,
-            relion_stats=relion_stats,
-            best_pose_rotations=best_pose_rotations,
-            best_pose_translations=best_pose_translations,
-            best_pose_rotation_ids=best_pose_rotation_ids,
-            noise_stats=noise_stats,
-            profile_summary=profile_summary,
-            significant_counts=significant_counts,
-        )
