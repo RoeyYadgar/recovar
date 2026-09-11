@@ -1,6 +1,6 @@
 # C4.5 Compatibility and Consolidation Inventory
 
-Status: active
+Status: complete and accepted
 
 Started: 2026-09-11
 
@@ -112,3 +112,59 @@ tests call it directly. It is outside normal production flow. The remaining
 line/class/call reductions must come from dense/local-search inversion and
 deleting redundant compatibility/planning/diagnostic structures, not from
 compressing the algorithm body.
+
+## Final disposition
+
+| Initial category | C4.5 outcome |
+|---|---|
+| Typed engine wrappers | `run_local_em`, `run_dense_em`, and `run_local_search_iteration` now own the canonical implementations and return stable typed results directly. |
+| Historical long entry points | `run_local_em_exact` and `run_em` remain one-way external compatibility facades; no in-package caller invokes either one. Re-evaluate removal in C9. |
+| Reverse tuple machinery | Deleted legacy tuple parsers, output-shape records, and internal local-search tuple pack/unpack paths. Only outward compatibility serialization remains where required by the two external facades. |
+| Test injection/reflection | Removed production `legacy_runner` injection and signature-reflection request builders. Tests intercept canonical typed callables or adapt an explicitly supplied historical test runner. |
+| K-class bridges | K-class local/dense routing now constructs typed engine views directly. Sparse/routing `engine_kwargs` remain explicitly owned by C5/C8 and did not expand the C4.5 scope. |
+| Settings aliases/duplicates | Retained `RuntimeConfiguration`, runtime `ExecutionSettings`, and exact-local execution settings as distinct host/engine boundaries; deleted the ambiguous local `ExecutionSettings` alias and shared duplicate local-search settings with the exact-local engine. |
+| Diagnostic shims | Deleted `local_debug.py`, `debug_dumps.py`, and the unused `parity_dump.py`; retained the compact-candidate compatibility surface until its sparse consumers migrate in C5. |
+| One-lifecycle local plans | Folded reconstruction/projection plans into the Fourier owner, the microbatch route into `LocalMicrobatchPlan`, and bucket topology into its owning plan. Retained validation, cache-decision, profile, and diagnostic-lifetime records that cross real boundaries. |
+| Progress documentation | Split the concise active ledger from the immutable C0--C4 archive and kept all recorded paths portable through `$HOME` and `$REPO_ROOT`. |
+
+## Final scorecard
+
+Scope: `recovar/em/dense_single_volume/**/*.py`. Function span is the physical
+source span from the AST start to end line.
+
+| Measure | C4 checkpoint | Final C4.5 | Delta | Gate |
+|---|---:|---:|---:|---:|
+| Production Python files | 75 | 72 | -3 | <=74 |
+| Production lines | 71,509 | 69,212 | -2,297 | <=70,509 |
+| Nonblank production lines | 65,975 | 63,751 | -2,224 | decrease |
+| Functions/methods | 1,254 | 1,239 | -15 | decrease |
+| Classes | 165 | 152 | -13 | <=155 |
+| Functions with >=20 args | 37 | 35 | -2 | <=35 |
+| Calls with >=20 args | 75 | 65 | -10 | <=65 |
+| Largest function span | 5,620 | 5,500 | -120 | decrease |
+
+All structural gates pass without changing numerical formulas, array order,
+dtype policy, reductions, candidate order, or diagnostic artifact schemas.
+
+## Acceptance evidence
+
+- Focused dense/local result construction passed 31 tests; shared local-search
+  settings and merge guards passed 49; the broader typed engine slice passed
+  77; Fourier, microbatch, and state-swap slices passed 18, 6, and 26 tests.
+- The final CPU fast guard passed 16/16 in `52.02 s`.
+- Prescribed Slurm GPU replay job `60564274` completed `0:0` on an
+  A100-PCIE-40GB with 13 numbered iterations, the expected size trajectory,
+  final-all-data, correlation `0.9983948853`, and FSC-AUC `0.9948839316`.
+- Clean reverse-order same-allocation job `60569641` compared C4.5 `d6bf42da`
+  with C4 `60b2b154` using the same A100, fixture, pinned binaries, and fresh
+  caches. Candidate ledger, exact-local, process-wall, transfer, and RSS deltas
+  were between `+0.15%` and `+1.58%`, inside the 3%/5% guards. Correlation
+  improved `0.0000236623`, FSC-AUC improved `0.0001407588`, and direct merged-map
+  FSC-AUC was `0.9998748181`.
+
+Artifacts are under
+`$HOME/palmer_scratch/tmp/c45_validation_981c810c_20260911` and
+`$HOME/palmer_scratch/tmp/c45_samegpu_clean_d6bf42da_vs_60b2b154_20260911`.
+
+Decision: C4.5 is accepted. C5 may begin from `d6bf42da` after the acceptance
+documentation commit.

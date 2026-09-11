@@ -23,8 +23,8 @@ file. Do not record user-specific absolute paths.
 | C2 Settings boundary | Complete | `RuntimeConfiguration`, `AlgorithmSettings`, and `ExecutionSettings` remain the resolved host boundary. |
 | C3 Diagnostics | Complete | Diagnostic persistence and effects have dedicated owners; obsolete debug re-export shims are gone. |
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
-| C4.5 Foundation consolidation | Validation in progress | All static exit gates pass. Run final CPU guard and Slurm GPU parity/performance validation, then unblock C5. |
-| C5 Sparse pass 2 | Blocked by C4.5 validation | Split and simplify the sparse pass only after C4.5 acceptance. |
+| C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
+| C5 Sparse pass 2 | Ready | Split and simplify the sparse pass from the accepted C4.5 checkpoint. |
 | C6--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
@@ -40,6 +40,7 @@ Scope: `recovar/em/dense_single_volume/**/*.py`.
 | Classes | 165 | 152 | <=155 | Pass |
 | Functions with >=20 args | 37 | 35 | <=35 | Pass |
 | Calls with >=20 args | 75 | 65 | <=65 | Pass |
+| Largest function span | 5,620 | 5,500 | decrease | Pass |
 
 The current values include the repository formatter normalization commits.
 Those commits contain no algorithm changes and were isolated so the semantic
@@ -63,6 +64,7 @@ refactors remain readable.
 | `95442a5a`, `79df6209` | Mechanical formatting | Isolated repository-required formatting from semantic changes. |
 | `884c7a6f` | Shared local-search settings | Local search now consumes exact-local search, scoring, projection, and output groups directly. |
 | `981c810c` | Payload mappings | Expressed six existing option/payload bags as mapping literals, completing the long-call gate. |
+| `bf30e335`, `d6bf42da` | Ledger/test cleanup | Split the active ledger from its archive and migrated local-search tests to the shared settings contracts. |
 
 ## C4.5 invariants
 
@@ -88,8 +90,10 @@ refactors remain readable.
 | Local microbatch planning | 6 passed. |
 | State-swap grouping | 26 passed. |
 | Sparse/significance/K-class mapping slice | 108 passed; four additional tests could not load `libfftw3.so.3` in the host environment before their assertions. |
-| CPU fast guard | Pending final rerun; earlier C4.5 run passed 16/16 in 51.01 s. |
-| Full K=1 Slurm GPU replay | Pending. |
+| Settings/diagnostics/import boundaries | 13 assertions passed; the host-side `pixi` process was interrupted after pytest completion when its cleanup did not exit. |
+| CPU fast guard | 16 passed in 52.02 s. |
+| Prescribed full K=1 Slurm GPU replay | Job `60564274` completed `0:0` on an A100-PCIE-40GB: 13 numbered iterations, expected size trajectory, final-all-data, correlation `0.9983948853`, FSC-AUC `0.9948839316`, and ledger time `988.889 s`. |
+| Same-allocation C4/C4.5 gate | Clean reverse-order job `60569641` completed `0:0`; trajectory and 310-field result schema matched, quality improved, and all runtime/memory deltas stayed inside the guardrails. |
 
 No test tolerance, expected numerical value, or quality threshold has been
 changed during C4.5.
@@ -102,16 +106,46 @@ final merged correlation `0.9985789461317439`, RELION FSC-AUC
 `0.995855447698812`, and elapsed time `1184.1040608882904 s` across 13
 completed numbered iterations plus final-all-data.
 
-The final C4.5 Slurm run must record the job ID, accelerator, completed
-iterations, final correlation, FSC-AUC if available, wall/ledger time, peak
-memory, and any comparison caveat. A runtime difference is not attributed to
-the refactor unless hardware and execution context are comparable.
+The prescribed standalone C4.5 artifact is
+`$HOME/palmer_scratch/tmp/c45_validation_981c810c_20260911`. Job `60564274`
+completed in `00:18:29` on an A100-PCIE-40GB with peak batch RSS
+`12,645,360 KiB`. Its cold-cache timing is not compared directly with the
+older warm-cache reference.
+
+The decisive quality/performance artifact is
+`$HOME/palmer_scratch/tmp/c45_samegpu_clean_d6bf42da_vs_60b2b154_20260911`.
+Job `60569641` ran clean detached C4.5 candidate `d6bf42da` followed by C4
+control `60b2b154` on the same A100-PCIE-40GB with identical pinned CUDA and
+RELION bindings and separate fresh caches:
+
+| Measure | C4 control | C4.5 candidate | Candidate delta |
+|---|---:|---:|---:|
+| Completed iterations / final-all-data | 13 / yes | 13 / yes | same |
+| Final correlation vs RELION | `0.9983087334` | `0.9983323956` | `+0.0000236623` |
+| Final FSC-AUC vs RELION | `0.9943136480` | `0.9944544068` | `+0.0001407588` |
+| Ledger elapsed | `971.486 s` | `984.628 s` | `+1.35%` |
+| Exact-local EM | `321.321 s` | `325.453 s` | `+1.29%` |
+| Process wall | `1017.68 s` | `1032.48 s` | `+1.45%` |
+| Transfer to host | `7.882 s` | `8.006 s` | `+1.58%` |
+| Peak RSS | `11,057,104 KiB` | `11,073,212 KiB` | `+0.15%` |
+
+The direct candidate/control merged-map comparison has correlation
+`0.9999801377`, non-DC FSC-AUC `0.9998748181`, and minimum non-DC FSC
+`0.9994840284`. Both result archives contain the same 310 keys in the same
+order, with identical shapes and dtypes. C4.5 therefore introduces no material
+quality, runtime, transfer, or memory regression.
+
+Job `60564455` was excluded from the decisive gate because a concurrent
+uncommitted sparse-pass edit appeared in the primary checkout between its
+control and candidate arms. That edit remains preserved and is not part of
+C4.5. Job `60569641` used detached worktrees with empty tracked diffs for both
+arms.
 
 ## Immediate next actions
 
-1. Run the final focused/static suite and `pixi run test-em-fast-guard`.
-2. Submit the prescribed full K=1 replay to the Slurm GPU partition and check
-   final correlation and timing against the recorded reference.
-3. Mark C4.5 accepted in this ledger and the inventory only if those checks
-   pass; otherwise revise or revert the responsible slice.
-4. Begin C5 only after C4.5 is accepted.
+1. Begin C5 from the accepted `d6bf42da` implementation checkpoint.
+2. Inventory sparse-pass-2 routes and delete only dead/shadow paths with
+   focused evidence.
+3. Establish the smallest typed sparse orchestration boundary before any
+   module split, preserving candidate order, dtypes, reductions, and JIT
+   topology.

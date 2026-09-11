@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: active; C1--C4 audited, C4.5 consolidation required before C5
+Status: active; C1--C4.5 complete and accepted, C5 next
 
 Created: 2026-09-08
 
@@ -424,8 +424,9 @@ introduces a migration adapter must either remove it after migrating callers in
 the same phase or record its owner, consumer, deletion condition, and expiry.
 
 C1--C4 are historical completed phases. Their numerical/performance gates
-remain accepted, but the 2026-09-11 structural audit supersedes any claim that
-their host interfaces are fully migrated. C5 is blocked until C4.5 passes.
+remain accepted, but the 2026-09-11 structural audit superseded their original
+host-interface completion claims. C4.5 completed that migration and passed its
+structural, CPU, and paired GPU gates; C5 is now the active next phase.
 
 ### C0. Freeze behavior and add structural guardrails
 
@@ -607,6 +608,14 @@ line count the sole objective. If consumer evidence makes one unsafe, stop and
 obtain an explicit plan revision rather than silently carrying the debt into
 C5.
 
+Acceptance result: complete at implementation checkpoint `d6bf42da`. The
+package fell by 2,297 production lines, 3 files, 13 classes, 2 long signatures,
+and 10 long calls relative to C4. All quantitative gates passed. Prescribed GPU
+job `60564274` completed the expected trajectory and final-all-data path;
+same-allocation C4/C4.5 job `60569641` found improved quality and no material
+runtime, transfer, or memory regression. Exact evidence is recorded in the
+active progress ledger and C4.5 inventory.
+
 ### C5. Split and simplify sparse pass 2
 
 Deliverables:
@@ -641,8 +650,8 @@ Exit criteria:
 
 Deliverables:
 
-- finish the existing dense migration by moving `run_em`'s body behind the
-  canonical typed request/result rather than adding another wrapper;
+- retain `run_dense_em` as the canonical typed implementation and the long
+  `run_em` entry point only as its one-way external compatibility facade;
 - separate preprocessing, block planning, pass-1 normalization, pass-2 M-step,
   noise accumulation, and finalization;
 - evolve `_DenseBigJitBatchRunner` into a thin adapter over grouped kernel
@@ -666,9 +675,9 @@ Deliverables:
 
 - make `_score_half_dense` and `_score_half_local` consume `HalfStepRequest` and
   return the same `HalfScoreResult` contract;
-- replace `_run_local_search_iteration`'s 71 arguments with a local-search
-  request assembled from the iteration plan; replace the implementation rather
-  than wrapping and re-expanding the request;
+- retain the canonical typed local-search boundary and move its request
+  assembly into the appropriate iteration/session stages without reintroducing
+  a parallel long-signature implementation;
 - split `_run_relion_iteration_loop` into initialization, plan derivation,
   replay application, per-half scoring, map/noise/prior/correction updates,
   convergence, history/reporting, and finalization;
@@ -963,24 +972,24 @@ The refactor is complete when:
 
 ## 12. Next implementation sequence
 
-Do not begin C5. Start C4.5 with the local adapter inversion because C4 has the
-strongest focused tests and fixed-input HLO evidence:
+Begin C5 from the accepted C4.5 checkpoint. Keep each commit understandable,
+independently revertible, and confined to one sparse-pass boundary:
 
-1. Record the exact local compatibility consumer inventory and a before
-   scorecard.
-2. Mechanically make `run_local_em(request)` own the existing algorithm body;
-   leave calculations, ordering, settings, and JIT inputs unchanged.
-3. Migrate one caller family at a time and keep the old signature only as a
-   one-way facade if a documented external consumer requires it.
-4. Remove the local tuple/output-spec round trip after the final in-package
-   caller moves.
-5. Run focused local and caller tests after each small commit, then the CPU fast
-   guard. Repeat fixed-input HLO/compile checks because the host dispatch seam
-   touches the JIT entry path.
-6. Apply the proven pattern separately to dense and local-search execution.
-7. Only then audit and collapse the remaining settings, diagnostic, and local
-   planning structures needed to meet the C4.5 exit gates.
-
-Each commit must be understandable and independently revertible. Do not combine
-the local, dense, local-search, settings, diagnostics, or documentation cleanup
-into one commit.
+1. Inventory every sparse-pass-2 route, caller, capture hook, and result shape;
+   identify dead/shadow paths before introducing new types or modules.
+2. Freeze candidate identity/order, bucket topology, dtype/layout, reduction
+   order, JIT compile count, peak memory, and representative warm timing with
+   focused K=1 and K-class fixtures.
+3. Define the smallest stable sparse request/result boundary and make the
+   existing implementation canonical behind it; do not add a typed-to-legacy
+   round trip.
+4. Migrate one caller family at a time, deleting its superseded argument/result
+   representation in the same slice.
+5. Move capture persistence to the existing diagnostics owners while
+   preserving artifact schemas and null-route synchronization behavior.
+6. Break the significance/sparse import cycle through a neutral shared
+   primitive boundary, then extract only components with independent ownership
+   or test surfaces.
+7. Run focused tests after each slice, the CPU fast guard after meaningful
+   groups, and paired Slurm GPU quality/performance validation before accepting
+   C5.
