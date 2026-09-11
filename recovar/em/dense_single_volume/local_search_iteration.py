@@ -16,12 +16,8 @@ from recovar.em.dense_single_volume.local_em_engine import run_local_em
 from recovar.em.dense_single_volume.local_em_types import (
     LocalEMInputs,
     LocalEMRequest,
-    LocalEMRequestedOutputs,
     LocalExecutionSettings,
     LocalPosteriorInputs,
-    LocalProjectionSettings,
-    LocalScoringSettings,
-    LocalSearchSettings,
 )
 from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationRequest, LocalSearchIterationResult
 from recovar.em.dense_single_volume.runtime_options import current_environment as _runtime_environment
@@ -55,6 +51,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
     """
     inputs = request.inputs
     grid = request.grid
+    search = request.search
     execution = request.execution
     scoring = request.scoring
     projection = request.projection
@@ -65,65 +62,32 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
     diagnostics = request.diagnostics
 
     experiment_dataset = inputs.experiment_dataset
-    mean = inputs.mean
-    mean_variance = inputs.mean_variance
-    noise_variance = inputs.noise_variance
-    disc_type = inputs.disc_type
     prior_rotations = grid.prior_rotations
-    rotation_grid_rotations = grid.rotation_grid_rotations
-    rotation_grid_eulers = grid.rotation_grid_eulers
     healpix_order = grid.healpix_order
-    sigma_rot = grid.sigma_rot
-    sigma_psi = grid.sigma_psi
     translations = grid.translations
     prior_translations = grid.prior_translations
-    sigma_offset_angstrom = grid.sigma_offset_angstrom
-    offset_range_pixels = grid.offset_range_pixels
-    translation_prior_reference_translations = grid.translation_prior_reference_translations
     translation_prior_centers = grid.translation_prior_centers
-    rotation_log_prior = grid.rotation_log_prior
-    rotation_grid_random_perturbation = grid.rotation_grid_random_perturbation
-    rotation_grid_angular_sampling_deg = grid.rotation_grid_angular_sampling_deg
     local_parent_oversampling_order = grid.local_parent_oversampling_order
     pass2_layout = grid.pass2_layout
     rotation_grid_mstep_rotations = grid.rotation_grid_mstep_rotations
-    generate_relion_mstep_rotations = grid.generate_relion_mstep_rotations
     image_batch_size = execution.image_batch_size
     rotation_block_size = execution.rotation_block_size
-    current_size = execution.current_size
-    reconstruction_current_size = execution.reconstruction_current_size
+    current_size = search.current_size
     execution_settings = execution.settings
-    score_with_masked_images = scoring.score_with_masked_images
-    half_spectrum_scoring = scoring.half_spectrum_scoring
-    relion_exact_score_translation = scoring.relion_exact_score_translation
     use_float64_scoring = scoring.use_float64_scoring
-    adaptive_fraction = scoring.adaptive_fraction
-    max_significants = scoring.max_significants
-    reconstruct_significant_only = scoring.reconstruct_significant_only
-    apply_max_significants_to_support = scoring.apply_max_significants_to_support
-    source_faithful_spectrum_norm = reconstruction.source_faithful_spectrum_norm
+    reconstruct_significant_only = search.reconstruct_significant_only
     projection_padding_factor = projection.projection_padding_factor
     reconstruction_padding_factor = projection.reconstruction_padding_factor
     use_float64_projections = projection.use_float64_projections
-    do_gridding_correction = projection.do_gridding_correction
-    square_window = projection.square_window
-    projection_relion_texture_interp = projection.relion_texture_interp
-    projection_relion_acc_double_floorf_quirk = projection.relion_acc_double_floorf_quirk
-    projection_force_jax = projection.force_jax
-    relion_projector_half = projection.relion_projector_half
-    relion_projector_r_max = projection.relion_projector_r_max
+    relion_projector_half = inputs.relion_projector_half
     normalization_log_z = posterior.normalization_log_z
     normalization_log_evidence = posterior.normalization_log_evidence
     class_log_priors = posterior.class_log_priors
     mstep_relion_x_half = reconstruction.mstep_relion_x_half
     score_only = reconstruction.score_only
     accumulate_noise = outputs.accumulate_noise
-    return_half_volume_accumulators = outputs.return_half_volume_accumulators
     return_profile = outputs.return_profile
     return_best_pose_details = outputs.return_best_pose_details
-    return_class_details = outputs.return_class_details
-    return_reconstruction_sample_indices = outputs.return_reconstruction_sample_indices
-    return_significant_counts = outputs.return_significant_counts
 
     # Indirection through the iteration_loop module so test monkeypatches that
     # target ``iteration_loop.build_local_hypothesis_layout`` and
@@ -169,26 +133,26 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
             layout_kwargs["local_parent_oversampling_order"] = int(local_parent_oversampling_order)
         if rotation_grid_mstep_rotations is not None:
             layout_kwargs["rotation_grid_mstep_rotations"] = rotation_grid_mstep_rotations
-        if bool(generate_relion_mstep_rotations):
+        if bool(grid.generate_relion_mstep_rotations):
             layout_kwargs["generate_relion_mstep_rotations"] = True
         local_layout = _il.build_local_hypothesis_layout(
             prior_rotations,
-            rotation_grid_rotations,
-            sigma_rot,
-            sigma_psi,
+            grid.rotation_grid_rotations,
+            grid.sigma_rot,
+            grid.sigma_psi,
             healpix_order,
             translations,
             prior_translations,
-            sigma_offset_angstrom,
+            grid.sigma_offset_angstrom,
             # Match the grouped RELION-mode path: local translation priors use the
             # learned/model sigma, not the older range/3 override.
             None,
             experiment_dataset.voxel_size,
             grid_metadata=local_grid_metadata,
-            translation_prior_reference_translations=translation_prior_reference_translations,
-            rotation_log_prior=rotation_log_prior,
-            rotation_grid_random_perturbation=rotation_grid_random_perturbation,
-            rotation_grid_angular_sampling_deg=rotation_grid_angular_sampling_deg,
+            translation_prior_reference_translations=grid.translation_prior_reference_translations,
+            rotation_log_prior=grid.rotation_log_prior,
+            rotation_grid_random_perturbation=grid.rotation_grid_random_perturbation,
+            rotation_grid_angular_sampling_deg=grid.rotation_grid_angular_sampling_deg,
             dtype=local_layout_dtype,
             **layout_kwargs,
         )
@@ -199,7 +163,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
         selector_time = 0.0
 
     if class_log_priors is not None:
-        if source_faithful_spectrum_norm:
+        if reconstruction.source_faithful_spectrum_norm:
             raise ValueError("RELION source-faithful spectrum normalization is fresh K=1-only")
         local_n_classes = int(np.asarray(class_log_priors).size)
     else:
@@ -238,11 +202,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
         padding_factor=max(int(projection_padding_factor), int(reconstruction_padding_factor), 1),
         n_classes=local_kernel_classes,
         current_size=local_batch_planning_current_size,
-        settings=(
-            None
-            if execution_settings is None
-            else execution_settings.dense_batch_planning
-        ),
+        settings=(None if execution_settings is None else execution_settings.dense_batch_planning),
     )
     if (
         local_batch_plan.image_batch_size != image_batch_size
@@ -276,9 +236,9 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
     rotation_block_size = local_batch_plan.rotation_block_size
 
     if class_log_priors is not None:
-        if return_reconstruction_sample_indices:
+        if outputs.return_reconstruction_sample_indices:
             raise NotImplementedError("K-class local search does not return reconstruction sample indices")
-        if return_significant_counts:
+        if outputs.return_significant_counts:
             raise NotImplementedError("K-class local search does not return significant counts")
         if score_only:
             raise NotImplementedError("K-class local search does not support score_only")
@@ -290,32 +250,32 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
             raise NotImplementedError("K-class local search requires evidence-space normalization, not pass-2 log_z")
         if normalization_log_evidence is not None:
             raise NotImplementedError("K-class local search does not support external evidence normalization")
-        if projection_force_jax:
+        if projection.force_jax:
             raise NotImplementedError("K-class local search does not yet plumb projection_force_jax")
         k_class_result = run_local_k_class_em(
             experiment_dataset,
-            mean,
-            mean_variance,
-            noise_variance,
+            inputs.mean,
+            inputs.mean_variance,
+            inputs.noise_variance,
             local_layout,
-            disc_type,
+            inputs.disc_type,
             class_log_priors=class_log_priors,
             accumulate_noise=accumulate_noise,
             return_best_pose_details=return_best_pose_details,
             image_batch_size=image_batch_size,
             rotation_block_size=rotation_block_size,
             current_size=current_size,
-            reconstruction_current_size=reconstruction_current_size,
+            reconstruction_current_size=search.reconstruction_current_size,
             projection_padding_factor=projection_padding_factor,
             reconstruction_padding_factor=reconstruction_padding_factor,
-            score_with_masked_images=score_with_masked_images,
-            half_spectrum_scoring=half_spectrum_scoring,
-            relion_exact_score_translation=relion_exact_score_translation,
+            score_with_masked_images=scoring.score_with_masked_images,
+            half_spectrum_scoring=scoring.half_spectrum_scoring,
+            relion_exact_score_translation=scoring.relion_exact_score_translation,
             use_float64_scoring=use_float64_scoring,
             use_float64_normalization=True,
             use_float64_projections=use_float64_projections,
-            do_gridding_correction=do_gridding_correction,
-            square_window=square_window,
+            do_gridding_correction=projection.do_gridding_correction,
+            square_window=projection.square_window,
             image_corrections=corrections.image_corrections,
             scale_corrections=corrections.scale_corrections,
             group_ids=corrections.group_ids,
@@ -324,15 +284,13 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
             image_pre_shifts=corrections.image_pre_shifts,
             mstep_relion_x_half=mstep_relion_x_half,
             reconstruct_significant_only=reconstruct_significant_only,
-            adaptive_fraction=adaptive_fraction,
+            adaptive_fraction=search.adaptive_fraction,
             max_significants=-1,
             stats_use_reconstruction_probs=reconstruction.stats_use_reconstruction_probs,
             class_posterior_sums_from_noise=bool(reconstruct_significant_only and accumulate_noise),
             debug_iteration=diagnostics.iteration,
             translation_prior_centers=translation_prior_centers,
-            cache_settings=(
-                None if execution_settings is None else execution_settings.local_cache
-            ),
+            cache_settings=(None if execution_settings is None else execution_settings.local_cache),
         )
         use_noise_class_sums = bool(reconstruct_significant_only and accumulate_noise)
         class_mstep_posterior_sums = (
@@ -358,51 +316,27 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
             LocalEMRequest(
                 inputs=LocalEMInputs(
                     experiment_dataset=experiment_dataset,
-                    mean=mean,
-                    mean_variance=mean_variance,
-                    noise_variance=noise_variance,
+                    mean=inputs.mean,
+                    mean_variance=inputs.mean_variance,
+                    noise_variance=inputs.noise_variance,
                     local_layout=local_layout,
-                    disc_type=disc_type,
+                    disc_type=inputs.disc_type,
                     relion_projector_half=relion_projector_half,
-                    relion_projector_r_max=relion_projector_r_max,
+                    relion_projector_r_max=inputs.relion_projector_r_max,
                 ),
-                search=LocalSearchSettings(
-                    current_size=current_size,
-                    reconstruction_current_size=reconstruction_current_size,
-                    reconstruct_significant_only=reconstruct_significant_only,
-                    adaptive_fraction=adaptive_fraction,
+                search=replace(
+                    search,
                     # RELION's maximum_significants cap defines the coarse
                     # adaptive support, not the pass-2 reconstruction threshold.
-                    max_significants=max_significants if apply_max_significants_to_support else -1,
+                    max_significants=(search.max_significants if search.apply_max_significants_to_support else -1),
                 ),
                 execution=LocalExecutionSettings(
                     image_batch_size=image_batch_size,
                     rotation_block_size=rotation_block_size,
-                    cache=(
-                        None
-                        if execution_settings is None
-                        else execution_settings.local_cache
-                    ),
+                    cache=(None if execution_settings is None else execution_settings.local_cache),
                 ),
-                scoring=LocalScoringSettings(
-                    score_with_masked_images=score_with_masked_images,
-                    half_spectrum_scoring=half_spectrum_scoring,
-                    relion_exact_score_translation=relion_exact_score_translation,
-                    use_float64_scoring=use_float64_scoring,
-                    # Keep posterior/log-Z reductions in float64 even when
-                    # score/projection tensors stay float32 for throughput.
-                    use_float64_normalization=True,
-                ),
-                projection=LocalProjectionSettings(
-                    projection_padding_factor=projection_padding_factor,
-                    reconstruction_padding_factor=reconstruction_padding_factor,
-                    use_float64_projections=use_float64_projections,
-                    relion_texture_interp=projection_relion_texture_interp,
-                    relion_acc_double_floorf_quirk=projection_relion_acc_double_floorf_quirk,
-                    force_jax=projection_force_jax,
-                    do_gridding_correction=do_gridding_correction,
-                    square_window=square_window,
-                ),
+                scoring=scoring,
+                projection=projection,
                 corrections=corrections,
                 posterior=LocalPosteriorInputs(
                     normalization_log_z=normalization_log_z,
@@ -410,14 +344,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
                     translation_prior_centers=translation_prior_centers,
                 ),
                 reconstruction=reconstruction,
-                outputs=LocalEMRequestedOutputs(
-                    accumulate_noise=accumulate_noise,
-                    return_half_volume_accumulators=return_half_volume_accumulators,
-                    return_profile=return_profile,
-                    return_best_pose_details=return_best_pose_details,
-                    return_reconstruction_sample_indices=return_reconstruction_sample_indices,
-                    return_significant_counts=return_significant_counts,
-                ),
+                outputs=outputs,
                 diagnostics=diagnostics,
             ),
         )
@@ -441,7 +368,7 @@ def run_local_search_iteration(request: LocalSearchIterationRequest) -> LocalSea
         profile_summary["translation_prior_time_s"] = np.float64(0.0)
         result = replace(result, profile_summary=profile_summary)
 
-    if return_class_details and (
+    if outputs.return_class_details and (
         result.class_assignments is None
         or result.class_posterior_sums is None
         or result.class_full_posterior_sums is None

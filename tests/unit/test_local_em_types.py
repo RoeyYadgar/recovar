@@ -210,6 +210,8 @@ def test_legacy_local_em_facade_builds_the_canonical_request(monkeypatch):
         request.outputs,
     ):
         expected_kwargs.update(vars(group))
+    expected_kwargs.pop("apply_max_significants_to_support")
+    expected_kwargs.pop("return_class_details")
     expected_kwargs.update(
         image_batch_size=request.execution.image_batch_size,
         rotation_block_size=request.execution.rotation_block_size,

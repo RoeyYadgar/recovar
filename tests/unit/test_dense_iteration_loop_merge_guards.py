@@ -7,8 +7,8 @@ re-running the expensive parity fixtures.
 
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
 import inspect
+from dataclasses import fields, is_dataclass
 from types import SimpleNamespace
 
 import numpy as np
@@ -16,9 +16,10 @@ import pytest
 
 import recovar.em.dense_single_volume.iteration_loop as iteration_loop
 import recovar.em.dense_single_volume.local_search_iteration as local_search_iteration
-from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationResult, LocalSearchIterationScoring
-from recovar.em.initial_model.iteration_loop import run_vdam_iterations
+from recovar.em.dense_single_volume.local_em_types import LocalReconstructionSettings, LocalSearchSettings
+from recovar.em.dense_single_volume.local_search_types import LocalSearchIterationResult
 from recovar.em.dense_single_volume.runtime_options import AlgorithmSettings
+from recovar.em.initial_model.iteration_loop import run_vdam_iterations
 
 pytestmark = pytest.mark.unit
 
@@ -30,6 +31,7 @@ def _adapt_legacy_local_runner(legacy_runner):
         inputs = request.inputs
         grid = request.grid
         kwargs = {
+            **vars(request.search),
             **vars(request.execution),
             **vars(request.scoring),
             **vars(request.projection),
@@ -65,14 +67,14 @@ def _adapt_legacy_local_runner(legacy_runner):
             inputs.noise_variance,
             grid.prior_rotations,
             grid.rotation_grid_rotations,
-            grid.rotation_grid_eulers,
+            None,
             grid.healpix_order,
             grid.sigma_rot,
             grid.sigma_psi,
             grid.translations,
             grid.prior_translations,
             grid.sigma_offset_angstrom,
-            grid.offset_range_pixels,
+            None,
             inputs.disc_type,
             **kwargs,
         )
@@ -276,7 +278,7 @@ def test_empty_k1_local_or_adaptive_half_keeps_relion_x_half_shape_contract():
 
 def test_relion_norm_scale_updates_are_not_disabled_for_k_class():
     source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
-    update_start = source.index("can_update_norm_scale = (")
+    update_start = source.index("can_update_norm_scale =")
     update_source = source[update_start : source.index("history.record_noise_and_tau2(", update_start)]
 
     assert "not k_class_enabled" not in update_source
@@ -305,8 +307,8 @@ def test_k1_local_search_stats_use_relion_retained_weights():
     wrapper_source = inspect.getsource(local_search_iteration.run_local_search_iteration)
 
     assert "stats_use_reconstruction_probs=local_reconstruct_significant_only" in source
-    assert LocalSearchIterationScoring().stats_use_reconstruction_probs is False
-    assert "stats_use_reconstruction_probs=stats_use_reconstruction_probs" in wrapper_source
+    assert LocalReconstructionSettings().stats_use_reconstruction_probs is False
+    assert "reconstruction=reconstruction" in wrapper_source
 
 
 def test_fresh_k1_spectrum_norm_reaches_local_noise_update_only():
@@ -316,9 +318,9 @@ def test_fresh_k1_spectrum_norm_reaches_local_noise_update_only():
 
     assert "if source_faithful_spectrum_norm and k_class_enabled:" in score_source
     assert score_source.count("source_faithful_spectrum_norm=source_faithful_spectrum_norm") == 3
-    assert "if source_faithful_spectrum_norm:" in wrapper_source
+    assert "if reconstruction.source_faithful_spectrum_norm:" in wrapper_source
     assert "fresh K=1-only" in wrapper_source
-    assert "source_faithful_spectrum_norm=source_faithful_spectrum_norm" in wrapper_source
+    assert "reconstruction=reconstruction" in wrapper_source
     local_dispatch = loop_source[loop_source.index("if use_local:") : loop_source.index("elif use_adaptive:")]
     assert "source_faithful_spectrum_norm=source_faithful_spectrum_norm" in local_dispatch
 
@@ -341,8 +343,8 @@ def test_k1_local_parent_probe_applies_relion_max_significants_cap():
     assert "apply_max_significants_to_support=True" in parent_call
 
     wrapper_source = inspect.getsource(local_search_iteration.run_local_search_iteration)
-    assert LocalSearchIterationScoring().apply_max_significants_to_support is False
-    assert "max_significants=max_significants if apply_max_significants_to_support else -1" in wrapper_source
+    assert LocalSearchSettings(current_size=None).apply_max_significants_to_support is False
+    assert "search.max_significants if search.apply_max_significants_to_support else -1" in wrapper_source
 
 
 def test_k1_local_records_coarse_parent_support_not_fine_reconstruction_count():

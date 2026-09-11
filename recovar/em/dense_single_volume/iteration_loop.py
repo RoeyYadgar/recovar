@@ -119,7 +119,11 @@ from recovar.em.dense_single_volume.k_class import (  # noqa: F401
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
     LocalEMDiagnostics,
+    LocalEMRequestedOutputs,
+    LocalProjectionSettings,
     LocalReconstructionSettings,
+    LocalScoringSettings,
+    LocalSearchSettings,
 )
 from recovar.em.dense_single_volume.local_layout import (
     _selected_rotation_matrices,
@@ -136,11 +140,8 @@ from recovar.em.dense_single_volume.local_search_types import (
     LocalSearchIterationExecution,
     LocalSearchIterationGrid,
     LocalSearchIterationInputs,
-    LocalSearchIterationOutputs,
     LocalSearchIterationPosterior,
-    LocalSearchIterationProjection,
     LocalSearchIterationRequest,
-    LocalSearchIterationScoring,
 )
 from recovar.em.dense_single_volume.mean_helpers import (  # noqa: F401  -- imported by tests
     _align_fourier_volume_sign_to_reference as _align_fourier_volume_sign_to_reference,
@@ -3334,10 +3335,11 @@ def _score_half_local(
                     mean_variance,
                     noise_variance_k,
                     disc_type,
+                    relion_projector_half,
+                    relion_projector_r_max,
                 ),
                 grid=LocalSearchIterationGrid(
                     previous_best_rotation_eulers_k,
-                    None,
                     None,
                     parent_order,
                     sigma_rot,
@@ -3345,30 +3347,27 @@ def _score_half_local(
                     current_translations,
                     trans_prior_center,
                     current_sigma_offset_angstrom,
-                    current_translation_range,
                     translation_prior_reference_translations=translation_prior_reference_translations,
                     translation_prior_centers=trans_prior_center_for_engine,
                     rotation_log_prior=relion_local_rotation_log_prior_k,
                     pass2_layout=parent_layout,
                 ),
-                execution=LocalSearchIterationExecution(
-                    parent_ibs,
-                    parent_rbs,
+                search=LocalSearchSettings(
                     local_pass1_current_size,
-                    settings=execution_settings,
+                    reconstruct_significant_only=True,
+                    adaptive_fraction=RELION_ADAPTIVE_FRACTION,
+                    max_significants=max_significants,
+                    apply_max_significants_to_support=True,
                 ),
-                scoring=LocalSearchIterationScoring(
+                execution=LocalSearchIterationExecution(parent_ibs, parent_rbs, execution_settings),
+                scoring=LocalScoringSettings(
                     half_spectrum_scoring=True,
                     relion_exact_score_translation=bool(
                         algorithm_settings.relion_exact_fine_gaussian and not parent_use_float64_scoring
                     ),
                     use_float64_scoring=parent_use_float64_scoring,
-                    adaptive_fraction=RELION_ADAPTIVE_FRACTION,
-                    max_significants=max_significants,
-                    reconstruct_significant_only=True,
-                    apply_max_significants_to_support=True,
                 ),
-                projection=LocalSearchIterationProjection(
+                projection=LocalProjectionSettings(
                     projection_padding_factor=PROJECTION_PADDING_FACTOR,
                     reconstruction_padding_factor=PADDING_FACTOR,
                     use_float64_projections=parent_use_float64_projections,
@@ -3376,8 +3375,6 @@ def _score_half_local(
                     square_window=RELION_FOURIER_WINDOW_SQUARE,
                     relion_texture_interp=False,
                     relion_acc_double_floorf_quirk=algorithm_settings.relion_acc_double_floorf_quirk,
-                    relion_projector_half=relion_projector_half,
-                    relion_projector_r_max=relion_projector_r_max,
                 ),
                 corrections=LocalCorrectionInputs(
                     image_corrections_k,
@@ -3393,7 +3390,7 @@ def _score_half_local(
                     source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                     score_only=True,
                 ),
-                outputs=LocalSearchIterationOutputs(
+                outputs=LocalEMRequestedOutputs(
                     return_profile=True,
                     return_reconstruction_sample_indices=True,
                 ),
@@ -3558,18 +3555,18 @@ def _score_half_local(
                         mean_variance,
                         noise_variance_k,
                         disc_type,
+                        relion_projector_half,
+                        relion_projector_r_max,
                     ),
                     grid=LocalSearchIterationGrid(
                         previous_best_rotation_eulers_k,
                         local_search_rotations,
-                        local_search_rotation_eulers,
                         local_search_order,
                         sigma_rot,
                         sigma_psi,
                         current_translations,
                         trans_prior_center,
                         current_sigma_offset_angstrom,
-                        current_translation_range,
                         translation_prior_reference_translations=translation_prior_reference_translations,
                         translation_prior_centers=trans_prior_center_for_engine,
                         rotation_grid_random_perturbation=local_search_random_perturbation,
@@ -3579,31 +3576,27 @@ def _score_half_local(
                         ),
                         pass2_layout=local_adaptive_pass2_denominator_layout,
                     ),
-                    execution=LocalSearchIterationExecution(
-                        safe_ibs,
-                        safe_rbs,
+                    search=LocalSearchSettings(
                         cs_for_engine,
                         reconstruction_current_size_for_engine,
-                        execution_settings,
+                        reconstruct_significant_only=False,
+                        adaptive_fraction=RELION_ADAPTIVE_FRACTION,
+                        max_significants=max_significants,
                     ),
-                    scoring=LocalSearchIterationScoring(
+                    execution=LocalSearchIterationExecution(safe_ibs, safe_rbs, execution_settings),
+                    scoring=LocalScoringSettings(
                         half_spectrum_scoring=True,
                         relion_exact_score_translation=bool(
                             algorithm_settings.relion_exact_fine_gaussian and not fine_use_float64_scoring
                         ),
                         use_float64_scoring=fine_use_float64_scoring,
-                        adaptive_fraction=RELION_ADAPTIVE_FRACTION,
-                        max_significants=max_significants,
-                        reconstruct_significant_only=False,
                     ),
-                    projection=LocalSearchIterationProjection(
+                    projection=LocalProjectionSettings(
                         projection_padding_factor=PROJECTION_PADDING_FACTOR,
                         reconstruction_padding_factor=PADDING_FACTOR,
                         use_float64_projections=fine_use_float64_projections,
                         do_gridding_correction=True,
                         square_window=RELION_FOURIER_WINDOW_SQUARE,
-                        relion_projector_half=relion_projector_half,
-                        relion_projector_r_max=relion_projector_r_max,
                     ),
                     corrections=LocalCorrectionInputs(
                         image_corrections_k,
@@ -3653,18 +3646,18 @@ def _score_half_local(
                 mean_variance,
                 noise_variance_k,
                 disc_type,
+                relion_projector_half,
+                relion_projector_r_max,
             ),
             grid=LocalSearchIterationGrid(
                 previous_best_rotation_eulers_k,
                 local_search_rotations,
-                local_search_rotation_eulers,
                 local_search_order,
                 sigma_rot,
                 sigma_psi,
                 current_translations,
                 trans_prior_center,
                 current_sigma_offset_angstrom,
-                current_translation_range,
                 translation_prior_reference_translations=translation_prior_reference_translations,
                 translation_prior_centers=trans_prior_center_for_engine,
                 rotation_log_prior=None if pass2_layout is not None else relion_local_rotation_log_prior_k,
@@ -3675,24 +3668,22 @@ def _score_half_local(
                 rotation_grid_mstep_rotations=local_search_mstep_rotations,
                 generate_relion_mstep_rotations=True,
             ),
-            execution=LocalSearchIterationExecution(
-                safe_ibs,
-                safe_rbs,
+            search=LocalSearchSettings(
                 cs_for_engine,
                 reconstruction_current_size_for_engine,
-                execution_settings,
+                reconstruct_significant_only=local_reconstruct_significant_only,
+                adaptive_fraction=RELION_ADAPTIVE_FRACTION,
+                max_significants=max_significants,
             ),
-            scoring=LocalSearchIterationScoring(
+            execution=LocalSearchIterationExecution(safe_ibs, safe_rbs, execution_settings),
+            scoring=LocalScoringSettings(
                 half_spectrum_scoring=True,
                 relion_exact_score_translation=bool(
                     algorithm_settings.relion_exact_fine_gaussian and not fine_use_float64_scoring
                 ),
                 use_float64_scoring=fine_use_float64_scoring,
-                adaptive_fraction=RELION_ADAPTIVE_FRACTION,
-                max_significants=max_significants,
-                reconstruct_significant_only=local_reconstruct_significant_only,
             ),
-            projection=LocalSearchIterationProjection(
+            projection=LocalProjectionSettings(
                 projection_padding_factor=PROJECTION_PADDING_FACTOR,
                 reconstruction_padding_factor=PADDING_FACTOR,
                 use_float64_projections=fine_use_float64_projections,
@@ -3703,8 +3694,6 @@ def _score_half_local(
                 # the user-switchable texture default.
                 relion_texture_interp=None,
                 relion_acc_double_floorf_quirk=algorithm_settings.relion_acc_double_floorf_quirk,
-                relion_projector_half=relion_projector_half,
-                relion_projector_r_max=relion_projector_r_max,
             ),
             corrections=LocalCorrectionInputs(
                 image_corrections_k,
@@ -3726,7 +3715,7 @@ def _score_half_local(
                 source_faithful_spectrum_norm=source_faithful_spectrum_norm,
                 score_only=diagnostic_score_only,
             ),
-            outputs=LocalSearchIterationOutputs(
+            outputs=LocalEMRequestedOutputs(
                 accumulate_noise=local_accumulate_noise,
                 return_profile=collect_local_search_profile,
                 return_best_pose_details=True,

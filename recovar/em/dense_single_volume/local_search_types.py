@@ -8,7 +8,11 @@ from typing import Any
 from recovar.em.dense_single_volume.local_em_types import (
     LocalCorrectionInputs,
     LocalEMDiagnostics,
+    LocalEMRequestedOutputs,
+    LocalProjectionSettings,
     LocalReconstructionSettings,
+    LocalScoringSettings,
+    LocalSearchSettings,
 )
 from recovar.em.dense_single_volume.runtime_options import ExecutionSettings
 
@@ -22,6 +26,8 @@ class LocalSearchIterationInputs:
     mean_variance: Any
     noise_variance: Any
     disc_type: str
+    relion_projector_half: Any | None = None
+    relion_projector_r_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -30,14 +36,12 @@ class LocalSearchIterationGrid:
 
     prior_rotations: Any
     rotation_grid_rotations: Any
-    rotation_grid_eulers: Any
     healpix_order: int
     sigma_rot: float
     sigma_psi: float
     translations: Any
     prior_translations: Any
     sigma_offset_angstrom: float
-    offset_range_pixels: float | None
     translation_prior_reference_translations: Any | None = None
     translation_prior_centers: Any | None = None
     rotation_log_prior: Any | None = None
@@ -51,43 +55,11 @@ class LocalSearchIterationGrid:
 
 @dataclass(frozen=True)
 class LocalSearchIterationExecution:
-    """Host batch sizes, Fourier windows, and resolved runtime settings."""
+    """Host batch sizes and resolved runtime settings."""
 
     image_batch_size: int
     rotation_block_size: int
-    current_size: int | None
-    reconstruction_current_size: int | None = None
     settings: ExecutionSettings | None = None
-
-
-@dataclass(frozen=True)
-class LocalSearchIterationScoring:
-    """Score representation and posterior-support policy."""
-
-    score_with_masked_images: bool = True
-    half_spectrum_scoring: bool = False
-    relion_exact_score_translation: bool = False
-    use_float64_scoring: bool = False
-    adaptive_fraction: float = 0.999
-    max_significants: int = -1
-    reconstruct_significant_only: bool = True
-    apply_max_significants_to_support: bool = False
-
-
-@dataclass(frozen=True)
-class LocalSearchIterationProjection:
-    """Projection geometry, precision, and backend settings."""
-
-    projection_padding_factor: int = 1
-    reconstruction_padding_factor: int = 1
-    use_float64_projections: bool = False
-    do_gridding_correction: bool = False
-    square_window: bool = False
-    relion_texture_interp: bool | None = False
-    relion_acc_double_floorf_quirk: bool = False
-    force_jax: bool = False
-    relion_projector_half: Any | None = None
-    relion_projector_r_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -100,31 +72,19 @@ class LocalSearchIterationPosterior:
 
 
 @dataclass(frozen=True)
-class LocalSearchIterationOutputs:
-    """Optional local-search computation products."""
-
-    accumulate_noise: bool = False
-    return_half_volume_accumulators: bool = False
-    return_profile: bool = False
-    return_best_pose_details: bool = False
-    return_class_details: bool = False
-    return_reconstruction_sample_indices: bool = False
-    return_significant_counts: bool = False
-
-
-@dataclass(frozen=True)
 class LocalSearchIterationRequest:
     """Cohesive host request for one local-search iteration."""
 
     inputs: LocalSearchIterationInputs
     grid: LocalSearchIterationGrid
+    search: LocalSearchSettings
     execution: LocalSearchIterationExecution
-    scoring: LocalSearchIterationScoring = LocalSearchIterationScoring()
-    projection: LocalSearchIterationProjection = LocalSearchIterationProjection()
+    scoring: LocalScoringSettings = LocalScoringSettings()
+    projection: LocalProjectionSettings = LocalProjectionSettings()
     corrections: LocalCorrectionInputs = LocalCorrectionInputs()
     posterior: LocalSearchIterationPosterior = LocalSearchIterationPosterior()
     reconstruction: LocalReconstructionSettings = LocalReconstructionSettings()
-    outputs: LocalSearchIterationOutputs = LocalSearchIterationOutputs()
+    outputs: LocalEMRequestedOutputs = LocalEMRequestedOutputs()
     diagnostics: LocalEMDiagnostics = LocalEMDiagnostics()
 
 

@@ -32,6 +32,7 @@ class LocalSearchSettings:
     adaptive_fraction: float = 0.999
     max_significants: int = -1
     reconstruction_probability_threshold: Any | None = None
+    apply_max_significants_to_support: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,7 @@ class LocalProjectionSettings:
     projection_padding_factor: int = 1
     reconstruction_padding_factor: int = 1
     use_float64_projections: bool = False
-    relion_texture_interp: bool = False
+    relion_texture_interp: bool | None = False
     relion_acc_double_floorf_quirk: bool = False
     force_jax: bool = False
     do_gridding_correction: bool = False
@@ -117,6 +118,8 @@ class LocalEMRequestedOutputs:
     return_reconstruction_probability_values: bool = False
     return_reconstruction_sample_indices: bool = False
     return_significant_counts: bool = False
+    return_class_details: bool = False
+
 
 @dataclass(frozen=True)
 class LocalEMDiagnostics:
