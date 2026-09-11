@@ -13,6 +13,9 @@ import numpy as np
 
 import recovar.core.fourier_transform_utils as fourier_transform_utils
 from recovar.core.configs import ForwardModelConfig
+from recovar.em.dense_single_volume.diagnostics.local_capture import (
+    noise_split_diagnostics_requested,
+)
 from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as _sparse_pass2_diagnostics
 from recovar.em.dense_single_volume.helpers.adjoint import (
     adjoint_slice_volume_maybe_windowed as _adjoint_slice_volume_maybe_windowed,
@@ -118,9 +121,6 @@ from recovar.em.dense_single_volume.local_caches import (  # noqa: F401
     _validate_native_half_batch,
     plan_local_cache_route,
 )
-from recovar.em.dense_single_volume.diagnostics.local_capture import (
-    noise_split_diagnostics_requested,
-)
 from recovar.em.dense_single_volume.local_diagnostics import (
     LocalDiagnosticsSession,
 )
@@ -179,7 +179,6 @@ from recovar.em.dense_single_volume.local_projection_cache import (  # noqa: F40
     EXACT_LOCAL_RELION_PROJECTION_CACHE_MAX_GROUPS_ENV,
     EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS,
     EXACT_LOCAL_RELION_PROJECTION_CACHE_TARGET_ROW_PIXELS_ENV,
-    LocalRelionProjectionCache as _LocalRelionProjectionCache,
     LocalRelionProjectionCacheStats,
     _build_exact_local_relion_projection_cache_for_buckets,
     _disabled_relion_projection_cache,
@@ -465,33 +464,6 @@ def _adjoint_slice_volume_maybe_windowed_row_chunks(
         )
         n_chunks += 1
     return updated, n_chunks
-
-
-def _make_local_em_result(
-    Ft_y,
-    Ft_ctf,
-    hard_assignment,
-    relion_stats,
-    *,
-    best_pose_rotations=None,
-    best_pose_translations=None,
-    best_pose_rotation_ids=None,
-    noise_stats=None,
-    profile_summary=None,
-    significant_counts=None,
-):
-    return LocalEMResult(
-        Ft_y=Ft_y,
-        Ft_ctf=Ft_ctf,
-        hard_assignment=hard_assignment,
-        relion_stats=relion_stats,
-        best_pose_rotations=best_pose_rotations,
-        best_pose_translations=best_pose_translations,
-        best_pose_rotation_ids=best_pose_rotation_ids,
-        noise_stats=noise_stats,
-        profile_summary=profile_summary,
-        significant_counts=significant_counts,
-    )
 
 
 def _project_local_bucket(
@@ -4072,11 +4044,11 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
         )
 
     if not return_profile:
-        return _make_local_em_result(
-            Ft_y,
-            Ft_ctf,
-            hard_assignment,
-            relion_stats,
+        return LocalEMResult(
+            Ft_y=Ft_y,
+            Ft_ctf=Ft_ctf,
+            hard_assignment=hard_assignment,
+            relion_stats=relion_stats,
             best_pose_rotations=best_pose_rotations,
             best_pose_translations=best_pose_translations,
             best_pose_rotation_ids=best_pose_rotation_ids,
@@ -4170,11 +4142,11 @@ def run_local_em(request: LocalEMRequest) -> LocalEMResult:
         )
     if reconstruction_sample_indices_by_image is not None:
         profile_summary["reconstruction_sample_indices_by_image"] = tuple(reconstruction_sample_indices_by_image)
-    return _make_local_em_result(
-        Ft_y,
-        Ft_ctf,
-        hard_assignment,
-        relion_stats,
+    return LocalEMResult(
+        Ft_y=Ft_y,
+        Ft_ctf=Ft_ctf,
+        hard_assignment=hard_assignment,
+        relion_stats=relion_stats,
         best_pose_rotations=best_pose_rotations,
         best_pose_translations=best_pose_translations,
         best_pose_rotation_ids=best_pose_rotation_ids,

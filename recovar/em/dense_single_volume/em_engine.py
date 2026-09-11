@@ -60,6 +60,15 @@ from .dense_em_types import (
     DenseScoringSettings,
     DenseSearchSettings,
 )
+from .diagnostics.local_capture import (
+    DenseCcComponentCapture,
+    DenseNoiseComponentCapture,
+    maybe_write_dense_cc_components,
+    maybe_write_dense_per_pose_score_dump,
+    parse_dense_noise_component_dump_request,
+    parse_dense_per_pose_score_dump_request,
+    write_dense_noise_components,
+)
 from .helpers.adjoint import (
     adjoint_slice_volume_half as _adjoint_slice_volume_half,
 )
@@ -123,17 +132,6 @@ from .helpers.translation_prior import (
     validate_translation_prior_centers,
 )
 from .helpers.types import EMProfileStats, make_noise_stats, make_relion_stats
-from .diagnostics.local_capture import (
-    DenseCcComponentCapture,
-    DenseNoiseComponentCapture,
-    maybe_write_dense_cc_components,
-    write_dense_noise_components,
-)
-from .diagnostics.local_capture import (
-    maybe_write_dense_per_pose_score_dump,
-    parse_dense_noise_component_dump_request,
-    parse_dense_per_pose_score_dump_request,
-)
 from .shape_buckets import pad_axis, pad_batch_data_ctf_and_valid_mask
 
 logger = logging.getLogger(__name__)
@@ -287,30 +285,6 @@ class _SparsePass2Profile:
             "sparse_pass2_omitted_mass_upper_max": float(self.omitted_mass_upper_max),
             "sparse_pass2_omitted_mass_upper_sum": float(self.omitted_mass_upper_sum),
         }
-
-
-def _make_dense_em_result(
-    new_mean,
-    hard_assignment,
-    Ft_y,
-    Ft_ctf,
-    *,
-    return_stats: bool,
-    accumulate_noise: bool,
-    return_profile: bool,
-    relion_stats=None,
-    noise_stats=None,
-    em_profile=None,
-):
-    return DenseEMResult(
-        new_mean=new_mean,
-        hard_assignment=hard_assignment,
-        Ft_y=Ft_y,
-        Ft_ctf=Ft_ctf,
-        relion_stats=relion_stats if return_stats else None,
-        noise_stats=noise_stats if accumulate_noise else None,
-        profile_stats=em_profile if return_profile else None,
-    )
 
 
 @dataclass(frozen=True)
@@ -2217,17 +2191,14 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
     else:
         em_profile = None
 
-    return _make_dense_em_result(
-        new_mean,
-        hard_assignment,
-        Ft_y,
-        Ft_ctf,
-        return_stats=return_stats,
-        accumulate_noise=accumulate_noise,
-        return_profile=return_profile,
-        relion_stats=relion_stats,
-        noise_stats=noise_stats,
-        em_profile=em_profile,
+    return DenseEMResult(
+        new_mean=new_mean,
+        hard_assignment=hard_assignment,
+        Ft_y=Ft_y,
+        Ft_ctf=Ft_ctf,
+        relion_stats=relion_stats if return_stats else None,
+        noise_stats=noise_stats if accumulate_noise else None,
+        profile_stats=em_profile if return_profile else None,
     )
 
 
@@ -2291,7 +2262,9 @@ def run_em(
 def _settings_from_options(settings_type, options):
     """Construct one typed settings group from matching flat option names."""
 
-    return settings_type(**{field.name: options[field.name] for field in fields(settings_type) if field.name in options})
+    return settings_type(
+        **{field.name: options[field.name] for field in fields(settings_type) if field.name in options}
+    )
 
 
 def make_dense_em_request(inputs: DenseEMInputs, options) -> DenseEMRequest:
