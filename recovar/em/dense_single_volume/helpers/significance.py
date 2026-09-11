@@ -1076,103 +1076,79 @@ def _maybe_dump_k_class_significance_batch(
             f"significance_orig{int(original_idx):06d}{iteration_suffix}_cs"
             f"{(-1 if current_size is None else int(current_size)):03d}.npz",
         )
-        save_kwargs = dict(
-            original_index=np.int64(original_idx),
-            local_index=np.int64(local_indices[local_pos]),
-            debug_iteration=np.int64(-1 if debug_iteration is None else int(debug_iteration)),
-            one_based_iteration=np.int64(-1 if debug_iteration is None else int(debug_iteration)),
-            current_size=np.int64(-1 if current_size is None else int(current_size)),
-            adaptive_fraction=np.float64(adaptive_fraction),
-            max_significants=np.int64(max_significants),
-            n_classes=np.int64(n_classes),
-            n_rot=np.int64(n_rot),
-            n_trans=np.int64(n_trans),
-            weights_full=weights_full,
-            weights_per_class=weights_per_class[local_pos],
-            significant_mask=sig_mask,
-            significant_indices=sig_indices,
-            n_significant=np.int64(batch_n_sig[local_pos]),
-            hard_assignment=np.int64(hard_assignment_batch[local_pos]),
-            class_assignment=np.int64(class_assignment_batch[local_pos]),
-            normalization_log_z=np.float64(global_log_z[local_pos]),
-            class_log_z=class_log_z_stack[local_pos],
-            best_score=np.float64(best_score[local_pos]),
-            max_posterior=np.float64(max_posterior[local_pos]),
-            rotations=np.asarray(rotations),
-            translations=np.asarray(translations),
-            class_indices=class_indices_flat,
-            rot_indices=rot_indices_flat,
-            trans_indices=trans_indices_flat,
-            class_log_priors=np.asarray(class_log_priors, dtype=np.float64),
-            rotation_log_prior=(rot_prior_arr if rot_prior_arr is not None else np.empty((0,), dtype=np.float64)),
-            translation_log_prior=(
-                np.asarray(trans_prior, dtype=np.float64)
-                if trans_prior is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            shifted_data=(shifted_target if shifted_target is not None else np.empty((0,), dtype=np.complex128)),
-            ctf2_data=(
-                np.asarray(ctf2_target, dtype=np.float64)
-                if ctf2_target is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            window_indices=(
-                np.asarray(window_indices, dtype=np.int32)
-                if window_indices is not None
-                else np.empty((0,), dtype=np.int32)
-            ),
-            half_weights=(
-                np.asarray(half_weights_used, dtype=np.float64)
-                if half_weights_used is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            coarse_gaussian_unshifted_corrected=(
-                np.asarray(coarse_gaussian_unshifted_corrected[local_pos])
-                if coarse_gaussian_unshifted_corrected is not None
-                else np.empty((0,), dtype=np.complex64)
-            ),
-            coarse_gaussian_shifted_corrected=(
-                np.asarray(coarse_gaussian_shifted_corrected[local_pos], dtype=np.complex64)
-                if coarse_gaussian_shifted_corrected is not None
-                else np.empty((0,), dtype=np.complex64)
-            ),
-            coarse_gaussian_pixel_weight=(
-                np.asarray(coarse_gaussian_pixel_weight[local_pos])
-                if coarse_gaussian_pixel_weight is not None
-                else np.empty((0,), dtype=np.float32)
-            ),
-            coarse_gaussian_initial_diff2=(
-                np.asarray(coarse_gaussian_initial_diff2[local_pos])
-                if coarse_gaussian_initial_diff2 is not None
-                else np.empty((0,), dtype=np.float32)
-            ),
-            coarse_gaussian_score_indices=(
-                np.asarray(coarse_gaussian_score_indices, dtype=np.int32)
-                if coarse_gaussian_score_indices is not None
-                else np.empty((0,), dtype=np.int32)
-            ),
-            translation_phase_source=(
-                np.asarray(translation_phase_source)
-                if translation_phase_source is not None
-                else np.empty((0, 2), dtype=np.float64)
-            ),
-            relion_f32_sum_weight=(
-                np.float32(np.asarray(relion_f32_sum_weight)[local_pos])
-                if relion_f32_sum_weight is not None
-                else np.float32(np.nan)
-            ),
-            relion_f32_significant_weight=(
-                np.float32(np.asarray(relion_f32_significant_weight)[local_pos])
-                if relion_f32_significant_weight is not None
-                else np.float32(np.nan)
-            ),
-            relion_f32_cutoff_count=(
-                np.int32(np.asarray(relion_f32_cutoff_count)[local_pos])
-                if relion_f32_cutoff_count is not None
-                else np.int32(-1)
-            ),
-            score_capture_mode=np.asarray(str(score_capture_mode)),
-        )
+        save_kwargs = {
+            "original_index": np.int64(original_idx),
+            "local_index": np.int64(local_indices[local_pos]),
+            "debug_iteration": np.int64(-1 if debug_iteration is None else int(debug_iteration)),
+            "one_based_iteration": np.int64(-1 if debug_iteration is None else int(debug_iteration)),
+            "current_size": np.int64(-1 if current_size is None else int(current_size)),
+            "adaptive_fraction": np.float64(adaptive_fraction),
+            "max_significants": np.int64(max_significants),
+            "n_classes": np.int64(n_classes),
+            "n_rot": np.int64(n_rot),
+            "n_trans": np.int64(n_trans),
+            "weights_full": weights_full,
+            "weights_per_class": weights_per_class[local_pos],
+            "significant_mask": sig_mask,
+            "significant_indices": sig_indices,
+            "n_significant": np.int64(batch_n_sig[local_pos]),
+            "hard_assignment": np.int64(hard_assignment_batch[local_pos]),
+            "class_assignment": np.int64(class_assignment_batch[local_pos]),
+            "normalization_log_z": np.float64(global_log_z[local_pos]),
+            "class_log_z": class_log_z_stack[local_pos],
+            "best_score": np.float64(best_score[local_pos]),
+            "max_posterior": np.float64(max_posterior[local_pos]),
+            "rotations": np.asarray(rotations),
+            "translations": np.asarray(translations),
+            "class_indices": class_indices_flat,
+            "rot_indices": rot_indices_flat,
+            "trans_indices": trans_indices_flat,
+            "class_log_priors": np.asarray(class_log_priors, dtype=np.float64),
+            "rotation_log_prior": rot_prior_arr if rot_prior_arr is not None else np.empty((0,), dtype=np.float64),
+            "translation_log_prior": np.asarray(trans_prior, dtype=np.float64)
+            if trans_prior is not None
+            else np.empty((0,), dtype=np.float64),
+            "shifted_data": shifted_target if shifted_target is not None else np.empty((0,), dtype=np.complex128),
+            "ctf2_data": np.asarray(ctf2_target, dtype=np.float64)
+            if ctf2_target is not None
+            else np.empty((0,), dtype=np.float64),
+            "window_indices": np.asarray(window_indices, dtype=np.int32)
+            if window_indices is not None
+            else np.empty((0,), dtype=np.int32),
+            "half_weights": np.asarray(half_weights_used, dtype=np.float64)
+            if half_weights_used is not None
+            else np.empty((0,), dtype=np.float64),
+            "coarse_gaussian_unshifted_corrected": np.asarray(coarse_gaussian_unshifted_corrected[local_pos])
+            if coarse_gaussian_unshifted_corrected is not None
+            else np.empty((0,), dtype=np.complex64),
+            "coarse_gaussian_shifted_corrected": np.asarray(
+                coarse_gaussian_shifted_corrected[local_pos], dtype=np.complex64
+            )
+            if coarse_gaussian_shifted_corrected is not None
+            else np.empty((0,), dtype=np.complex64),
+            "coarse_gaussian_pixel_weight": np.asarray(coarse_gaussian_pixel_weight[local_pos])
+            if coarse_gaussian_pixel_weight is not None
+            else np.empty((0,), dtype=np.float32),
+            "coarse_gaussian_initial_diff2": np.asarray(coarse_gaussian_initial_diff2[local_pos])
+            if coarse_gaussian_initial_diff2 is not None
+            else np.empty((0,), dtype=np.float32),
+            "coarse_gaussian_score_indices": np.asarray(coarse_gaussian_score_indices, dtype=np.int32)
+            if coarse_gaussian_score_indices is not None
+            else np.empty((0,), dtype=np.int32),
+            "translation_phase_source": np.asarray(translation_phase_source)
+            if translation_phase_source is not None
+            else np.empty((0, 2), dtype=np.float64),
+            "relion_f32_sum_weight": np.float32(np.asarray(relion_f32_sum_weight)[local_pos])
+            if relion_f32_sum_weight is not None
+            else np.float32(np.nan),
+            "relion_f32_significant_weight": np.float32(np.asarray(relion_f32_significant_weight)[local_pos])
+            if relion_f32_significant_weight is not None
+            else np.float32(np.nan),
+            "relion_f32_cutoff_count": np.int32(np.asarray(relion_f32_cutoff_count)[local_pos])
+            if relion_f32_cutoff_count is not None
+            else np.int32(-1),
+            "score_capture_mode": np.asarray(str(score_capture_mode)),
+        }
         if scores_pre_prior_per_class is not None:
             # Per-class raw recovar score (= -0.5 * residual in
             # `_e_step_block_scores`; differs from RELION's diff2 by the
