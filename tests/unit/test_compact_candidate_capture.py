@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from recovar.em.dense_single_volume.helpers import compact_candidate_capture as capture
+from recovar.em.dense_single_volume.diagnostics import sparse_capture as capture
 from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
     _pass2_dump_requested_for_bucket,
 )
@@ -14,9 +14,7 @@ class _ArrayConversionForbidden:
 
 def _capture_inputs(batch=2):
     image_indices = np.arange(batch, dtype=np.int64)
-    rotations = np.stack(
-        [np.eye(3, dtype=np.float32), np.diag([-1.0, -1.0, 1.0]).astype(np.float32)]
-    )
+    rotations = np.stack([np.eye(3, dtype=np.float32), np.diag([-1.0, -1.0, 1.0]).astype(np.float32)])
     per_image_inputs = {
         "oversampled_rots": [rotations.copy() for _ in range(batch)],
         "oversampled_rot_indices": [np.asarray([20, 21], dtype=np.int64) for _ in range(batch)],
@@ -77,9 +75,7 @@ def test_disabled_capture_returns_before_array_conversion(monkeypatch):
             "max_posterior",
         )
     }
-    assert capture.maybe_capture_k1_production_bucket(
-        iteration=3, half=1, current_size=64, **kwargs
-    ) == 0
+    assert capture.maybe_capture_k1_production_bucket(iteration=3, half=1, current_size=64, **kwargs) == 0
 
 
 @pytest.mark.unit
@@ -87,26 +83,29 @@ def test_disabled_chunked_capture_returns_before_array_conversion(monkeypatch):
     monkeypatch.delenv(capture.CAPTURE_DIR_ENV, raising=False)
     blocked = _ArrayConversionForbidden()
 
-    assert capture.maybe_capture_k1_production_bucket_chunked(
-        iteration=3,
-        half=1,
-        image_indices=blocked,
-        original_indices=blocked,
-        per_image_inputs=blocked,
-        current_size=64,
-        fine_translations=blocked,
-        fine_translation_parent=blocked,
-        score_chunks=(blocked,),
-        prob_chunks=(blocked,),
-        rotation_log_prior=blocked,
-        translation_log_prior=blocked,
-        candidate_mask=blocked,
-        reconstruction_mask_chunks=(blocked,),
-        log_z=blocked,
-        best_log_score=blocked,
-        best_argmax=blocked,
-        max_posterior=blocked,
-    ) == 0
+    assert (
+        capture.maybe_capture_k1_production_bucket_chunked(
+            iteration=3,
+            half=1,
+            image_indices=blocked,
+            original_indices=blocked,
+            per_image_inputs=blocked,
+            current_size=64,
+            fine_translations=blocked,
+            fine_translation_parent=blocked,
+            score_chunks=(blocked,),
+            prob_chunks=(blocked,),
+            rotation_log_prior=blocked,
+            translation_log_prior=blocked,
+            candidate_mask=blocked,
+            reconstruction_mask_chunks=(blocked,),
+            log_z=blocked,
+            best_log_score=blocked,
+            best_argmax=blocked,
+            max_posterior=blocked,
+        )
+        == 0
+    )
 
 
 @pytest.mark.unit
@@ -174,26 +173,29 @@ def test_unmatched_chunked_identity_filter_returns_before_score_conversion(tmp_p
     monkeypatch.setenv(capture.CAPTURE_ORIGINAL_INDICES_ENV, "999")
     blocked = _ArrayConversionForbidden()
 
-    assert capture.maybe_capture_k1_production_bucket_chunked(
-        iteration=3,
-        half=1,
-        image_indices=np.asarray([0], dtype=np.int64),
-        original_indices=np.asarray([1000], dtype=np.int64),
-        per_image_inputs=blocked,
-        current_size=64,
-        fine_translations=blocked,
-        fine_translation_parent=blocked,
-        score_chunks=(blocked,),
-        prob_chunks=(blocked,),
-        rotation_log_prior=blocked,
-        translation_log_prior=blocked,
-        candidate_mask=blocked,
-        reconstruction_mask_chunks=(blocked,),
-        log_z=blocked,
-        best_log_score=blocked,
-        best_argmax=blocked,
-        max_posterior=blocked,
-    ) == 0
+    assert (
+        capture.maybe_capture_k1_production_bucket_chunked(
+            iteration=3,
+            half=1,
+            image_indices=np.asarray([0], dtype=np.int64),
+            original_indices=np.asarray([1000], dtype=np.int64),
+            per_image_inputs=blocked,
+            current_size=64,
+            fine_translations=blocked,
+            fine_translation_parent=blocked,
+            score_chunks=(blocked,),
+            prob_chunks=(blocked,),
+            rotation_log_prior=blocked,
+            translation_log_prior=blocked,
+            candidate_mask=blocked,
+            reconstruction_mask_chunks=(blocked,),
+            log_z=blocked,
+            best_log_score=blocked,
+            best_argmax=blocked,
+            max_posterior=blocked,
+        )
+        == 0
+    )
     assert not list(tmp_path.iterdir())
 
 
@@ -205,29 +207,32 @@ def test_chunked_identity_filter_preserves_requested_production_table(tmp_path, 
     monkeypatch.setattr(capture, "_capture_counter", 0)
     kwargs = _capture_inputs()
 
-    assert capture.maybe_capture_k1_production_bucket_chunked(
-        iteration=kwargs["iteration"],
-        half=kwargs["half"],
-        image_indices=kwargs["image_indices"],
-        original_indices=kwargs["original_indices"],
-        per_image_inputs=kwargs["per_image_inputs"],
-        current_size=kwargs["current_size"],
-        fine_translations=kwargs["fine_translations"],
-        fine_translation_parent=kwargs["fine_translation_parent"],
-        score_chunks=(kwargs["scores"][:, :1], kwargs["scores"][:, 1:]),
-        prob_chunks=(kwargs["probs"][:, :1], kwargs["probs"][:, 1:]),
-        rotation_log_prior=kwargs["rotation_log_prior"],
-        translation_log_prior=kwargs["translation_log_prior"],
-        candidate_mask=kwargs["candidate_mask"],
-        reconstruction_mask_chunks=(
-            kwargs["reconstruction_mask"][:, :1],
-            kwargs["reconstruction_mask"][:, 1:],
-        ),
-        log_z=kwargs["log_z"],
-        best_log_score=kwargs["best_log_score"],
-        best_argmax=kwargs["best_argmax"],
-        max_posterior=kwargs["max_posterior"],
-    ) == 1
+    assert (
+        capture.maybe_capture_k1_production_bucket_chunked(
+            iteration=kwargs["iteration"],
+            half=kwargs["half"],
+            image_indices=kwargs["image_indices"],
+            original_indices=kwargs["original_indices"],
+            per_image_inputs=kwargs["per_image_inputs"],
+            current_size=kwargs["current_size"],
+            fine_translations=kwargs["fine_translations"],
+            fine_translation_parent=kwargs["fine_translation_parent"],
+            score_chunks=(kwargs["scores"][:, :1], kwargs["scores"][:, 1:]),
+            prob_chunks=(kwargs["probs"][:, :1], kwargs["probs"][:, 1:]),
+            rotation_log_prior=kwargs["rotation_log_prior"],
+            translation_log_prior=kwargs["translation_log_prior"],
+            candidate_mask=kwargs["candidate_mask"],
+            reconstruction_mask_chunks=(
+                kwargs["reconstruction_mask"][:, :1],
+                kwargs["reconstruction_mask"][:, 1:],
+            ),
+            log_z=kwargs["log_z"],
+            best_log_score=kwargs["best_log_score"],
+            best_argmax=kwargs["best_argmax"],
+            max_posterior=kwargs["max_posterior"],
+        )
+        == 1
+    )
 
     path = next(tmp_path.glob("*.npz"))
     with np.load(path, allow_pickle=False) as shard:

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from recovar.em.dense_single_volume.helpers import compact_candidate_capture as capture
+from recovar.em.dense_single_volume.diagnostics import sparse_capture as capture
 from scripts.analyze_k1_partial_fine_topology import (
     _native_significant_count,
     _tuple_sequence_report,
@@ -119,18 +119,14 @@ def test_legacy_loader_exposes_complete_production_boundary(tmp_path):
         normalized["production_translation_log_prior"],
         [[0.75, 1.0], [0.75, 1.0]],
     )
-    np.testing.assert_array_equal(
-        normalized["production_significant"], [[False, False], [True, False]]
-    )
+    np.testing.assert_array_equal(normalized["production_significant"], [[False, False], [True, False]])
     np.testing.assert_array_equal(normalized["rotation_global_index"], [20, 21])
     np.testing.assert_array_equal(normalized["rotation_parent_global"], [100, 101])
 
 
 @pytest.mark.unit
 def test_production_shard_normalizes_to_dense_partial_topology(tmp_path, monkeypatch):
-    rotations = np.stack(
-        [np.eye(3, dtype=np.float32), np.diag([-1.0, -1.0, 1.0]).astype(np.float32)]
-    )
+    rotations = np.stack([np.eye(3, dtype=np.float32), np.diag([-1.0, -1.0, 1.0]).astype(np.float32)])
     scores = np.asarray([[[-1.0, -2.0], [-3.0, -4.0]]], dtype=np.float32)
     probs = np.exp(scores, dtype=np.float32)
     probs /= probs.sum(axis=(1, 2), keepdims=True, dtype=np.float32)
@@ -139,31 +135,34 @@ def test_production_shard_normalizes_to_dense_partial_topology(tmp_path, monkeyp
     monkeypatch.setenv(capture.CAPTURE_ITERATION_ENV, "3")
     monkeypatch.setattr(capture, "_capture_counter", 0)
 
-    assert capture.maybe_capture_k1_production_bucket(
-        iteration=3,
-        half=1,
-        image_indices=np.asarray([0], dtype=np.int64),
-        original_indices=np.asarray([231], dtype=np.int64),
-        per_image_inputs={
-            "oversampled_rots": [rotations],
-            "oversampled_rot_indices": [np.asarray([20, 21], dtype=np.int64)],
-            "parent_map": [np.asarray([0, 1], dtype=np.int32)],
-            "unique_rot": [np.asarray([100, 101], dtype=np.int32)],
-        },
-        current_size=64,
-        fine_translations=np.asarray([[0.0, 0.0], [1.0, -1.0]], dtype=np.float32),
-        fine_translation_parent=np.asarray([0, 0], dtype=np.int32),
-        scores=scores,
-        probs=probs,
-        rotation_log_prior=np.asarray([[0.25, 0.5]], dtype=np.float32),
-        translation_log_prior=np.asarray([[0.75, 1.0]], dtype=np.float32),
-        candidate_mask=np.ones_like(scores, dtype=bool),
-        reconstruction_mask=significant,
-        log_z=np.log(np.exp(scores, dtype=np.float32).sum(axis=(1, 2), dtype=np.float32)),
-        best_log_score=scores[:, 0, 0],
-        best_argmax=np.zeros(1, dtype=np.int32),
-        max_posterior=probs[:, 0, 0],
-    ) == 1
+    assert (
+        capture.maybe_capture_k1_production_bucket(
+            iteration=3,
+            half=1,
+            image_indices=np.asarray([0], dtype=np.int64),
+            original_indices=np.asarray([231], dtype=np.int64),
+            per_image_inputs={
+                "oversampled_rots": [rotations],
+                "oversampled_rot_indices": [np.asarray([20, 21], dtype=np.int64)],
+                "parent_map": [np.asarray([0, 1], dtype=np.int32)],
+                "unique_rot": [np.asarray([100, 101], dtype=np.int32)],
+            },
+            current_size=64,
+            fine_translations=np.asarray([[0.0, 0.0], [1.0, -1.0]], dtype=np.float32),
+            fine_translation_parent=np.asarray([0, 0], dtype=np.int32),
+            scores=scores,
+            probs=probs,
+            rotation_log_prior=np.asarray([[0.25, 0.5]], dtype=np.float32),
+            translation_log_prior=np.asarray([[0.75, 1.0]], dtype=np.float32),
+            candidate_mask=np.ones_like(scores, dtype=bool),
+            reconstruction_mask=significant,
+            log_z=np.log(np.exp(scores, dtype=np.float32).sum(axis=(1, 2), dtype=np.float32)),
+            best_log_score=scores[:, 0, 0],
+            best_argmax=np.zeros(1, dtype=np.int32),
+            max_posterior=probs[:, 0, 0],
+        )
+        == 1
+    )
 
     normalized = load_recovar_candidate_table(next(tmp_path.glob("raw_k1_*.npz")))
     assert int(normalized["original_index"]) == 231

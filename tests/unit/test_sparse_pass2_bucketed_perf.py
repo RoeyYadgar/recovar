@@ -6994,7 +6994,7 @@ def test_fused_other_class_log_z_matches_two_pass_normalization(monkeypatch):
 def test_sparse_pass2_rotation_chunking_matches_unchunked_windowed_path(
     monkeypatch, tmp_path, fine_prune, winner_take_all
 ):
-    from recovar.em.dense_single_volume.helpers import compact_candidate_capture as capture_mod
+    from recovar.em.dense_single_volume.diagnostics import sparse_capture as capture_mod
     from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as bucketed_mod
 
     monkeypatch.setenv("RECOVAR_DISABLE_CUDA", "1")

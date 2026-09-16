@@ -10,10 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from recovar.em.dense_single_volume.helpers.compact_candidate_capture import (
+from recovar.em.dense_single_volume.diagnostics.sparse_capture import (
     SCHEMA as PRODUCTION_CAPTURE_SCHEMA,
 )
-from recovar.em.dense_single_volume.helpers.compact_candidate_capture import (
+from recovar.em.dense_single_volume.diagnostics.sparse_capture import (
     validate_raw_capture_shard,
 )
 from scripts.analyze_k1_fine_score_boundary import (
@@ -47,20 +47,15 @@ def partial_rotation_map(
     """Return native-to-RECOVAR rows and the unmatched rows on each side."""
 
     native = np.ascontiguousarray(
-        np.asarray(factor_rotations["matrix"], dtype=np.float32)
-        .reshape(-1, 3, 3)
-        .transpose(0, 2, 1)
+        np.asarray(factor_rotations["matrix"], dtype=np.float32).reshape(-1, 3, 3).transpose(0, 2, 1)
     )
-    recovar = np.ascontiguousarray(
-        np.asarray(recovar_rotations, dtype=np.float32).reshape(-1, 3, 3)
-    )
+    recovar = np.ascontiguousarray(np.asarray(recovar_rotations, dtype=np.float32).reshape(-1, 3, 3))
     _require(native.size > 0 and recovar.size > 0, "rotation tables must be non-empty")
     key_dtype = np.dtype((np.void, 9 * np.dtype(np.float32).itemsize))
     native_keys = native.reshape(-1, 9).view(key_dtype).reshape(-1)
     recovar_keys = recovar.reshape(-1, 9).view(key_dtype).reshape(-1)
     _require(
-        np.unique(native_keys).size == native_keys.size
-        and np.unique(recovar_keys).size == recovar_keys.size,
+        np.unique(native_keys).size == native_keys.size and np.unique(recovar_keys).size == recovar_keys.size,
         "rotation tables contain duplicate exact matrices",
     )
     recovar_by_key = {key.tobytes(): row for row, key in enumerate(recovar_keys)}
@@ -138,15 +133,29 @@ def load_recovar_candidate_table(path: Path) -> dict[str, np.ndarray]:
         schema = str(np.asarray(archive["schema"]).item()) if "schema" in archive.files else ""
         if schema == PRODUCTION_CAPTURE_SCHEMA:
             required = {
-                "schema", "original_indices", "candidate_offset", "rotation_offset",
-                "candidate_local_rotation", "candidate_translation", "raw_combined_score",
-                "posterior", "significant", "rotation_log_prior", "translation_log_prior",
-                "rotation_matrix", "rotation_global_index", "rotation_parent_global",
+                "schema",
+                "original_indices",
+                "candidate_offset",
+                "rotation_offset",
+                "candidate_local_rotation",
+                "candidate_translation",
+                "raw_combined_score",
+                "posterior",
+                "significant",
+                "rotation_log_prior",
+                "translation_log_prior",
+                "rotation_matrix",
+                "rotation_global_index",
+                "rotation_parent_global",
                 "fine_translations",
             }
         else:
             required = {
-                "original_index", "rotations", "fine_translations", "candidate_mask", "probs",
+                "original_index",
+                "rotations",
+                "fine_translations",
+                "candidate_mask",
+                "probs",
             }
             if "reconstruction_mask" in archive.files:
                 required.add("reconstruction_mask")
@@ -184,17 +193,11 @@ def load_recovar_candidate_table(path: Path) -> dict[str, np.ndarray]:
                 shape,
             )
             normalized.update(
-                production_combined_score=np.asarray(
-                    recovar["scores_with_prior"], dtype=np.float32
-                ),
+                production_combined_score=np.asarray(recovar["scores_with_prior"], dtype=np.float32),
                 production_rotation_log_prior=rotation_prior,
                 production_translation_log_prior=translation_prior,
-                production_significant=np.asarray(
-                    recovar["reconstruction_mask"], dtype=bool
-                ),
-                rotation_global_index=np.asarray(
-                    recovar["oversampled_rot_indices"], dtype=np.int64
-                ),
+                production_significant=np.asarray(recovar["reconstruction_mask"], dtype=bool),
+                rotation_global_index=np.asarray(recovar["oversampled_rot_indices"], dtype=np.int64),
                 rotation_parent_global=np.asarray(recovar["parent_map"], dtype=np.int64),
             )
         return normalized
@@ -283,9 +286,7 @@ def analyze(
     )
 
     candidate_mask = np.asarray(recovar["candidate_mask"], dtype=bool)
-    recovar_keys = {
-        tuple(map(int, row)) for row in np.argwhere(candidate_mask).astype(np.int64).tolist()
-    }
+    recovar_keys = {tuple(map(int, row)) for row in np.argwhere(candidate_mask).astype(np.int64).tolist()}
     common_keys = native_common_keys & recovar_keys
     native_only_common_rotation = native_common_keys - recovar_keys
     recovar_only = recovar_keys - native_common_keys
@@ -297,21 +298,15 @@ def analyze(
         )
         + 1
     )
-    native_sequence_codes = (
-        native_mapped_sequence[:, 0] * translation_stride + native_mapped_sequence[:, 1]
-    )
+    native_sequence_codes = native_mapped_sequence[:, 0] * translation_stride + native_mapped_sequence[:, 1]
     recovar_sequence_codes = recovar_sequence[:, 0] * translation_stride + recovar_sequence[:, 1]
     common_codes = np.intersect1d(
         native_sequence_codes,
         recovar_sequence_codes,
         assume_unique=True,
     )
-    native_common_sequence = native_mapped_sequence[
-        np.isin(native_sequence_codes, common_codes, assume_unique=True)
-    ]
-    recovar_common_sequence = recovar_sequence[
-        np.isin(recovar_sequence_codes, common_codes, assume_unique=True)
-    ]
+    native_common_sequence = native_mapped_sequence[np.isin(native_sequence_codes, common_codes, assume_unique=True)]
+    recovar_common_sequence = recovar_sequence[np.isin(recovar_sequence_codes, common_codes, assume_unique=True)]
 
     native_weights = np.asarray(candidates["post_exponent_weight"], dtype=np.float64)
     native_sum = (
@@ -382,16 +377,14 @@ def analyze(
             candidates["raw_diff2"][native_common_rows],
             dtype=np.float32,
         )
-        recovar_common_preprior = (
-            recovar_common_log
-            - recovar_common_rot_prior
-            - recovar_common_trans_prior
-        ).astype(np.float32, copy=False)
+        recovar_common_preprior = (recovar_common_log - recovar_common_rot_prior - recovar_common_trans_prior).astype(
+            np.float32, copy=False
+        )
         preprior_residual = np.zeros(candidate_mask.shape, dtype=np.float64)
         preprior_common = np.zeros(candidate_mask.shape, dtype=bool)
         for row, (rotation, translation) in enumerate(ordered_common):
-            preprior_residual[rotation, translation] = (
-                float(recovar_common_preprior[row]) - float(native_common_preprior[row])
+            preprior_residual[rotation, translation] = float(recovar_common_preprior[row]) - float(
+                native_common_preprior[row]
             )
             preprior_common[rotation, translation] = True
         preprior_global_offset = float(np.median(preprior_residual[preprior_common]))
@@ -401,9 +394,7 @@ def analyze(
             - native_common_preprior.astype(np.float64)
             - preprior_global_offset
         )
-        best_centered_preprior_residual = (
-            _center(recovar_common_preprior) - _center(native_common_preprior)
-        )
+        best_centered_preprior_residual = _center(recovar_common_preprior) - _center(native_common_preprior)
         worst_preprior_rows = np.argsort(
             -np.abs(best_centered_preprior_residual),
             kind="stable",
@@ -416,17 +407,13 @@ def analyze(
                 {
                     "recovar_rotation_local": int(rotation),
                     "recovar_rotation_global": int(recovar["rotation_global_index"][rotation]),
-                    "recovar_rotation_parent_global": int(
-                        recovar["rotation_parent_global"][rotation]
-                    ),
+                    "recovar_rotation_parent_global": int(recovar["rotation_parent_global"][rotation]),
                     "recovar_translation": int(translation),
                     "native_rotation_local": int(native_rotation_rows[native_row]),
                     "native_translation": int(native_translation_rows[native_row]),
                     "native_preprior_score": float(native_common_preprior[common_row]),
                     "recovar_preprior_score": float(recovar_common_preprior[common_row]),
-                    "best_centered_residual_recovar_minus_native": float(
-                        best_centered_preprior_residual[common_row]
-                    ),
+                    "best_centered_residual_recovar_minus_native": float(best_centered_preprior_residual[common_row]),
                     "global_offset_removed_residual_recovar_minus_native": float(
                         centered_preprior_residual[common_row]
                     ),
@@ -434,17 +421,14 @@ def analyze(
             )
 
         native_significant_count = _native_significant_count(factor, candidates.size)
-        native_significant_rows = np.argsort(-native_weights, kind="stable")[
-            :native_significant_count
-        ]
+        native_significant_rows = np.argsort(-native_weights, kind="stable")[:native_significant_count]
         native_significant_keys = {
             (int(mapped_rotations[row]), int(mapped_translations[row]))
             for row in native_significant_rows
             if mapped_rotations[row] >= 0
         }
         recovar_significant_keys = {
-            tuple(map(int, row))
-            for row in np.argwhere(recovar["production_significant"]).tolist()
+            tuple(map(int, row)) for row in np.argwhere(recovar["production_significant"]).tolist()
         }
         recovar_only_significant = recovar_significant_keys - native_significant_keys
         native_only_significant = native_significant_keys - recovar_significant_keys
@@ -456,14 +440,8 @@ def analyze(
                 {
                     "rotation": int(rotation),
                     "translation": int(translation),
-                    "origin": (
-                        "common_active_tuple"
-                        if native_row is not None
-                        else "recovar_only_active_tuple"
-                    ),
-                    "native_probability": (
-                        None if native_row is None else float(native_probs[native_row])
-                    ),
+                    "origin": ("common_active_tuple" if native_row is not None else "recovar_only_active_tuple"),
+                    "native_probability": (None if native_row is None else float(native_probs[native_row])),
                     "recovar_probability": float(recovar_probs[rotation, translation]),
                 }
             )
@@ -503,17 +481,13 @@ def analyze(
                 "native_mapped_count": len(native_significant_keys),
                 "recovar_count": len(recovar_significant_keys),
                 "exact": native_significant_keys == recovar_significant_keys,
-                "native_probability_threshold": float(
-                    np.min(native_probs[native_significant_rows])
-                ),
+                "native_probability_threshold": float(np.min(native_probs[native_significant_rows])),
                 "recovar_probability_threshold": float(
                     np.min(recovar_probs[np.asarray(recovar["production_significant"], dtype=bool)])
                 ),
                 "native_only_count": len(native_only_significant),
                 "recovar_only_count": len(recovar_only_significant),
-                "recovar_only_common_active_count": sum(
-                    key in native_common_keys for key in recovar_only_significant
-                ),
+                "recovar_only_common_active_count": sum(key in native_common_keys for key in recovar_only_significant),
                 "recovar_only_active_tuple_count": sum(
                     key not in native_common_keys for key in recovar_only_significant
                 ),

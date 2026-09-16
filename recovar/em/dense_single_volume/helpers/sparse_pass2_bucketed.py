@@ -41,14 +41,7 @@ import numpy as np
 
 import recovar.core.fourier_transform_utils as fourier_transform_utils
 from recovar.core.configs import ForwardModelConfig
-from recovar.em.dense_single_volume.helpers.adjoint import (
-    adjoint_slice_volume_half as _adjoint_slice_volume_half,
-)
-from recovar.em.dense_single_volume.helpers.adjoint import (
-    adjoint_slice_volume_windowed as _adjoint_slice_volume_windowed,
-)
-from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch
-from recovar.em.dense_single_volume.helpers.compact_candidate_capture import (
+from recovar.em.dense_single_volume.diagnostics.sparse_capture import (
     INVASIVE_SPARSE_DIAGNOSTICS,
     compact_capture_requested_for_original_indices,
     compact_capture_requested_particle_count,
@@ -61,6 +54,13 @@ from recovar.em.dense_single_volume.helpers.compact_candidate_capture import (
     write_sparse_npz,
     write_sparse_npz_compressed,
 )
+from recovar.em.dense_single_volume.helpers.adjoint import (
+    adjoint_slice_volume_half as _adjoint_slice_volume_half,
+)
+from recovar.em.dense_single_volume.helpers.adjoint import (
+    adjoint_slice_volume_windowed as _adjoint_slice_volume_windowed,
+)
+from recovar.em.dense_single_volume.helpers.batch_fetch import fetch_indexed_batch
 from recovar.em.dense_single_volume.helpers.dataset_indexing import (
     original_indices_for_local as _original_indices_for_local,
 )
