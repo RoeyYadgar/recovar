@@ -514,26 +514,22 @@ def _relion_euler_angles_to_matrix(eulers_deg: np.ndarray) -> np.ndarray:
     return A
 
 
-@functools.lru_cache(maxsize=1)
-def _relion_euler_inverse_binding():
-    """Resolve the optional native Euler inverse once per process."""
+@functools.lru_cache(maxsize=None)
+def _load_relion_binding(name: str):
+    """Resolve and cache one successfully imported optional RELION helper."""
+
+    from recovar.relion_bind import _relion_bind_core as relion_bind
+
+    return getattr(relion_bind, name, None)
+
+
+def _optional_relion_binding(name: str):
+    """Return an optional RELION helper without caching transient failures."""
 
     try:
-        from recovar.relion_bind import _relion_bind_core as relion_bind
+        return _load_relion_binding(name)
     except (ImportError, OSError):
         return None
-    return getattr(relion_bind, "euler_angles_to_inverse_matrices", None)
-
-
-@functools.lru_cache(maxsize=1)
-def _relion_oversampled_orientations_binding():
-    """Resolve the optional native oversampling helper once per process."""
-
-    try:
-        from recovar.relion_bind import _relion_bind_core as relion_bind
-    except (ImportError, OSError):
-        return None
-    return getattr(relion_bind, "get_oversampled_orientations_batch", None)
 
 
 def _relion_matrix_to_euler_angles(A: np.ndarray) -> np.ndarray:
@@ -609,7 +605,7 @@ def _relion_mstep_rotations_from_eulers(
     cast is a no-op -- pass ``np.float64`` to match.
     """
     eulers = np.asarray(eulers_deg, dtype=np.float64).reshape(-1, 3)
-    native_inverse = _relion_euler_inverse_binding()
+    native_inverse = _optional_relion_binding("euler_angles_to_inverse_matrices")
     if native_inverse is not None:
         # RELION constructs and numerically inverts these matrices on the CPU.
         # Keeping that work in its C++ implementation also preserves libm trig
@@ -1240,7 +1236,7 @@ def get_oversampled_rotation_grid_from_samples(
         child_rotation_indices = child_pixels * fine_n_in_planes + nearest_child_psi.reshape(-1)
 
     native_euler_angles = None
-    native_oversampling = _relion_oversampled_orientations_binding()
+    native_oversampling = _optional_relion_binding("get_oversampled_orientations_batch")
     if native_oversampling is not None:
         native_euler_angles = np.asarray(
             native_oversampling(

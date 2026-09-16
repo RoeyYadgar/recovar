@@ -203,28 +203,39 @@ def test_relion_mstep_rotation_helper_matches_captured_float32_bits():
     np.testing.assert_array_equal(rotations.view(np.uint32), _RELION_MSTEP_ROTATION_BITS)
 
 
-def test_relion_mstep_native_binding_resolution_is_cached():
+def test_successful_relion_native_binding_resolution_is_cached(monkeypatch):
+    import sys
+    import types
+
     from recovar.em import sampling as sampling_module
 
-    sampling_module._relion_euler_inverse_binding.cache_clear()
-    first = sampling_module._relion_euler_inverse_binding()
-    second = sampling_module._relion_euler_inverse_binding()
+    sentinel = object()
+    fake_binding = type(
+        "FakeRelionBinding",
+        (),
+        {
+            "euler_angles_to_inverse_matrices": sentinel,
+            "get_oversampled_orientations_batch": sentinel,
+        },
+    )()
+    fake_package = types.ModuleType("recovar.relion_bind")
+    fake_package._relion_bind_core = fake_binding
+    monkeypatch.setitem(sys.modules, "recovar.relion_bind", fake_package)
+    sampling_module._load_relion_binding.cache_clear()
 
-    assert first is second
-    assert sampling_module._relion_euler_inverse_binding.cache_info().hits == 1
-    assert sampling_module._relion_euler_inverse_binding.cache_info().misses == 1
+    for name in ("euler_angles_to_inverse_matrices", "get_oversampled_orientations_batch"):
+        assert sampling_module._optional_relion_binding(name) is sentinel
+        assert sampling_module._optional_relion_binding(name) is sentinel
+    assert sampling_module._load_relion_binding.cache_info().hits == 2
+    assert sampling_module._load_relion_binding.cache_info().misses == 2
+    sampling_module._load_relion_binding.cache_clear()
 
-
-def test_relion_oversampling_native_binding_resolution_is_cached():
-    from recovar.em import sampling as sampling_module
-
-    sampling_module._relion_oversampled_orientations_binding.cache_clear()
-    first = sampling_module._relion_oversampled_orientations_binding()
-    second = sampling_module._relion_oversampled_orientations_binding()
-
-    assert first is second
-    assert sampling_module._relion_oversampled_orientations_binding.cache_info().hits == 1
-    assert sampling_module._relion_oversampled_orientations_binding.cache_info().misses == 1
+    monkeypatch.setitem(sys.modules, "recovar.relion_bind", None)
+    assert sampling_module._optional_relion_binding("temporarily_unavailable") is None
+    assert sampling_module._optional_relion_binding("temporarily_unavailable") is None
+    assert sampling_module._load_relion_binding.cache_info().hits == 0
+    assert sampling_module._load_relion_binding.cache_info().misses == 2
+    sampling_module._load_relion_binding.cache_clear()
 
 
 def test_k4_restart_uses_seed_exact_perturbation_for_captured_mstep_bits():
