@@ -20,7 +20,13 @@ from .em_engine import make_dense_em_request, run_dense_em
 from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significant_support import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.sparse_pass2_bucketed import compute_pass2_stats_sparse_bucketed
-from .helpers.sparse_pass2_types import SparsePass2Data, SparsePass2Result, SparsePass2Settings
+from .helpers.sparse_pass2_types import (
+    SparseKClassPass2Data,
+    SparseKClassPass2Settings,
+    SparsePass2Data,
+    SparsePass2Result,
+    SparsePass2Settings,
+)
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
 from .local_em_engine import make_local_em_request, run_local_em
 from .local_em_types import LocalEMInputs, LocalEMRequest
@@ -1055,21 +1061,59 @@ def _run_sparse_k_class_adaptive_pass2(
         fused_common.pop("source_faithful_spectrum_norm", None)
         fused_common["relion_projector_half"] = relion_projector_half_by_class
         fused_common["relion_projector_r_max"] = relion_projector_r_max
+        fused_data = SparseKClassPass2Data(
+            experiment_dataset=experiment_dataset,
+            volumes=means_array,
+            mean_variance=mean_variance,
+            noise_variance=noise_variance,
+            translations=coarse_translations_np,
+            significant_sample_indices_by_class=sig_sample_indices_by_class,
+            rotation_log_priors_by_class=[_class_rotation_prior(class_index) for class_index in range(n_classes)],
+            translation_log_prior=fused_common.get("translation_log_prior"),
+            image_corrections=fused_common.get("image_corrections"),
+            scale_corrections=fused_common.get("scale_corrections"),
+            group_ids=fused_common.get("group_ids"),
+            scale_correction_group_count=fused_common.get("scale_correction_group_count"),
+            scale_correction_data_vs_prior=fused_common.get("scale_correction_data_vs_prior"),
+            image_pre_shifts=fused_common.get("image_pre_shifts"),
+            translation_prior_centers=fused_common.get("translation_prior_centers"),
+            fine_rotations_override=fused_common.get("fine_rotations_override"),
+            fine_mstep_rotations_override=fused_common.get("fine_mstep_rotations_override"),
+            fine_rotation_parent_override=fused_common.get("fine_rotation_parent_override"),
+            fine_translations_override=fused_common.get("fine_translations_override"),
+            fine_translation_parent_override=fused_common.get("fine_translation_parent_override"),
+            relion_projector_half=fused_common.get("relion_projector_half"),
+        )
+        fused_settings = SparseKClassPass2Settings(
+            nside_level=fused_common["nside_level"],
+            disc_type=fused_common["disc_type"],
+            oversampling_order=fused_common["oversampling_order"],
+            current_size=fused_common["current_size"],
+            translation_step=fused_common["translation_step"],
+            score_with_masked_images=fused_common["score_with_masked_images"],
+            return_stats=fused_common["return_stats"],
+            accumulate_noise=accumulate_noise,
+            half_spectrum_scoring=fused_common["half_spectrum_scoring"],
+            projection_padding_factor=fused_common["projection_padding_factor"],
+            reconstruction_padding_factor=fused_common["reconstruction_padding_factor"],
+            use_float64_scoring=fused_common["use_float64_scoring"],
+            do_gridding_correction=fused_common["do_gridding_correction"],
+            square_window=fused_common["square_window"],
+            random_perturbation=fused_common["random_perturbation"],
+            relion_half_volume_mstep=fused_common["relion_half_volume_mstep"],
+            relion_x_half_mstep=fused_common["relion_x_half_mstep"],
+            relion_fine_mstep_prune_mode=_k_class_fused_relion_fine_mstep_prune_mode_override(
+                relion_fine_mstep_prune=bool(base_engine_kwargs.get("relion_fine_mstep_prune", False)),
+            ),
+            relion_firstiter_score_mode=fused_common["relion_firstiter_score_mode"],
+            relion_firstiter_winner_take_all=fused_common["relion_firstiter_winner_take_all"],
+            relion_exact_fine_gaussian=fused_common["relion_exact_fine_gaussian"],
+            relion_projector_r_max=fused_common.get("relion_projector_r_max"),
+            adaptive_fraction=fused_common["adaptive_fraction"],
+            bpref_device_signature_active=fused_common["bpref_device_signature_active"],
+        )
         try:
-            fused = compute_k_class_pass2_stats_sparse_fused(
-                experiment_dataset,
-                means_array,
-                mean_variance,
-                noise_variance,
-                coarse_translations_np,
-                sig_sample_indices_by_class,
-                rotation_log_priors_by_class=[_class_rotation_prior(class_index) for class_index in range(n_classes)],
-                accumulate_noise=accumulate_noise,
-                relion_fine_mstep_prune_mode=_k_class_fused_relion_fine_mstep_prune_mode_override(
-                    relion_fine_mstep_prune=bool(base_engine_kwargs.get("relion_fine_mstep_prune", False)),
-                ),
-                **fused_common,
-            )
+            fused = compute_k_class_pass2_stats_sparse_fused(fused_data, fused_settings)
         except NotImplementedError as exc:
             if strict_exact_gaussian:
                 raise RuntimeError(

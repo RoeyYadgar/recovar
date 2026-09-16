@@ -115,3 +115,79 @@ class SparsePass2Result:
         if settings.accumulate_noise:
             result.append(self.noise_stats)
         return tuple(result)
+
+
+@dataclass(frozen=True)
+class SparseKClassPass2Data:
+    """Dataset, class models, priors, and optional per-image fused inputs."""
+
+    experiment_dataset: Any
+    volumes: Any
+    mean_variance: Any
+    noise_variance: Any
+    translations: Any
+    significant_sample_indices_by_class: Any
+    rotation_log_priors_by_class: Any
+    translation_log_prior: Any | None = None
+    image_corrections: Any | None = None
+    scale_corrections: Any | None = None
+    group_ids: Any | None = None
+    scale_correction_group_count: int | None = None
+    scale_correction_data_vs_prior: Any | None = None
+    image_pre_shifts: Any | None = None
+    translation_prior_centers: Any | None = None
+    fine_rotations_override: Any | None = None
+    fine_mstep_rotations_override: Any | None = None
+    fine_rotation_parent_override: Any | None = None
+    fine_translations_override: Any | None = None
+    fine_translation_parent_override: Any | None = None
+    relion_projector_half: Any | None = None
+
+
+@dataclass(frozen=True)
+class SparseKClassPass2Settings:
+    """Search, scoring, reconstruction, and execution policy for fused K-class pass 2."""
+
+    nside_level: int
+    disc_type: str
+    oversampling_order: int
+    current_size: int | None
+    translation_step: float | None = None
+    score_with_masked_images: bool = False
+    return_stats: bool = True
+    accumulate_noise: bool = False
+    half_spectrum_scoring: bool = False
+    projection_padding_factor: int = 1
+    reconstruction_padding_factor: int = 1
+    use_float64_scoring: bool = False
+    do_gridding_correction: bool = False
+    square_window: bool = False
+    random_perturbation: float = 0.0
+    rotation_block_size_for_quantization: int = 5000
+    relion_half_volume_mstep: bool = False
+    relion_x_half_mstep: bool = False
+    relion_fine_mstep_prune_mode: str | None = None
+    relion_firstiter_score_mode: str = "gaussian"
+    relion_firstiter_winner_take_all: bool = False
+    relion_exact_fine_gaussian: bool = True
+    relion_projector_r_max: int | None = None
+    adaptive_fraction: float = 0.999
+    bpref_device_signature_active: bool = False
+
+
+@dataclass(frozen=True)
+class SparseKClassPass2Result:
+    """Fused sparse result normalized over the joint class-by-pose grid."""
+
+    class_log_evidence: Any
+    class_score_log_z: Any
+    Ft_y: tuple[Any, ...]
+    Ft_ctf: tuple[Any, ...]
+    per_class_hard_assignments: Any
+    per_class_stats: tuple[Any, ...]
+    noise_stats: tuple[Any, ...] | None
+    per_class_best_pose_rotations: tuple[Any, ...] | None
+    per_class_best_pose_translations: tuple[Any, ...] | None
+    per_class_best_pose_rotation_ids: tuple[Any, ...] | None
+    profile_summary: dict[str, Any]
+    class_posterior_sums: Any | None = None

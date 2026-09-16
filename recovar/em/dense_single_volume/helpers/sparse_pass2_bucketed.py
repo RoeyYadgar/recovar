@@ -154,6 +154,9 @@ from recovar.em.dense_single_volume.helpers.significant_support import (
     ComplementSignificantSampleIndices,
 )
 from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
+    SparseKClassPass2Data,
+    SparseKClassPass2Result,
+    SparseKClassPass2Settings,
     SparsePass2Data,
     SparsePass2Result,
     SparsePass2Settings,
@@ -711,23 +714,6 @@ def flush_bpref_device_panel_accumulator(*, iteration: int, half: int) -> None:
             data_accumulator=np.asarray(data_accumulator),
             weight_accumulator=np.asarray(weight_accumulator),
         )
-
-
-class SparseKClassPass2FusedResult(NamedTuple):
-    """K-class sparse pass-2 result normalized over the joint class x pose grid."""
-
-    class_log_evidence: np.ndarray
-    class_score_log_z: np.ndarray
-    Ft_y: tuple[np.ndarray, ...]
-    Ft_ctf: tuple[np.ndarray, ...]
-    per_class_hard_assignments: np.ndarray
-    per_class_stats: tuple
-    noise_stats: tuple | None
-    per_class_best_pose_rotations: tuple[np.ndarray, ...] | None
-    per_class_best_pose_translations: tuple[np.ndarray, ...] | None
-    per_class_best_pose_rotation_ids: tuple[np.ndarray, ...] | None
-    profile_summary: dict
-    class_posterior_sums: np.ndarray | None = None
 
 
 class SparseKClassCompactPairPlanStats(NamedTuple):
@@ -14672,54 +14658,9 @@ def _shared_k_class_noise_variance(noise_variance, n_classes: int):
 
 
 def compute_k_class_pass2_stats_sparse_fused(
-    experiment_dataset,
-    volumes,
-    mean_variance,
-    noise_variance,
-    translations,
-    significant_sample_indices_by_class,
-    *,
-    rotation_log_priors_by_class,
-    nside_level,
-    disc_type,
-    oversampling_order,
-    current_size,
-    translation_step=None,
-    score_with_masked_images=False,
-    return_stats=True,
-    accumulate_noise=False,
-    translation_log_prior=None,
-    half_spectrum_scoring=False,
-    projection_padding_factor=1,
-    reconstruction_padding_factor=1,
-    image_corrections=None,
-    scale_corrections=None,
-    group_ids=None,
-    scale_correction_group_count=None,
-    scale_correction_data_vs_prior=None,
-    image_pre_shifts=None,
-    use_float64_scoring=False,
-    translation_prior_centers=None,
-    do_gridding_correction=False,
-    square_window=False,
-    random_perturbation=0.0,
-    rotation_block_size_for_quantization=5000,
-    fine_rotations_override=None,
-    fine_mstep_rotations_override=None,
-    fine_rotation_parent_override=None,
-    fine_translations_override=None,
-    fine_translation_parent_override=None,
-    relion_half_volume_mstep=False,
-    relion_x_half_mstep=False,
-    relion_fine_mstep_prune_mode: str | None = None,
-    relion_firstiter_score_mode="gaussian",
-    relion_firstiter_winner_take_all=False,
-    relion_exact_fine_gaussian=True,
-    relion_projector_half=None,
-    relion_projector_r_max=None,
-    adaptive_fraction=0.999,
-    bpref_device_signature_active: bool = False,
-) -> SparseKClassPass2FusedResult:
+    data: SparseKClassPass2Data,
+    settings: SparseKClassPass2Settings,
+) -> SparseKClassPass2Result:
     """Evaluate K-class sparse pass-2 in one joint class-normalized sweep.
 
     This mirrors RELION's fine-pass semantics: all class-local scores are
@@ -14728,6 +14669,53 @@ def compute_k_class_pass2_stats_sparse_fused(
     class noise model; callers should fall back to the existing per-class path
     when noise differs by class.
     """
+    experiment_dataset = data.experiment_dataset
+    volumes = data.volumes
+    mean_variance = data.mean_variance
+    noise_variance = data.noise_variance
+    translations = data.translations
+    significant_sample_indices_by_class = data.significant_sample_indices_by_class
+    rotation_log_priors_by_class = data.rotation_log_priors_by_class
+    translation_log_prior = data.translation_log_prior
+    image_corrections = data.image_corrections
+    scale_corrections = data.scale_corrections
+    group_ids = data.group_ids
+    scale_correction_group_count = data.scale_correction_group_count
+    scale_correction_data_vs_prior = data.scale_correction_data_vs_prior
+    image_pre_shifts = data.image_pre_shifts
+    translation_prior_centers = data.translation_prior_centers
+    fine_rotations_override = data.fine_rotations_override
+    fine_mstep_rotations_override = data.fine_mstep_rotations_override
+    fine_rotation_parent_override = data.fine_rotation_parent_override
+    fine_translations_override = data.fine_translations_override
+    fine_translation_parent_override = data.fine_translation_parent_override
+    relion_projector_half = data.relion_projector_half
+
+    nside_level = settings.nside_level
+    disc_type = settings.disc_type
+    oversampling_order = settings.oversampling_order
+    current_size = settings.current_size
+    translation_step = settings.translation_step
+    score_with_masked_images = settings.score_with_masked_images
+    return_stats = settings.return_stats
+    accumulate_noise = settings.accumulate_noise
+    half_spectrum_scoring = settings.half_spectrum_scoring
+    projection_padding_factor = settings.projection_padding_factor
+    reconstruction_padding_factor = settings.reconstruction_padding_factor
+    use_float64_scoring = settings.use_float64_scoring
+    do_gridding_correction = settings.do_gridding_correction
+    square_window = settings.square_window
+    random_perturbation = settings.random_perturbation
+    rotation_block_size_for_quantization = settings.rotation_block_size_for_quantization
+    relion_half_volume_mstep = settings.relion_half_volume_mstep
+    relion_x_half_mstep = settings.relion_x_half_mstep
+    relion_fine_mstep_prune_mode = settings.relion_fine_mstep_prune_mode
+    relion_firstiter_score_mode = settings.relion_firstiter_score_mode
+    relion_firstiter_winner_take_all = settings.relion_firstiter_winner_take_all
+    relion_exact_fine_gaussian = settings.relion_exact_fine_gaussian
+    relion_projector_r_max = settings.relion_projector_r_max
+    adaptive_fraction = settings.adaptive_fraction
+    bpref_device_signature_active = settings.bpref_device_signature_active
 
     device_signature_configured = bool(
         _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
@@ -18187,7 +18175,7 @@ def compute_k_class_pass2_stats_sparse_fused(
                 ),
             },
         )
-    return SparseKClassPass2FusedResult(
+    return SparseKClassPass2Result(
         class_log_evidence=class_log_evidence,
         class_score_log_z=class_score_log_z,
         Ft_y=tuple(Ft_y_out),

@@ -8527,26 +8527,34 @@ def test_fused_sparse_k_class_capture_requires_companion_contribution_dump(monke
     """Fused K-class device capture fails closed without its operand bundle."""
 
     from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as bucketed_mod
+    from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
+        SparseKClassPass2Data,
+        SparseKClassPass2Settings,
+    )
 
     signature = inspect.signature(bucketed_mod.compute_k_class_pass2_stats_sparse_fused)
-    assert "bpref_device_signature_active" in signature.parameters
+    assert tuple(signature.parameters) == ("data", "settings")
 
     monkeypatch.setenv("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "/tmp/device")
     monkeypatch.delenv("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", raising=False)
     with pytest.raises(RuntimeError, match="requires RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"):
         bucketed_mod.compute_k_class_pass2_stats_sparse_fused(
-            None,
-            np.zeros((2, 1), dtype=np.complex64),
-            np.ones(1, dtype=np.float32),
-            np.ones(1, dtype=np.float32),
-            np.zeros((1, 2), dtype=np.float32),
-            [[], []],
-            rotation_log_priors_by_class=[None, None],
-            nside_level=0,
-            disc_type="linear_interp",
-            oversampling_order=0,
-            current_size=None,
-            bpref_device_signature_active=True,
+            SparseKClassPass2Data(
+                experiment_dataset=None,
+                volumes=np.zeros((2, 1), dtype=np.complex64),
+                mean_variance=np.ones(1, dtype=np.float32),
+                noise_variance=np.ones(1, dtype=np.float32),
+                translations=np.zeros((1, 2), dtype=np.float32),
+                significant_sample_indices_by_class=[[], []],
+                rotation_log_priors_by_class=[None, None],
+            ),
+            SparseKClassPass2Settings(
+                nside_level=0,
+                disc_type="linear_interp",
+                oversampling_order=0,
+                current_size=None,
+                bpref_device_signature_active=True,
+            ),
         )
 
 
@@ -8599,6 +8607,10 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
     """Selected fused-K capture rows must not change authoritative accumulators."""
 
     from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as bucketed_mod
+    from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
+        SparseKClassPass2Data,
+        SparseKClassPass2Settings,
+    )
     from recovar.em.sampling import rotation_grid_size
 
     monkeypatch.setenv("RECOVAR_DISABLE_CUDA", "1")
@@ -8644,7 +8656,7 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
             _hermitian_volume(VOLUME_SHAPE, seed=2029),
         ]
     )
-    common = dict(
+    data = SparseKClassPass2Data(
         experiment_dataset=MockDataset(n_images=n_images, seed=2039),
         volumes=volumes,
         mean_variance=jnp.ones(VOLUME_SIZE, dtype=jnp.float32) * 10.0,
@@ -8652,27 +8664,29 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
         translations=np.asarray([[0.0, 0.0]], dtype=np.float32),
         significant_sample_indices_by_class=significant_by_class,
         rotation_log_priors_by_class=[None] * n_classes,
+        fine_rotations_override=fine_rotations,
+        fine_rotation_parent_override=fine_parent,
+        fine_translations_override=fine_translations,
+        fine_translation_parent_override=fine_translation_parent,
+    )
+    common_settings = dict(
         nside_level=0,
         disc_type="linear_interp",
         oversampling_order=0,
         current_size=4,
         half_spectrum_scoring=True,
-        fine_rotations_override=fine_rotations,
-        fine_rotation_parent_override=fine_parent,
-        fine_translations_override=fine_translations,
-        fine_translation_parent_override=fine_translation_parent,
         relion_x_half_mstep=True,
         relion_fine_mstep_prune_mode="joint",
         adaptive_fraction=0.9,
     )
 
     plain = bucketed_mod.compute_k_class_pass2_stats_sparse_fused(
-        **common,
-        bpref_device_signature_active=False,
+        data,
+        SparseKClassPass2Settings(**common_settings, bpref_device_signature_active=False),
     )
     instrumented = bucketed_mod.compute_k_class_pass2_stats_sparse_fused(
-        **common,
-        bpref_device_signature_active=True,
+        data,
+        SparseKClassPass2Settings(**common_settings, bpref_device_signature_active=True),
     )
 
     assert captures

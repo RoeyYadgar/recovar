@@ -331,21 +331,22 @@ def test_adaptive_kclass_pass1_forwards_relion_projector_kwargs():
 def test_sparse_pass2_preserves_relion_projector_api_and_forwarding():
     """Adaptive sparse pass-2 must keep exact RELION projector support."""
 
-    for func in (
-        oversampling_mod.compute_pass2_stats_sparse,
-        sparse_pass2_mod.compute_k_class_pass2_stats_sparse_fused,
-    ):
+    for func in (oversampling_mod.compute_pass2_stats_sparse,):
         sig = inspect.signature(func)
         for name in ("relion_projector_half", "relion_projector_r_max"):
             assert name in sig.parameters, f"{func.__name__} lost projector parameter {name!r}"
 
     from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
+        SparseKClassPass2Data,
+        SparseKClassPass2Settings,
         SparsePass2Data,
         SparsePass2Settings,
     )
 
     assert "relion_projector_half" in SparsePass2Data.__dataclass_fields__
     assert "relion_projector_r_max" in SparsePass2Settings.__dataclass_fields__
+    assert "relion_projector_half" in SparseKClassPass2Data.__dataclass_fields__
+    assert "relion_projector_r_max" in SparseKClassPass2Settings.__dataclass_fields__
 
     source = inspect.getsource(k_class_mod._run_sparse_k_class_adaptive_pass2)
     for needle in (
