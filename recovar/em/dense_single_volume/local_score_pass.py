@@ -7,9 +7,9 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-from recovar.em.dense_single_volume.helpers.oversampling import (
-    _find_significant_mask_full_sort,
-    find_significant_mask,
+from recovar.em.dense_single_volume.helpers.oversampling import find_significant_mask
+from recovar.em.dense_single_volume.helpers.significance_threshold import (
+    find_significant_mask_full_sort as _find_significant_mask_full_sort,
 )
 from recovar.em.dense_single_volume.local_backprojection import compute_local_weighted_sums
 
@@ -24,12 +24,15 @@ def _local_scores_from_weighted_abs2(
     rotation_mask,
     sample_mask,
 ):
-    cross = -2.0 * jnp.einsum(
-        "btn,brn->btr",
-        jnp.conj(shifted),
-        proj_weighted,
-        precision=jax.lax.Precision.HIGHEST,
-    ).real
+    cross = (
+        -2.0
+        * jnp.einsum(
+            "btn,brn->btr",
+            jnp.conj(shifted),
+            proj_weighted,
+            precision=jax.lax.Precision.HIGHEST,
+        ).real
+    )
     cross = cross.swapaxes(1, 2)
     norms = jnp.einsum(
         "bn,brn->br",

@@ -92,10 +92,6 @@ from recovar.em.dense_single_volume.helpers.image_shifts import (
     apply_relion_integer_pre_shifts,
     half_image_phase_factors,
 )
-from recovar.em.dense_single_volume.helpers.oversampling import (
-    _find_significant_mask_full_sort,
-    _relion_cuda_f32_tail_target,
-)
 from recovar.em.dense_single_volume.helpers.preprocessing import (
     apply_half_translation_phases,
     half_translation_phase_table,
@@ -149,6 +145,12 @@ from recovar.em.dense_single_volume.helpers.relion_fine_scoring import (
 from recovar.em.dense_single_volume.helpers.relion_fine_scoring import (
     relion_translation_angles_f32,
     relion_translation_angles_f64,
+)
+from recovar.em.dense_single_volume.helpers.significance_threshold import (
+    find_significant_mask_full_sort as _find_significant_mask_full_sort,
+)
+from recovar.em.dense_single_volume.helpers.significance_threshold import (
+    relion_cuda_f32_tail_target as _relion_cuda_f32_tail_target,
 )
 from recovar.em.dense_single_volume.helpers.significant_support import (
     ComplementSignificantSampleIndices,

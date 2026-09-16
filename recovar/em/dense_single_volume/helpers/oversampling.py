@@ -28,29 +28,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .significance_threshold import find_significant_mask_full_sort as _find_significant_mask_full_sort
+from .significance_threshold import relion_cuda_f32_tail_target as _relion_cuda_f32_tail_target
 from .sparse_pass2_types import SparsePass2Data, SparsePass2Settings
 from .types import make_noise_stats, make_relion_stats
 
 logger = logging.getLogger(__name__)
 _FAST_SIGNIFICANCE_TOPK = 64
-
-
-def _relion_cuda_f32_tail_target(sum_weight, adaptive_fraction: float):
-    """Match RELION's parsed adaptive-fraction arithmetic at the CUDA cutoff.
-
-    RELION initializes ``adaptive_fraction`` with ``textToFloat`` even when
-    ``RFLOAT`` is double.  The resulting float32 value is widened for the host
-    product with ``op.sum_weight`` and finally narrowed to the CUDA ``XFLOAT``
-    threshold argument.  Starting from Python's float64 value can move a fine
-    significance cutoff across one or more nearly tied candidates.
-    """
-
-    parsed_fraction = jnp.asarray(adaptive_fraction, dtype=jnp.float32)
-    return jnp.asarray(
-        (jnp.float64(1.0) - parsed_fraction.astype(jnp.float64))
-        * jnp.asarray(sum_weight, dtype=jnp.float32).astype(jnp.float64),
-        dtype=jnp.float32,
-    )
 
 
 @partial(jax.jit, static_argnames=("adaptive_fraction", "max_significants"))
@@ -158,88 +142,6 @@ def map_translation_log_prior_to_fine_grid(
 # ---------------------------------------------------------------------------
 # Significance pruning
 # ---------------------------------------------------------------------------
-
-
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def _find_significant_mask_full_sort(
-    weights_flat,
-    adaptive_fraction=0.999,
-    max_significants=500,
-    return_cutoff_count=False,
-):
-    """Find significant orientation x translation pairs per image.
-
-    For each image, identifies the smallest set of (rotation, translation)
-    samples whose cumulative posterior weight is strictly greater than
-    ``adaptive_fraction`` of total, matching RELION's
-    ``frac_weight > adaptive_fraction * exp_sum_weight`` check.
-    Caps at max_significants per image.
-
-    Parameters
-    ----------
-    weights_flat : jnp.ndarray, shape (n_images, n_rot * n_trans)
-        Posterior weights (probabilities) for each image, flattened over
-        the rotation x translation grid.  Must sum to ~1.0 per image.
-    adaptive_fraction : float
-        Fraction of total weight to keep (default 0.999 = 99.9%).
-    max_significants : int
-        Maximum number of significant samples per image. Values ``<= 0``
-        disable the cap, matching RELION's ``_rlnMaximumSignificantPoses=-1``.
-
-    Returns
-    -------
-    mask : jnp.ndarray, shape (n_images, n_rot * n_trans), dtype bool
-        True for significant samples.
-    n_significant : jnp.ndarray, shape (n_images,), dtype int32
-        Number of significant samples per image after expanding cutoff ties.
-    cutoff_count : jnp.ndarray, shape (n_images,), dtype int32, optional
-        Pre-tie cutoff rank, returned only when ``return_cutoff_count=True``.
-        This is the count RELION serializes as ``rlnNrOfSignificantSamples``;
-        the threshold-expanded mask remains the support used by pass 2.
-    """
-    n_images, _ = weights_flat.shape
-
-    # Sort descending per image. RELION only adds strictly positive weights to
-    # its sorted significant-pose list; zero-probability samples must not become
-    # significant if the threshold falls through to the tail.
-    sorted_w = jnp.sort(weights_flat, axis=-1)[:, ::-1]
-    cumsum = jnp.cumsum(sorted_w, axis=-1)
-    total = weights_flat.sum(axis=-1, keepdims=True)
-    positive_counts = jnp.sum(weights_flat > 0.0, axis=-1)
-    last_positive_idx = jnp.maximum(positive_counts - 1, 0)
-
-    # Fraction of total weight accumulated so far
-    frac = cumsum / jnp.maximum(total, 1e-30)
-
-    # Find the index where we first strictly exceed adaptive_fraction. RELION
-    # uses `>` rather than `>=`; if no value strictly crosses the target, the
-    # loop finishes at the smallest nonzero weight.
-    crosses = frac > adaptive_fraction
-    threshold_idx = jnp.where(
-        jnp.any(crosses, axis=-1),
-        jnp.argmax(crosses, axis=-1),
-        last_positive_idx,
-    )
-    threshold_idx = jnp.minimum(threshold_idx, last_positive_idx)
-
-    # RELION treats maximum_significants <= 0 as "no cap".
-    if max_significants is not None and int(max_significants) > 0:
-        threshold_idx = jnp.minimum(threshold_idx, int(max_significants) - 1)
-
-    # Get the threshold value: the weight at the threshold index
-    threshold_val = sorted_w[jnp.arange(n_images), threshold_idx]
-
-    # Mask: keep all positive samples with weight >= threshold. The positive
-    # guard matches RELION's nonzero sorted list while preserving threshold ties.
-    mask = (weights_flat > 0.0) & (weights_flat >= threshold_val[:, None])
-
-    # Count significant samples per image
-    n_significant = jnp.sum(mask, axis=-1).astype(jnp.int32)
-    cutoff_count = jnp.minimum(threshold_idx + 1, positive_counts).astype(jnp.int32)
-
-    if return_cutoff_count:
-        return mask, n_significant, cutoff_count
-    return mask, n_significant
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3, 4))

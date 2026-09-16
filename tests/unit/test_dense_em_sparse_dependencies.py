@@ -21,3 +21,9 @@ def test_significance_does_not_import_sparse_pass2_implementation():
     imports = _imported_modules(HELPERS / "significance.py")
 
     assert "recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed" not in imports
+
+
+def test_sparse_pass2_does_not_import_legacy_oversampling_facade():
+    imports = _imported_modules(HELPERS / "sparse_pass2_bucketed.py")
+
+    assert "recovar.em.dense_single_volume.helpers.oversampling" not in imports
