@@ -30,7 +30,7 @@ import numpy as np
 
 from .significance_threshold import find_significant_mask_full_sort as _find_significant_mask_full_sort
 from .significance_threshold import relion_cuda_f32_tail_target as _relion_cuda_f32_tail_target
-from .sparse_pass2_types import SparsePass2Data, SparsePass2Settings
+from .sparse_pass2_types import SparsePass2Data, SparsePass2Settings, sparse_pass2_from_options
 from .types import make_noise_stats, make_relion_stats
 
 logger = logging.getLogger(__name__)
@@ -767,8 +767,8 @@ def compute_pass2_stats_sparse(
         # Project matching names into the typed implementation boundary rather
         # than repeating the same field mapping here.
         facade_options = locals()
-        data = SparsePass2Data.from_options(facade_options)
-        settings = SparsePass2Settings.from_options(facade_options)
+        data = sparse_pass2_from_options(SparsePass2Data, facade_options)
+        settings = sparse_pass2_from_options(SparsePass2Settings, facade_options)
         return compute_pass2_stats_sparse_bucketed(data, settings).to_legacy_tuple(settings)
 
     if relion_projector_half is not None:

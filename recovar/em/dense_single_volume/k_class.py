@@ -24,6 +24,7 @@ from .helpers.sparse_pass2_types import (
     SparsePass2Data,
     SparsePass2Result,
     SparsePass2Settings,
+    sparse_pass2_from_options,
 )
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
 from .local_em_engine import make_local_em_request, run_local_em
@@ -1069,8 +1070,9 @@ def _run_sparse_k_class_adaptive_pass2(
             significant_sample_indices=sig_sample_indices_by_class,
             rotation_log_prior=[_class_rotation_prior(index) for index in range(n_classes)],
         )
-        fused_data = SparsePass2Data.from_options(fused_options)
-        fused_settings = SparsePass2Settings.from_options(
+        fused_data = sparse_pass2_from_options(SparsePass2Data, fused_options)
+        fused_settings = sparse_pass2_from_options(
+            SparsePass2Settings,
             fused_options,
             accumulate_noise=accumulate_noise,
             relion_fine_mstep_prune_mode=_k_class_fused_relion_fine_mstep_prune_mode_override(
@@ -1165,8 +1167,9 @@ def _run_sparse_k_class_adaptive_pass2(
                 n_classes,
             ),
         )
-        data = SparsePass2Data.from_options(data_options)
-        settings = SparsePass2Settings.from_options(
+        data = sparse_pass2_from_options(SparsePass2Data, data_options)
+        settings = sparse_pass2_from_options(
+            SparsePass2Settings,
             class_common,
             accumulate_noise=accumulate_class_noise,
             normalization_score_mode=normalization_score_mode,
@@ -2242,7 +2245,7 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
                 n_classes,
             ),
         )
-        data = SparsePass2Data.from_options(data_options)
+        data = sparse_pass2_from_options(SparsePass2Data, data_options)
         settings_options = {
             "nside_level": common["nside_level"],
             "disc_type": common["disc_type"],
@@ -2271,7 +2274,7 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
             "preserve_bpref_particle_order": common.get("preserve_bpref_particle_order", False),
             "source_faithful_spectrum_norm": common["source_faithful_spectrum_norm"],
         }
-        settings = SparsePass2Settings.from_options(settings_options)
+        settings = sparse_pass2_from_options(SparsePass2Settings, settings_options)
         result = compute_pass2_stats_sparse_bucketed(data, settings)
         hard_full = np.zeros(n_images, dtype=np.int32)
         hard_full[image_indices] = _sparse_pose_ids_to_fine_grid(

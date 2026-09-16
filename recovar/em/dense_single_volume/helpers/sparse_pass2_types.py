@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
-from typing import Any, Mapping, Self
+from typing import Any, Mapping
 
 
-def _declared_options(cls, options: Mapping[str, Any], overrides: Mapping[str, Any]):
-    """Select only fields declared by ``cls`` from an orchestration option map."""
+def sparse_pass2_from_options(contract, options: Mapping[str, Any], **overrides: Any):
+    """Build a sparse contract from matching orchestration options."""
 
-    field_names = {field.name for field in fields(cls)}
+    field_names = {field.name for field in fields(contract)}
     values = {name: value for name, value in options.items() if name in field_names}
     unknown_overrides = set(overrides) - field_names
     if unknown_overrides:
         unknown = ", ".join(sorted(unknown_overrides))
-        raise TypeError(f"unknown {cls.__name__} option(s): {unknown}")
+        raise TypeError(f"unknown {contract.__name__} option(s): {unknown}")
     values.update(overrides)
-    return values
+    return contract(**values)
 
 
 @dataclass(frozen=True)
@@ -46,12 +46,6 @@ class SparsePass2Data:
     fine_translations_override: Any | None = None
     fine_translation_parent_override: Any | None = None
     relion_projector_half: Any | None = None
-
-    @classmethod
-    def from_options(cls, options: Mapping[str, Any], **overrides: Any) -> Self:
-        """Build from a larger orchestration map while rejecting unknown overrides."""
-
-        return cls(**_declared_options(cls, options, overrides))
 
 
 @dataclass(frozen=True)
@@ -97,12 +91,6 @@ class SparsePass2Settings:
     include_unweighted_norm_high_shell: bool = True
     preserve_bpref_particle_order: bool = False
     source_faithful_spectrum_norm: bool = False
-
-    @classmethod
-    def from_options(cls, options: Mapping[str, Any], **overrides: Any) -> Self:
-        """Build from a larger orchestration map while rejecting unknown overrides."""
-
-        return cls(**_declared_options(cls, options, overrides))
 
 
 @dataclass(frozen=True)
