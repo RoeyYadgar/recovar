@@ -203,6 +203,18 @@ def test_relion_mstep_rotation_helper_matches_captured_float32_bits():
     np.testing.assert_array_equal(rotations.view(np.uint32), _RELION_MSTEP_ROTATION_BITS)
 
 
+def test_relion_mstep_native_binding_resolution_is_cached():
+    from recovar.em import sampling as sampling_module
+
+    sampling_module._relion_euler_inverse_binding.cache_clear()
+    first = sampling_module._relion_euler_inverse_binding()
+    second = sampling_module._relion_euler_inverse_binding()
+
+    assert first is second
+    assert sampling_module._relion_euler_inverse_binding.cache_info().hits == 1
+    assert sampling_module._relion_euler_inverse_binding.cache_info().misses == 1
+
+
 def test_k4_restart_uses_seed_exact_perturbation_for_captured_mstep_bits():
     exact_perturbation = relion_sampling_perturbation_for_iteration(
         0.5,
@@ -238,9 +250,7 @@ def test_k4_restart_uses_seed_exact_perturbation_for_captured_mstep_bits():
         exact_rows.view(np.uint32),
         _K4_RESTART_MSTEP_ROTATION_BITS,
     )
-    assert np.any(
-        rounded_rows.view(np.uint32) != _K4_RESTART_MSTEP_ROTATION_BITS
-    )
+    assert np.any(rounded_rows.view(np.uint32) != _K4_RESTART_MSTEP_ROTATION_BITS)
 
 
 def test_relion_mstep_rotation_helper_preserves_matrix2d_inverse_source_order():
@@ -378,9 +388,7 @@ def test_relion_global_grid_preserves_source_euler_precision_until_matrix_cast(m
     late_cast_rotations = _relion_mstep_rotations_from_eulers(returned_eulers)
     assert np.any(rotations.view(np.uint32) != late_cast_rotations.view(np.uint32))
 
-    rotations_f64, returned_eulers_f64 = relion_metadata._relion_rotation_grid_float32(
-        3, dtype=np.float64
-    )
+    rotations_f64, returned_eulers_f64 = relion_metadata._relion_rotation_grid_float32(3, dtype=np.float64)
     np.testing.assert_array_equal(returned_eulers_f64, source_eulers)
     np.testing.assert_array_equal(
         rotations_f64,

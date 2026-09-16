@@ -239,7 +239,6 @@ def _combine_rotation_indices(pixel_idx, psi_idx, healpix_order, *, rotation_ind
 
 
 def get_rotation_grid(nside_level, n_in_planes=None, matrices=False):
-
     #  * order	Npix	Theta-sampling
     #  * 0		12		58.6
     #  * 1		48		29.3
@@ -515,6 +514,17 @@ def _relion_euler_angles_to_matrix(eulers_deg: np.ndarray) -> np.ndarray:
     return A
 
 
+@functools.lru_cache(maxsize=1)
+def _relion_euler_inverse_binding():
+    """Resolve the optional native Euler inverse once per process."""
+
+    try:
+        from recovar.relion_bind import _relion_bind_core as relion_bind
+    except (ImportError, OSError):
+        return None
+    return getattr(relion_bind, "euler_angles_to_inverse_matrices", None)
+
+
 def _relion_matrix_to_euler_angles(A: np.ndarray) -> np.ndarray:
     """Vectorized port of RELION ``Euler_matrix2angles``."""
     A = np.asarray(A, dtype=np.float64).reshape(-1, 3, 3)
@@ -533,9 +543,7 @@ def _relion_matrix_to_euler_angles(A: np.ndarray) -> np.ndarray:
         sign_sb = np.empty_like(gamma)
         small_sin_gamma = np.abs(np.sin(gamma)) < np.finfo(np.float32).eps
         if np.any(small_sin_gamma):
-            sign_sb[small_sin_gamma] = relion_sgn(
-                -An[small_sin_gamma, 0, 2] / np.cos(gamma[small_sin_gamma])
-            )
+            sign_sb[small_sin_gamma] = relion_sgn(-An[small_sin_gamma, 0, 2] / np.cos(gamma[small_sin_gamma]))
         if np.any(~small_sin_gamma):
             sign_sb[~small_sin_gamma] = np.where(
                 np.sin(gamma[~small_sin_gamma]) > 0.0,
@@ -590,12 +598,7 @@ def _relion_mstep_rotations_from_eulers(
     cast is a no-op -- pass ``np.float64`` to match.
     """
     eulers = np.asarray(eulers_deg, dtype=np.float64).reshape(-1, 3)
-    try:
-        from recovar.relion_bind import _relion_bind_core as relion_bind
-
-        native_inverse = getattr(relion_bind, "euler_angles_to_inverse_matrices", None)
-    except (ImportError, OSError):
-        native_inverse = None
+    native_inverse = _relion_euler_inverse_binding()
     if native_inverse is not None:
         # RELION constructs and numerically inverts these matrices on the CPU.
         # Keeping that work in its C++ implementation also preserves libm trig
@@ -603,10 +606,7 @@ def _relion_mstep_rotations_from_eulers(
         # outer-shell pixel in an ACC double-precision run.
         inverse = np.asarray(native_inverse(eulers), dtype=np.float64)
         if inverse.shape != (eulers.shape[0], 3, 3):
-            raise RuntimeError(
-                "RELION Euler inverse binding returned an invalid shape: "
-                f"{inverse.shape}"
-            )
+            raise RuntimeError("RELION Euler inverse binding returned an invalid shape: " f"{inverse.shape}")
         return np.swapaxes(inverse, 1, 2).astype(dtype)
 
     matrix = _relion_euler_angles_to_matrix(eulers)
@@ -986,11 +986,7 @@ def read_relion_direction_priors(model_star_path, n_classes=None, *, dtype=np.fl
         raise ValueError(f"Expected STAR dictionary in {model_star_path}")
     if n_classes is None:
         class_keys = sorted(
-            (
-                key
-                for key in data
-                if re.fullmatch(r"model_pdf_orient_class_\d+", str(key))
-            ),
+            (key for key in data if re.fullmatch(r"model_pdf_orient_class_\d+", str(key))),
             key=lambda key: int(str(key).rsplit("_", 1)[1]),
         )
     else:
@@ -1183,8 +1179,7 @@ def get_oversampled_rotation_grid_from_samples(
         rotation_index_order = "relion"
     if rotation_index_order not in {"recovar", "relion"}:
         raise ValueError(
-            "rotation_index_order must be 'recovar', 'relion', or "
-            f"'relion_hidden', got {rotation_index_order!r}"
+            "rotation_index_order must be 'recovar', 'relion', or " f"'relion_hidden', got {rotation_index_order!r}"
         )
 
     coarse_n_pixels = hp.nside2npix(2**parent_nside_level)
