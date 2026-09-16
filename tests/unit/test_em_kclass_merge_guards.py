@@ -42,6 +42,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import recovar.em.dense_single_volume.diagnostics.significance_capture as significance_capture_mod
 import recovar.em.dense_single_volume.helpers.oversampling as oversampling_mod
 import recovar.em.dense_single_volume.helpers.score_constraints as score_constraints_mod
 import recovar.em.dense_single_volume.helpers.significance as sig_mod
@@ -318,12 +319,12 @@ def test_adaptive_kclass_pass1_forwards_relion_projector_kwargs():
     """
 
     source = inspect.getsource(k_class_mod.run_dense_k_class_em_adaptive)
-    sig_kwargs_idx = source.find("sig_kwargs = dict(")
+    sig_kwargs_idx = source.find("sig_kwargs = {")
     assert sig_kwargs_idx >= 0, "adaptive K-class significance kwargs block is missing"
     window = source[sig_kwargs_idx : sig_kwargs_idx + 2000]
     for needle in (
-        "relion_projector_half=relion_projector_half",
-        "relion_projector_r_max=relion_projector_r_max",
+        '"relion_projector_half": relion_projector_half',
+        '"relion_projector_r_max": relion_projector_r_max',
     ):
         assert needle in window, f"adaptive K-class pass-1 lost projector kwarg: {needle!r}"
 
@@ -362,8 +363,9 @@ def test_sparse_firstiter_k1_forwards_source_faithful_spectrum_norm():
 
     source = inspect.getsource(k_class_mod._run_sparse_firstiter_global_winner_subset_pass2)
     assert 'pass2_kwargs.get("source_faithful_spectrum_norm", False)' in source
-    assert "source_faithful_spectrum_norm=source_faithful_spectrum_norm" in source
-    assert "relion_exact_fine_normalized_cc=n_classes == 1" in source
+    assert '"source_faithful_spectrum_norm": source_faithful_spectrum_norm' in source
+    assert '"source_faithful_spectrum_norm": common["source_faithful_spectrum_norm"]' in source
+    assert '"relion_exact_fine_normalized_cc": n_classes == 1' in source
     assert "source-faithful powerClass normalization is K=1-only" in source
 
 
@@ -444,7 +446,7 @@ def test_kclass_significance_dump_threads_one_based_iteration():
     assert "numbered_relion_iteration = _numbered_relion_iteration(" in loop_source
     assert loop_source.count("debug_iteration=numbered_relion_iteration") >= 3
     assert score_source.count("debug_iteration=debug_iteration") >= 3
-    assert adaptive_source.count("debug_iteration=debug_iteration") >= 1
+    assert '"debug_iteration": debug_iteration' in adaptive_source
     assert "debug_iteration=debug_iteration" in significance_source
     firstiter_probe_source = inspect.getsource(k_class_mod._run_dense_k_class_joint_firstiter_score_probe)
     assert "collect_significance=_significance_debug_dump_matches(" in firstiter_probe_source
@@ -687,7 +689,7 @@ def test_kclass_significance_dump_can_stop_after_durable_target(monkeypatch, tmp
     monkeypatch.setenv("RECOVAR_SIGNIFICANCE_DUMP_ITERATION", "2")
     monkeypatch.setenv("RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET", "1")
 
-    with pytest.raises(sig_mod.SignificanceDumpComplete) as exc_info:
+    with pytest.raises(significance_capture_mod.SignificanceDumpComplete) as exc_info:
         sig_mod._maybe_dump_k_class_significance_batch(
             experiment_dataset=SimpleNamespace(
                 dataset_indices=np.asarray([42], dtype=np.int64),
@@ -729,7 +731,7 @@ def test_kclass_significance_stop_without_iteration_uses_unsuffixed_path(monkeyp
     monkeypatch.setenv("RECOVAR_SIGNIFICANCE_DUMP_STOP_AFTER_TARGET", "1")
     monkeypatch.delenv("RECOVAR_SIGNIFICANCE_DUMP_ITERATION", raising=False)
 
-    with pytest.raises(sig_mod.SignificanceDumpComplete):
+    with pytest.raises(significance_capture_mod.SignificanceDumpComplete):
         sig_mod._maybe_stop_after_significance_dump(
             str(dump_path),
             dump_dir=str(dump_dir),
@@ -793,7 +795,7 @@ def test_significance_stop_waits_for_complete_target_set(monkeypatch, tmp_path):
     )
 
     second_path.touch()
-    with pytest.raises(sig_mod.SignificanceDumpComplete):
+    with pytest.raises(significance_capture_mod.SignificanceDumpComplete):
         sig_mod._maybe_stop_after_significance_dump(
             str(second_path),
             dump_dir=str(dump_dir),
@@ -1792,14 +1794,14 @@ def test_adaptive_significance_forwards_firstiter_score_mode():
     """No-shortcut firstiter diagnostics must still use normalized-CC pass-1 scoring."""
 
     source = inspect.getsource(k_class_mod.run_dense_k_class_em_adaptive)
-    assert 'score_mode=engine_kwargs.get("relion_firstiter_score_mode", "gaussian")' in source
+    assert '"score_mode": engine_kwargs.get("relion_firstiter_score_mode", "gaussian")' in source
 
 
 def test_k1_firstiter_sparse_pass2_uses_exact_relion_cc_scorer():
     """The exact scorer must be wired into the production fine pass, not only its probe."""
 
     source = inspect.getsource(k_class_mod._run_sparse_firstiter_global_winner_subset_pass2)
-    assert "relion_exact_fine_normalized_cc=n_classes == 1" in source
+    assert '"relion_exact_fine_normalized_cc": n_classes == 1' in source
 
 
 # ----------------------------------------------------------------------
