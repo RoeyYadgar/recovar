@@ -19,6 +19,8 @@ from .dense_em_types import DenseEMInputs, DenseEMRequest
 from .em_engine import make_dense_em_request, run_dense_em
 from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significant_support import ComplementSignificantSampleIndices, significant_sample_count
+from .helpers.sparse_pass2_bucketed import compute_pass2_stats_sparse_bucketed
+from .helpers.sparse_pass2_types import SparsePass2Data, SparsePass2Result, SparsePass2Settings
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
 from .local_em_engine import make_local_em_request, run_local_em
 from .local_em_types import LocalEMInputs, LocalEMRequest
@@ -910,8 +912,6 @@ def _run_sparse_k_class_adaptive_pass2(
 ) -> KClassEMResult:
     """Run K-class adaptive pass-2 over RELION significant sparse support."""
 
-    from recovar.em.dense_single_volume.helpers.oversampling import compute_pass2_stats_sparse
-
     n_classes = int(means_array.shape[0])
     n_rot_coarse = int(coarse_rotations_np.shape[0])
     n_coarse_trans = int(coarse_translations_np.shape[0])
@@ -1125,31 +1125,100 @@ def _run_sparse_k_class_adaptive_pass2(
         last_class_index + 1,
         support_work.tolist(),
     )
-    probe_t0 = time.time()
-    for class_index in probe_class_indices:
-        output = compute_pass2_stats_sparse(
-            experiment_dataset,
-            means_array[class_index],
-            _select_class_value(mean_variance, class_index, n_classes),
-            _select_class_value(noise_variance, class_index, n_classes),
-            coarse_translations_np,
-            sig_sample_indices_by_class[class_index],
+
+    def _run_class_sparse_pass(
+        class_index: int,
+        *,
+        accumulate_class_noise: bool,
+        normalization_log_z=None,
+        normalization_other_score_log_z=None,
+        normalization_score_mode=None,
+        return_score_log_z: bool = False,
+        return_score_log_z_only: bool = False,
+        disable_adjoint_y: bool = False,
+        disable_adjoint_ctf: bool = False,
+    ) -> SparsePass2Result:
+        class_common = _common_for_class(class_index)
+        data = SparsePass2Data(
+            experiment_dataset=experiment_dataset,
+            volume=means_array[class_index],
+            mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+            noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+            translations=coarse_translations_np,
+            significant_sample_indices=sig_sample_indices_by_class[class_index],
             rotation_log_prior=_class_rotation_prior(class_index),
-            accumulate_noise=False,
-            return_score_log_z_only=True,
-            disable_adjoint_y=True,
-            disable_adjoint_ctf=True,
+            translation_log_prior=class_common.get("translation_log_prior"),
+            image_corrections=class_common.get("image_corrections"),
+            scale_corrections=class_common.get("scale_corrections"),
+            group_ids=class_common.get("group_ids"),
+            scale_correction_group_count=class_common.get("scale_correction_group_count"),
+            scale_correction_data_vs_prior=class_common.get("scale_correction_data_vs_prior"),
+            image_pre_shifts=class_common.get("image_pre_shifts"),
+            translation_prior_centers=class_common.get("translation_prior_centers"),
+            normalization_log_z=normalization_log_z,
+            normalization_other_score_log_z=normalization_other_score_log_z,
+            fine_rotations_override=class_common.get("fine_rotations_override"),
+            fine_mstep_rotations_override=class_common.get("fine_mstep_rotations_override"),
+            fine_rotation_parent_override=class_common.get("fine_rotation_parent_override"),
+            fine_translations_override=class_common.get("fine_translations_override"),
+            fine_translation_parent_override=class_common.get("fine_translation_parent_override"),
             relion_projector_half=_select_projector_half_for_class(
                 relion_projector_half_by_class,
                 class_index,
                 n_classes,
             ),
-            relion_projector_r_max=relion_projector_r_max,
-            **_common_for_class(class_index),
         )
-        log_evidence, score_log_z = output
-        class_log_evidence[class_index] = np.asarray(log_evidence, dtype=np.float64)
-        class_score_log_z[class_index] = np.asarray(score_log_z, dtype=np.float64)
+        settings = SparsePass2Settings(
+            nside_level=class_common["nside_level"],
+            disc_type=class_common["disc_type"],
+            oversampling_order=class_common["oversampling_order"],
+            current_size=class_common["current_size"],
+            reconstruction_current_size=class_common["reconstruction_current_size"],
+            translation_step=class_common["translation_step"],
+            score_with_masked_images=class_common["score_with_masked_images"],
+            return_stats=class_common["return_stats"],
+            accumulate_noise=accumulate_class_noise,
+            half_spectrum_scoring=class_common["half_spectrum_scoring"],
+            projection_padding_factor=class_common["projection_padding_factor"],
+            reconstruction_padding_factor=class_common["reconstruction_padding_factor"],
+            use_float64_scoring=class_common["use_float64_scoring"],
+            do_gridding_correction=class_common["do_gridding_correction"],
+            square_window=class_common["square_window"],
+            random_perturbation=class_common["random_perturbation"],
+            normalization_score_mode=normalization_score_mode,
+            return_score_log_z=return_score_log_z,
+            return_score_log_z_only=return_score_log_z_only,
+            disable_adjoint_y=disable_adjoint_y,
+            disable_adjoint_ctf=disable_adjoint_ctf,
+            relion_half_volume_mstep=class_common["relion_half_volume_mstep"],
+            relion_x_half_mstep=class_common["relion_x_half_mstep"],
+            relion_fine_mstep_prune=class_common["relion_fine_mstep_prune"],
+            relion_firstiter_score_mode=class_common["relion_firstiter_score_mode"],
+            relion_firstiter_winner_take_all=class_common["relion_firstiter_winner_take_all"],
+            relion_exact_fine_gaussian=class_common["relion_exact_fine_gaussian"],
+            relion_fine_diff2_fused_ffi=class_common["relion_fine_diff2_fused_ffi"],
+            relion_f32_fine_posterior=class_common["relion_f32_fine_posterior"],
+            relion_exact_fine_normalized_cc=class_common["relion_exact_fine_normalized_cc"],
+            relion_projector_r_max=relion_projector_r_max,
+            adaptive_fraction=class_common["adaptive_fraction"],
+            bpref_device_signature_active=class_common["bpref_device_signature_active"],
+            include_unweighted_norm_high_shell=class_common["include_unweighted_norm_high_shell"],
+            preserve_bpref_particle_order=class_common.get("preserve_bpref_particle_order", False),
+            source_faithful_spectrum_norm=class_common["source_faithful_spectrum_norm"],
+        )
+        return compute_pass2_stats_sparse_bucketed(data, settings)
+
+    probe_t0 = time.time()
+    for class_index in probe_class_indices:
+        result = _run_class_sparse_pass(
+            class_index,
+            accumulate_class_noise=False,
+            return_score_log_z_only=True,
+            disable_adjoint_y=True,
+            disable_adjoint_ctf=True,
+        )
+        class_log_evidence[class_index] = np.asarray(result.log_evidence_per_image, dtype=np.float64)
+        class_score_log_z[class_index] = np.asarray(result.score_log_z, dtype=np.float64)
     if probe_class_indices:
         other_score_log_z = _logsumexp_np(
             np.stack([class_score_log_z[idx] for idx in probe_class_indices], axis=0),
@@ -1168,73 +1237,43 @@ def _run_sparse_k_class_adaptive_pass2(
     per_class_best_pose_translations = [None] * n_classes if return_best_pose_details else None
     per_class_best_pose_rotation_ids = [None] * n_classes if return_best_pose_details else None
 
-    def _store_mstep_output(class_index: int, output, *, includes_score_log_z: bool = False):
-        class_Ft_y, class_Ft_ctf, hard_assignment, best_rots, best_trans, best_rot_ids, stats = output[:7]
-        next_index = 7
-        score_log_z = None
-        if includes_score_log_z:
-            score_log_z = np.asarray(output[next_index], dtype=np.float64)
-            next_index += 1
-        noise = output[next_index] if accumulate_noise else None
-        Ft_y[class_index] = _as_host_accumulator(class_Ft_y)
-        Ft_ctf[class_index] = _as_host_accumulator(class_Ft_ctf)
-        hard_assignments[class_index] = _sparse_pose_ids_to_fine_grid(hard_assignment, best_rot_ids, n_fine_trans)
-        per_class_stats[class_index] = stats
+    def _store_mstep_result(class_index: int, result: SparsePass2Result):
+        Ft_y[class_index] = _as_host_accumulator(result.Ft_y)
+        Ft_ctf[class_index] = _as_host_accumulator(result.Ft_ctf)
+        hard_assignments[class_index] = _sparse_pose_ids_to_fine_grid(
+            result.hard_assignment,
+            result.best_rotation_indices,
+            n_fine_trans,
+        )
+        per_class_stats[class_index] = result.relion_stats
         if per_class_noise is not None:
-            per_class_noise[class_index] = noise
+            per_class_noise[class_index] = result.noise_stats
         if return_best_pose_details:
-            per_class_best_pose_rotations[class_index] = best_rots
-            per_class_best_pose_translations[class_index] = best_trans
-            per_class_best_pose_rotation_ids[class_index] = best_rot_ids
-        return stats, score_log_z
+            per_class_best_pose_rotations[class_index] = result.best_rotations
+            per_class_best_pose_translations[class_index] = result.best_translations
+            per_class_best_pose_rotation_ids[class_index] = result.best_rotation_indices
 
     mstep_t0 = time.time()
-    output = compute_pass2_stats_sparse(
-        experiment_dataset,
-        means_array[last_class_index],
-        _select_class_value(mean_variance, last_class_index, n_classes),
-        _select_class_value(noise_variance, last_class_index, n_classes),
-        coarse_translations_np,
-        sig_sample_indices_by_class[last_class_index],
-        rotation_log_prior=_class_rotation_prior(last_class_index),
-        accumulate_noise=accumulate_noise,
+    result = _run_class_sparse_pass(
+        last_class_index,
+        accumulate_class_noise=accumulate_noise,
         normalization_other_score_log_z=other_score_log_z,
         normalization_score_mode=common["relion_firstiter_score_mode"],
         return_score_log_z=True,
-        relion_projector_half=_select_projector_half_for_class(
-            relion_projector_half_by_class,
-            last_class_index,
-            n_classes,
-        ),
-        relion_projector_r_max=relion_projector_r_max,
-        **_common_for_class(last_class_index),
     )
-    last_stats, last_score_log_z = _store_mstep_output(last_class_index, output, includes_score_log_z=True)
-    class_log_evidence[last_class_index] = np.asarray(last_stats.log_evidence_per_image, dtype=np.float64)
-    class_score_log_z[last_class_index] = last_score_log_z
-    global_score_log_z = np.logaddexp(other_score_log_z, last_score_log_z)
+    _store_mstep_result(last_class_index, result)
+    class_log_evidence[last_class_index] = np.asarray(result.relion_stats.log_evidence_per_image, dtype=np.float64)
+    class_score_log_z[last_class_index] = np.asarray(result.score_log_z, dtype=np.float64)
+    global_score_log_z = np.logaddexp(other_score_log_z, result.score_log_z)
 
     for class_index in probe_class_indices:
-        output = compute_pass2_stats_sparse(
-            experiment_dataset,
-            means_array[class_index],
-            _select_class_value(mean_variance, class_index, n_classes),
-            _select_class_value(noise_variance, class_index, n_classes),
-            coarse_translations_np,
-            sig_sample_indices_by_class[class_index],
-            rotation_log_prior=_class_rotation_prior(class_index),
-            accumulate_noise=accumulate_noise,
+        result = _run_class_sparse_pass(
+            class_index,
+            accumulate_class_noise=accumulate_noise,
             normalization_log_z=global_score_log_z,
             normalization_score_mode=common["relion_firstiter_score_mode"],
-            relion_projector_half=_select_projector_half_for_class(
-                relion_projector_half_by_class,
-                class_index,
-                n_classes,
-            ),
-            relion_projector_r_max=relion_projector_r_max,
-            **_common_for_class(class_index),
         )
-        _store_mstep_output(class_index, output)
+        _store_mstep_result(class_index, result)
     mstep_s = time.time() - mstep_t0
     logger.info(
         "Sparse adaptive K-class pass2 profile: classes=%d probe_classes=%d images=%d "
@@ -2099,8 +2138,6 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
 ) -> KClassEMResult:
     """Sparse RELION firstiter_cc fine pass over global-winner image subsets."""
 
-    from recovar.em.dense_single_volume.helpers.oversampling import compute_pass2_stats_sparse
-
     n_classes = int(means_array.shape[0])
     n_images = int(coarse_class_assignments.shape[0])
     relion_projector_half_by_class = pass2_kwargs.get("relion_projector_half")
@@ -2214,41 +2251,73 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
         class_kwargs = _dense_options_for_class(pass2_kwargs, class_index, n_classes)
         class_kwargs = _subset_image_axis_engine_kwargs(class_kwargs, image_indices, n_images)
 
-        output = compute_pass2_stats_sparse(
-            subset_dataset,
-            means_array[class_index],
-            _select_class_value(mean_variance, class_index, n_classes),
-            _select_class_value(noise_variance, class_index, n_classes),
-            coarse_translations_np,
-            subset_sig,
+        data = SparsePass2Data(
+            experiment_dataset=subset_dataset,
+            volume=means_array[class_index],
+            mean_variance=_select_class_value(mean_variance, class_index, n_classes),
+            noise_variance=_select_class_value(noise_variance, class_index, n_classes),
+            translations=coarse_translations_np,
+            significant_sample_indices=subset_sig,
             rotation_log_prior=_class_rotation_prior(class_index),
             translation_log_prior=None,
-            accumulate_noise=accumulate_noise,
             image_corrections=class_kwargs.get("image_corrections"),
             scale_corrections=class_kwargs.get("scale_corrections"),
             group_ids=class_kwargs.get("group_ids"),
             scale_correction_group_count=class_kwargs.get("scale_correction_group_count"),
             image_pre_shifts=class_kwargs.get("image_pre_shifts"),
             translation_prior_centers=class_kwargs.get("translation_prior_centers"),
+            fine_rotations_override=common["fine_rotations_override"],
+            fine_mstep_rotations_override=common["fine_mstep_rotations_override"],
+            fine_rotation_parent_override=common["fine_rotation_parent_override"],
+            fine_translations_override=common["fine_translations_override"],
+            fine_translation_parent_override=common["fine_translation_parent_override"],
             relion_projector_half=_select_projector_half_for_class(
                 relion_projector_half_by_class,
                 class_index,
                 n_classes,
             ),
+        )
+        settings = SparsePass2Settings(
+            nside_level=common["nside_level"],
+            disc_type=common["disc_type"],
+            oversampling_order=common["oversampling_order"],
+            current_size=common["current_size"],
+            reconstruction_current_size=common["reconstruction_current_size"],
+            translation_step=common["translation_step"],
+            score_with_masked_images=common["score_with_masked_images"],
+            return_stats=common["return_stats"],
+            accumulate_noise=accumulate_noise,
+            half_spectrum_scoring=common["half_spectrum_scoring"],
+            projection_padding_factor=common["projection_padding_factor"],
+            reconstruction_padding_factor=common["reconstruction_padding_factor"],
+            use_float64_scoring=common["use_float64_scoring"],
+            do_gridding_correction=common["do_gridding_correction"],
+            square_window=common["square_window"],
+            random_perturbation=common["random_perturbation"],
+            relion_half_volume_mstep=common["relion_half_volume_mstep"],
+            relion_x_half_mstep=common["relion_x_half_mstep"],
+            relion_firstiter_score_mode=common["relion_firstiter_score_mode"],
+            relion_firstiter_winner_take_all=common["relion_firstiter_winner_take_all"],
+            relion_exact_fine_normalized_cc=common["relion_exact_fine_normalized_cc"],
             relion_projector_r_max=relion_projector_r_max,
             bpref_class_index=class_index,
-            **common,
+            bpref_device_signature_active=common["bpref_device_signature_active"],
+            preserve_bpref_particle_order=common.get("preserve_bpref_particle_order", False),
+            source_faithful_spectrum_norm=common["source_faithful_spectrum_norm"],
         )
-        class_Ft_y, class_Ft_ctf, hard_subset, best_rots, best_trans, best_rot_ids, stats_subset = output[:7]
-        noise = output[7] if accumulate_noise else None
+        result = compute_pass2_stats_sparse_bucketed(data, settings)
         hard_full = np.zeros(n_images, dtype=np.int32)
-        hard_full[image_indices] = _sparse_pose_ids_to_fine_grid(hard_subset, best_rot_ids, n_fine_trans)
-        Ft_y.append(_as_host_accumulator(class_Ft_y))
-        Ft_ctf.append(_as_host_accumulator(class_Ft_ctf))
+        hard_full[image_indices] = _sparse_pose_ids_to_fine_grid(
+            result.hard_assignment,
+            result.best_rotation_indices,
+            n_fine_trans,
+        )
+        Ft_y.append(_as_host_accumulator(result.Ft_y))
+        Ft_ctf.append(_as_host_accumulator(result.Ft_ctf))
         hard_assignments.append(hard_full)
         per_class_stats.append(
             _full_stats_from_subset(
-                stats_subset,
+                result.relion_stats,
                 image_indices,
                 n_images,
                 class_log_evidence=coarse_result.class_log_evidence[class_index],
@@ -2257,19 +2326,19 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
         if per_class_noise is not None:
             per_class_noise.append(
                 _expand_subset_noise_stats(
-                    noise,
+                    result.noise_stats,
                     image_indices,
                     n_images,
                     full_group_count=full_group_count,
                 ),
             )
         if return_best_pose_details:
-            best_rots_full = np.zeros((n_images, 3, 3), dtype=np.asarray(best_rots).dtype)
-            best_trans_full = np.zeros((n_images, 2), dtype=np.asarray(best_trans).dtype)
+            best_rots_full = np.zeros((n_images, 3, 3), dtype=np.asarray(result.best_rotations).dtype)
+            best_trans_full = np.zeros((n_images, 2), dtype=np.asarray(result.best_translations).dtype)
             best_rot_ids_full = np.zeros(n_images, dtype=np.int32)
-            best_rots_full[image_indices] = best_rots
-            best_trans_full[image_indices] = best_trans
-            best_rot_ids_full[image_indices] = best_rot_ids
+            best_rots_full[image_indices] = result.best_rotations
+            best_trans_full[image_indices] = result.best_translations
+            best_rot_ids_full[image_indices] = result.best_rotation_indices
             per_class_best_pose_rotations.append(best_rots_full)
             per_class_best_pose_translations.append(best_trans_full)
             per_class_best_pose_rotation_ids.append(best_rot_ids_full)
