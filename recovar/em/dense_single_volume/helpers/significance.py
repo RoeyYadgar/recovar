@@ -20,6 +20,7 @@ from recovar.em.dense_single_volume.diagnostics.significance_capture import (
     write_single_class_significance,
     write_tree_rescore,
 )
+from recovar.em.dense_single_volume.helpers import relion_fine_scoring
 from recovar.em.dense_single_volume.helpers.dataset_indexing import (
     original_indices_for_local as _original_indices_for_local,
 )
@@ -2092,14 +2093,6 @@ def _compute_k_class_significance_batched(
         if n_trans > 128:
             raise ValueError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} supports at most 128 " f"translations, got {n_trans}")
         from recovar import cuda_backproject
-        from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
-            _relion_cuda_corr_img_from_native_noise_variance,
-            _relion_cuda_corr_img_from_rfloat_ctf,
-            _relion_cuda_fine_full_to_compact_lookup,
-            _relion_cuda_pixel_correction_from_rfloat_ctf,
-            _relion_cuda_powerclass_highres_xi2_half,
-            _relion_exact_ctf_half_from_source_star,
-        )
 
         if jax.default_backend() != "gpu" or not cuda_backproject.cuda_available():
             raise RuntimeError(f"{_K1_COARSE_GAUSSIAN_FFI_ENV} requires the custom CUDA backend")
@@ -2137,14 +2130,14 @@ def _compute_k_class_significance_batched(
             dtype=jnp.int32,
         )
         coarse_gaussian_full_to_compact = jnp.asarray(
-            _relion_cuda_fine_full_to_compact_lookup(
+            relion_fine_scoring.relion_cuda_fine_full_to_compact_lookup(
                 image_shape,
                 score_size,
                 square_score_indices_np,
             ),
             dtype=jnp.int32,
         )
-        coarse_gaussian_powerclass = _relion_cuda_powerclass_highres_xi2_half
+        coarse_gaussian_powerclass = relion_fine_scoring.relion_cuda_powerclass_highres_xi2_half
         logger.warning(
             "K=1 RELION coarse Gaussian FFI enabled (%s, %s): " "current_size=%d square_pixels=%d translations=%d",
             (
@@ -2229,12 +2222,6 @@ def _compute_k_class_significance_batched(
         from recovar.em.dense_single_volume.helpers.projection import (
             relion_projector_half_to_texture_full,
         )
-        from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
-            _relion_cuda_corr_img_from_rfloat_ctf,
-            _relion_cuda_pixel_correction_from_rfloat_ctf,
-            _relion_exact_ctf_half_from_source_star,
-            _relion_translation_angles_f32,
-        )
 
         if (
             jax.default_backend() != "gpu"
@@ -2262,7 +2249,7 @@ def _compute_k_class_significance_batched(
             dtype=jnp.int32,
         )
         tree_rescore_translation_angles = jnp.asarray(
-            _relion_translation_angles_f32(translations_source, image_shape),
+            relion_fine_scoring.relion_translation_angles_f32(translations_source, image_shape),
             dtype=jnp.float32,
         )
         logger.warning(
@@ -2804,13 +2791,13 @@ def _compute_k_class_significance_batched(
                 exact_cc_processed,
                 window_indices if use_window else None,
             )
-            exact_cc_ctf_rfloat = _relion_exact_ctf_half_from_source_star(
+            exact_cc_ctf_rfloat = relion_fine_scoring.relion_exact_ctf_half_from_source_star(
                 experiment_dataset,
                 indices,
                 image_shape,
             )
             batch_scale_f32 = jnp.asarray(batch_scale_np, dtype=jnp.float32)
-            exact_cc_pixel_correction = _relion_cuda_pixel_correction_from_rfloat_ctf(
+            exact_cc_pixel_correction = relion_fine_scoring.relion_cuda_pixel_correction_from_rfloat_ctf(
                 batch_scale_f32[:, None],
                 exact_cc_ctf_rfloat,
             )
@@ -2822,7 +2809,7 @@ def _compute_k_class_significance_batched(
                 exact_cc_unshifted_corrected = exact_cc_unshifted_corrected * tiled_half_image_phase_factors(
                     image_shape, batch_shifts, 1
                 )
-            exact_cc_corr_img = _relion_cuda_corr_img_from_rfloat_ctf(
+            exact_cc_corr_img = relion_fine_scoring.relion_cuda_corr_img_from_rfloat_ctf(
                 exact_cc_inv_xi2,
                 exact_cc_ctf_rfloat,
                 batch_scale_f32[:, None] if scale_corrections is not None else None,
@@ -2891,13 +2878,13 @@ def _compute_k_class_significance_batched(
             if exact_coarse_operands_enabled:
                 exact_real_dtype = jnp.float64 if use_float64_scoring else jnp.float32
                 exact_complex_dtype = jnp.complex128 if use_float64_scoring else jnp.complex64
-                ctf_half_rfloat = _relion_exact_ctf_half_from_source_star(
+                ctf_half_rfloat = relion_fine_scoring.relion_exact_ctf_half_from_source_star(
                     experiment_dataset,
                     indices,
                     image_shape,
                 )
                 batch_scale_exact = jnp.asarray(batch_scale_np, dtype=exact_real_dtype)
-                pixel_correction = _relion_cuda_pixel_correction_from_rfloat_ctf(
+                pixel_correction = relion_fine_scoring.relion_cuda_pixel_correction_from_rfloat_ctf(
                     batch_scale_exact[:, None],
                     ctf_half_rfloat,
                     output_dtype=exact_real_dtype,
@@ -2909,13 +2896,10 @@ def _compute_k_class_significance_batched(
                     exact_unshifted_corrected,
                     jnp.zeros((), dtype=exact_unshifted_corrected.dtype),
                 ).astype(exact_complex_dtype)
-                from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
-                    _relion_translation_angles_f32,
-                    _relion_translation_angles_f64,
-                )
-
                 exact_translation_angles = (
-                    _relion_translation_angles_f64 if use_float64_scoring else _relion_translation_angles_f32
+                    relion_fine_scoring.relion_translation_angles_f64
+                    if use_float64_scoring
+                    else relion_fine_scoring.relion_translation_angles_f32
                 )
                 exact_translate_score = (
                     cuda_backproject.relion_translate_score_f64
@@ -2935,14 +2919,14 @@ def _compute_k_class_significance_batched(
                     inverse_noise_half = jnp.reciprocal(
                         jnp.asarray(noise_variance_half, dtype=jnp.float64),
                     ).astype(exact_real_dtype)
-                    exact_corr_img = _relion_cuda_corr_img_from_rfloat_ctf(
+                    exact_corr_img = relion_fine_scoring.relion_cuda_corr_img_from_rfloat_ctf(
                         inverse_noise_half[None, :],
                         ctf_half_rfloat,
                         batch_scale_exact[:, None] if scale_corrections is not None else None,
                         output_dtype=exact_real_dtype,
                     )
                 else:
-                    exact_corr_img = _relion_cuda_corr_img_from_native_noise_variance(
+                    exact_corr_img = relion_fine_scoring.relion_cuda_corr_img_from_native_noise_variance(
                         noise_variance_half[None, :],
                         ctf_half_rfloat,
                         image_shape,

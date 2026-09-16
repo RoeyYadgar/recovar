@@ -12248,9 +12248,9 @@ class TestRelionModeSmokeTest:
 
         import recovar.cuda_backproject as cuda_backproject
         import recovar.em.dense_single_volume.helpers.projection as projection_module
+        import recovar.em.dense_single_volume.helpers.relion_fine_scoring as relion_fine_scoring
         import recovar.em.dense_single_volume.helpers.scoring as scoring_module
         import recovar.em.dense_single_volume.helpers.significance as significance_module
-        import recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed as sparse_module
 
         dataset = half_datasets[0]
         dataset.image_source.backend.relion_fourier_backend = "relion_cuda"
@@ -12269,8 +12269,8 @@ class TestRelionModeSmokeTest:
         monkeypatch.setattr(cuda_backproject, "custom_cuda_requested", lambda: True)
         monkeypatch.setattr(cuda_backproject, "cuda_available", lambda: True)
         monkeypatch.setattr(
-            sparse_module,
-            "_relion_exact_ctf_half_from_source_star",
+            relion_fine_scoring,
+            "relion_exact_ctf_half_from_source_star",
             lambda _dataset, indices, image_shape: jnp.ones(
                 (
                     len(indices),
