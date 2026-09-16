@@ -525,6 +525,17 @@ def _relion_euler_inverse_binding():
     return getattr(relion_bind, "euler_angles_to_inverse_matrices", None)
 
 
+@functools.lru_cache(maxsize=1)
+def _relion_oversampled_orientations_binding():
+    """Resolve the optional native oversampling helper once per process."""
+
+    try:
+        from recovar.relion_bind import _relion_bind_core as relion_bind
+    except (ImportError, OSError):
+        return None
+    return getattr(relion_bind, "get_oversampled_orientations_batch", None)
+
+
 def _relion_matrix_to_euler_angles(A: np.ndarray) -> np.ndarray:
     """Vectorized port of RELION ``Euler_matrix2angles``."""
     A = np.asarray(A, dtype=np.float64).reshape(-1, 3, 3)
@@ -1229,12 +1240,7 @@ def get_oversampled_rotation_grid_from_samples(
         child_rotation_indices = child_pixels * fine_n_in_planes + nearest_child_psi.reshape(-1)
 
     native_euler_angles = None
-    try:
-        from recovar.relion_bind import _relion_bind_core as relion_bind
-
-        native_oversampling = getattr(relion_bind, "get_oversampled_orientations_batch", None)
-    except (ImportError, OSError):
-        native_oversampling = None
+    native_oversampling = _relion_oversampled_orientations_binding()
     if native_oversampling is not None:
         native_euler_angles = np.asarray(
             native_oversampling(

@@ -215,6 +215,18 @@ def test_relion_mstep_native_binding_resolution_is_cached():
     assert sampling_module._relion_euler_inverse_binding.cache_info().misses == 1
 
 
+def test_relion_oversampling_native_binding_resolution_is_cached():
+    from recovar.em import sampling as sampling_module
+
+    sampling_module._relion_oversampled_orientations_binding.cache_clear()
+    first = sampling_module._relion_oversampled_orientations_binding()
+    second = sampling_module._relion_oversampled_orientations_binding()
+
+    assert first is second
+    assert sampling_module._relion_oversampled_orientations_binding.cache_info().hits == 1
+    assert sampling_module._relion_oversampled_orientations_binding.cache_info().misses == 1
+
+
 def test_k4_restart_uses_seed_exact_perturbation_for_captured_mstep_bits():
     exact_perturbation = relion_sampling_perturbation_for_iteration(
         0.5,
