@@ -8,6 +8,8 @@ C4 audit: [`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volu
 
 C4.5 inventory: [`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)
 
+C5 inventory: [`dense_single_volume_refactor_c5_inventory.md`](dense_single_volume_refactor_c5_inventory.md)
+
 Historical C0--C4 log:
 [`dense_single_volume_refactor_progress_archive_c0_c4.md`](dense_single_volume_refactor_progress_archive_c0_c4.md)
 
@@ -24,7 +26,7 @@ file. Do not record user-specific absolute paths.
 | C3 Diagnostics | Complete | Diagnostic persistence and effects have dedicated owners; obsolete debug re-export shims are gone. |
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
-| C5 Sparse pass 2 | Ready | Split and simplify the sparse pass from the accepted C4.5 checkpoint. |
+| C5 Sparse pass 2 | Active | Inventory and focused baselines recorded; break the import cycle before typed engine migration. |
 | C6--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
@@ -143,9 +145,9 @@ arms.
 
 ## Immediate next actions
 
-1. Begin C5 from the accepted `d6bf42da` implementation checkpoint.
-2. Inventory sparse-pass-2 routes and delete only dead/shadow paths with
-   focused evidence.
-3. Establish the smallest typed sparse orchestration boundary before any
-   module split, preserving candidate order, dtypes, reductions, and JIT
-   topology.
+1. Move shared significance/sparse support and fine-scoring primitives to
+   neutral lower-level owners and enforce the dependency direction.
+2. Establish the smallest typed K=1 sparse orchestration boundary, preserving
+   candidate order, dtypes, reductions, and JIT topology.
+3. Migrate callers one family at a time and delete each superseded tuple or raw
+   settings bridge in the same slice.

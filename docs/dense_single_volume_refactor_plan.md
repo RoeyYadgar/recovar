@@ -14,6 +14,9 @@ C1--C4 audit:
 C4.5 inventory:
 [`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)
 
+C5 inventory:
+[`dense_single_volume_refactor_c5_inventory.md`](dense_single_volume_refactor_c5_inventory.md)
+
 ## 1. Goal
 
 Refactor dense single-volume EM so that the control flow, data ownership, and
