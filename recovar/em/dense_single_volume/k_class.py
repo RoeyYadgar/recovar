@@ -18,7 +18,7 @@ from recovar.utils.nvtx_shim import nvtx
 from .dense_em_types import DenseEMInputs, DenseEMRequest
 from .em_engine import make_dense_em_request, run_dense_em
 from .helpers.half_volume_mstep import relion_backprojector_volume_shape
-from .helpers.significance import ComplementSignificantSampleIndices, significant_sample_count
+from .helpers.significant_support import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.types import NoiseStats, RelionStats, make_noise_stats, make_relion_stats
 from .local_em_engine import make_local_em_request, run_local_em
 from .local_em_types import LocalEMInputs, LocalEMRequest

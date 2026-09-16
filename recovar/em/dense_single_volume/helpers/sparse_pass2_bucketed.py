@@ -119,7 +119,7 @@ from recovar.em.dense_single_volume.helpers.projection import (
 from recovar.em.dense_single_volume.helpers.projection import (
     relion_scale_correction_pixel_mask as _relion_scale_correction_pixel_mask,
 )
-from recovar.em.dense_single_volume.helpers.significance import (
+from recovar.em.dense_single_volume.helpers.significant_support import (
     ComplementSignificantSampleIndices,
 )
 from recovar.em.dense_single_volume.helpers.translation_prior import (
