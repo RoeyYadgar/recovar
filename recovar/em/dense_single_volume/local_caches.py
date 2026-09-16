@@ -164,24 +164,6 @@ def plan_local_cache_route(
     )
 
 
-def _sparse_big_jit_mstep_tensors_within_memory(
-    *,
-    image_count: int,
-    rotation_count: int,
-    n_recon_windowed: int,
-    use_float64_scoring: bool,
-    settings: LocalCacheSettings | None = None,
-) -> bool:
-    estimated_gb, max_gb = _sparse_big_jit_mstep_tensors_memory_gb(
-        image_count=image_count,
-        rotation_count=rotation_count,
-        n_recon_windowed=n_recon_windowed,
-        use_float64_scoring=use_float64_scoring,
-        settings=settings,
-    )
-    return max_gb > 0.0 and estimated_gb <= max_gb
-
-
 def _sparse_big_jit_mstep_tensors_memory_gb(
     *,
     image_count: int,

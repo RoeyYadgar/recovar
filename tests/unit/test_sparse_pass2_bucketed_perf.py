@@ -8563,8 +8563,8 @@ def test_bpref_contribution_stop_requires_completed_target_files(monkeypatch, tm
 
     from recovar.em.dense_single_volume.diagnostics.sparse_capture import (
         BPrefContributionDumpComplete,
+        stop_after_bpref_contribution_dump,
     )
-    from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as bucketed_mod
 
     contribution_path = tmp_path / "contribution.npz"
     device_path = tmp_path / "contribution.device.npz"
@@ -8572,14 +8572,14 @@ def test_bpref_contribution_stop_requires_completed_target_files(monkeypatch, tm
     monkeypatch.delenv("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", raising=False)
 
     with pytest.raises(RuntimeError, match="missing its contribution file"):
-        bucketed_mod._maybe_stop_after_bpref_contribution_dump(
+        stop_after_bpref_contribution_dump(
             contribution_path=contribution_path,
             device_signature_path=None,
         )
 
     contribution_path.write_bytes(b"contribution")
     with pytest.raises(BPrefContributionDumpComplete) as exc_info:
-        bucketed_mod._maybe_stop_after_bpref_contribution_dump(
+        stop_after_bpref_contribution_dump(
             contribution_path=contribution_path,
             device_signature_path=None,
         )
@@ -8588,14 +8588,14 @@ def test_bpref_contribution_stop_requires_completed_target_files(monkeypatch, tm
 
     monkeypatch.setenv("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", str(tmp_path))
     with pytest.raises(RuntimeError, match="missing its requested device-signature file"):
-        bucketed_mod._maybe_stop_after_bpref_contribution_dump(
+        stop_after_bpref_contribution_dump(
             contribution_path=contribution_path,
             device_signature_path=device_path,
         )
 
     device_path.write_bytes(b"device")
     with pytest.raises(BPrefContributionDumpComplete) as exc_info:
-        bucketed_mod._maybe_stop_after_bpref_contribution_dump(
+        stop_after_bpref_contribution_dump(
             contribution_path=contribution_path,
             device_signature_path=device_path,
         )

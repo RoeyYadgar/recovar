@@ -364,19 +364,6 @@ class RelionWavgRectangle(NamedTuple):
     shell_indices: np.ndarray
 
 
-def _maybe_stop_after_bpref_contribution_dump(
-    *,
-    contribution_path: str | Path,
-    device_signature_path: str | Path | None,
-) -> None:
-    """Compatibility wrapper for the diagnostics-owned stop policy."""
-
-    stop_after_bpref_contribution_dump(
-        contribution_path=contribution_path,
-        device_signature_path=device_signature_path,
-    )
-
-
 def _k_class_pass2_dump_progress(
     *,
     dump_dir: str | Path,
@@ -1534,7 +1521,7 @@ def _maybe_dump_bpref_contribution_rows(
             neighbor_flag_legend=np.asarray("1=valid;2=hermitian-fold;4=nyquist;8=oob"),
             source_value_legend=np.asarray("data_re,data_im,Fweight,rk0,rk1,rk2 (pre-orientation-fold)"),
         )
-    _maybe_stop_after_bpref_contribution_dump(
+    stop_after_bpref_contribution_dump(
         contribution_path=contribution_path,
         device_signature_path=device_signature_path,
     )
