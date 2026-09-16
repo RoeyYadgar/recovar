@@ -21,8 +21,6 @@ from .helpers.half_volume_mstep import relion_backprojector_volume_shape
 from .helpers.significant_support import ComplementSignificantSampleIndices, significant_sample_count
 from .helpers.sparse_pass2_bucketed import compute_pass2_stats_sparse_bucketed
 from .helpers.sparse_pass2_types import (
-    SparseKClassPass2Data,
-    SparseKClassPass2Settings,
     SparsePass2Data,
     SparsePass2Result,
     SparsePass2Settings,
@@ -1064,15 +1062,15 @@ def _run_sparse_k_class_adaptive_pass2(
         fused_options = dict(
             fused_common,
             experiment_dataset=experiment_dataset,
-            volumes=means_array,
+            volume=means_array,
             mean_variance=mean_variance,
             noise_variance=noise_variance,
             translations=coarse_translations_np,
-            significant_sample_indices_by_class=sig_sample_indices_by_class,
-            rotation_log_priors_by_class=[_class_rotation_prior(index) for index in range(n_classes)],
+            significant_sample_indices=sig_sample_indices_by_class,
+            rotation_log_prior=[_class_rotation_prior(index) for index in range(n_classes)],
         )
-        fused_data = SparseKClassPass2Data.from_options(fused_options)
-        fused_settings = SparseKClassPass2Settings.from_options(
+        fused_data = SparsePass2Data.from_options(fused_options)
+        fused_settings = SparsePass2Settings.from_options(
             fused_options,
             accumulate_noise=accumulate_noise,
             relion_fine_mstep_prune_mode=_k_class_fused_relion_fine_mstep_prune_mode_override(

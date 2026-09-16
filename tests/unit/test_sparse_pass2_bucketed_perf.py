@@ -8528,8 +8528,8 @@ def test_fused_sparse_k_class_capture_requires_companion_contribution_dump(monke
 
     from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as bucketed_mod
     from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
-        SparseKClassPass2Data,
-        SparseKClassPass2Settings,
+        SparsePass2Data,
+        SparsePass2Settings,
     )
 
     signature = inspect.signature(bucketed_mod.compute_k_class_pass2_stats_sparse_fused)
@@ -8539,16 +8539,16 @@ def test_fused_sparse_k_class_capture_requires_companion_contribution_dump(monke
     monkeypatch.delenv("RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR", raising=False)
     with pytest.raises(RuntimeError, match="requires RECOVAR_BPREF_CONTRIBUTION_DUMP_DIR"):
         bucketed_mod.compute_k_class_pass2_stats_sparse_fused(
-            SparseKClassPass2Data(
+            SparsePass2Data(
                 experiment_dataset=None,
-                volumes=np.zeros((2, 1), dtype=np.complex64),
+                volume=np.zeros((2, 1), dtype=np.complex64),
                 mean_variance=np.ones(1, dtype=np.float32),
                 noise_variance=np.ones(1, dtype=np.float32),
                 translations=np.zeros((1, 2), dtype=np.float32),
-                significant_sample_indices_by_class=[[], []],
-                rotation_log_priors_by_class=[None, None],
+                significant_sample_indices=[[], []],
+                rotation_log_prior=[None, None],
             ),
-            SparseKClassPass2Settings(
+            SparsePass2Settings(
                 nside_level=0,
                 disc_type="linear_interp",
                 oversampling_order=0,
@@ -8608,8 +8608,8 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
 
     from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as bucketed_mod
     from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
-        SparseKClassPass2Data,
-        SparseKClassPass2Settings,
+        SparsePass2Data,
+        SparsePass2Settings,
     )
     from recovar.em.sampling import rotation_grid_size
 
@@ -8656,14 +8656,14 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
             _hermitian_volume(VOLUME_SHAPE, seed=2029),
         ]
     )
-    data = SparseKClassPass2Data(
+    data = SparsePass2Data(
         experiment_dataset=MockDataset(n_images=n_images, seed=2039),
-        volumes=volumes,
+        volume=volumes,
         mean_variance=jnp.ones(VOLUME_SIZE, dtype=jnp.float32) * 10.0,
         noise_variance=jnp.ones(IMAGE_SIZE, dtype=jnp.float32),
         translations=np.asarray([[0.0, 0.0]], dtype=np.float32),
-        significant_sample_indices_by_class=significant_by_class,
-        rotation_log_priors_by_class=[None] * n_classes,
+        significant_sample_indices=significant_by_class,
+        rotation_log_prior=[None] * n_classes,
         fine_rotations_override=fine_rotations,
         fine_rotation_parent_override=fine_parent,
         fine_translations_override=fine_translations,
@@ -8674,6 +8674,7 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
         disc_type="linear_interp",
         oversampling_order=0,
         current_size=4,
+        return_stats=True,
         half_spectrum_scoring=True,
         relion_x_half_mstep=True,
         relion_fine_mstep_prune_mode="joint",
@@ -8682,11 +8683,11 @@ def test_fused_sparse_k_class_capture_is_observational(monkeypatch, tmp_path):
 
     plain = bucketed_mod.compute_k_class_pass2_stats_sparse_fused(
         data,
-        SparseKClassPass2Settings(**common_settings, bpref_device_signature_active=False),
+        SparsePass2Settings(**common_settings, bpref_device_signature_active=False),
     )
     instrumented = bucketed_mod.compute_k_class_pass2_stats_sparse_fused(
         data,
-        SparseKClassPass2Settings(**common_settings, bpref_device_signature_active=True),
+        SparsePass2Settings(**common_settings, bpref_device_signature_active=True),
     )
 
     assert captures

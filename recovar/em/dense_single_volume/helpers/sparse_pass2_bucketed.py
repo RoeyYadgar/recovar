@@ -156,9 +156,7 @@ from recovar.em.dense_single_volume.helpers.significant_support import (
     ComplementSignificantSampleIndices,
 )
 from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
-    SparseKClassPass2Data,
     SparseKClassPass2Result,
-    SparseKClassPass2Settings,
     SparsePass2Data,
     SparsePass2Result,
     SparsePass2Settings,
@@ -14635,8 +14633,8 @@ def _shared_k_class_noise_variance(noise_variance, n_classes: int):
 
 
 def compute_k_class_pass2_stats_sparse_fused(
-    data: SparseKClassPass2Data,
-    settings: SparseKClassPass2Settings,
+    data: SparsePass2Data,
+    settings: SparsePass2Settings,
 ) -> SparseKClassPass2Result:
     """Evaluate K-class sparse pass-2 in one joint class-normalized sweep.
 
@@ -14647,12 +14645,12 @@ def compute_k_class_pass2_stats_sparse_fused(
     when noise differs by class.
     """
     experiment_dataset = data.experiment_dataset
-    volumes = data.volumes
+    volumes = data.volume
     mean_variance = data.mean_variance
     noise_variance = data.noise_variance
     translations = data.translations
-    significant_sample_indices_by_class = data.significant_sample_indices_by_class
-    rotation_log_priors_by_class = data.rotation_log_priors_by_class
+    significant_sample_indices_by_class = data.significant_sample_indices
+    rotation_log_priors_by_class = data.rotation_log_prior
     translation_log_prior = data.translation_log_prior
     image_corrections = data.image_corrections
     scale_corrections = data.scale_corrections
