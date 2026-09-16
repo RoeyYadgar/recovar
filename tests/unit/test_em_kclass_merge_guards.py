@@ -38,9 +38,9 @@ import os
 import re
 from types import SimpleNamespace
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
-import jax.numpy as jnp
 
 import recovar.em.dense_single_volume.helpers.oversampling as oversampling_mod
 import recovar.em.dense_single_volume.helpers.score_constraints as score_constraints_mod
@@ -120,10 +120,7 @@ def test_kclass_pass2_dump_completion_waits_for_full_target_set(tmp_path):
         "target_classes_one_based": range(1, 5),
         "current_size": 74,
     }
-    first_target_paths = [
-        tmp_path / f"pass2_orig000017_class{class_id:03d}_cs074.npz"
-        for class_id in range(1, 5)
-    ]
+    first_target_paths = [tmp_path / f"pass2_orig000017_class{class_id:03d}_cs074.npz" for class_id in range(1, 5)]
     for path in first_target_paths:
         path.touch()
     assert sparse_pass2_mod._k_class_pass2_dump_progress(**kwargs) == (4, 8)
@@ -271,9 +268,7 @@ def test_kclass_significance_batched_keeps_174b4c09_api():
         "return_class_best",
     }
     missing = required - set(sig.parameters)
-    assert not missing, (
-        f"_compute_k_class_significance_batched is missing 174b4c09 params: {sorted(missing)}"
-    )
+    assert not missing, f"_compute_k_class_significance_batched is missing 174b4c09 params: {sorted(missing)}"
 
 
 def test_kclass_score_block_takes_class_index_first():
@@ -289,9 +284,7 @@ def test_kclass_score_block_takes_class_index_first():
     )
     assert match is not None, "Could not locate _score_block definition in K-class function"
     first_arg = match.group(1).strip()
-    assert first_arg == "class_index", (
-        f"_score_block first arg must be 'class_index' (174b4c09), got {first_arg!r}"
-    )
+    assert first_arg == "class_index", f"_score_block first arg must be 'class_index' (174b4c09), got {first_arg!r}"
 
 
 def test_kclass_use_fused_pass1_gates_remain_in_place():
@@ -340,12 +333,19 @@ def test_sparse_pass2_preserves_relion_projector_api_and_forwarding():
 
     for func in (
         oversampling_mod.compute_pass2_stats_sparse,
-        sparse_pass2_mod.compute_pass2_stats_sparse_bucketed,
         sparse_pass2_mod.compute_k_class_pass2_stats_sparse_fused,
     ):
         sig = inspect.signature(func)
         for name in ("relion_projector_half", "relion_projector_r_max"):
             assert name in sig.parameters, f"{func.__name__} lost projector parameter {name!r}"
+
+    from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
+        SparsePass2Data,
+        SparsePass2Settings,
+    )
+
+    assert "relion_projector_half" in SparsePass2Data.__dataclass_fields__
+    assert "relion_projector_r_max" in SparsePass2Settings.__dataclass_fields__
 
     source = inspect.getsource(k_class_mod._run_sparse_k_class_adaptive_pass2)
     for needle in (
@@ -393,13 +393,11 @@ def test_kclass_dump_helper_accepts_operand_kwargs():
         "coarse_gaussian_shifted_corrected",
     }
     missing = required - set(sig.parameters)
-    assert not missing, (
-        f"_maybe_dump_k_class_significance_batch is missing operand kwargs: {sorted(missing)}"
-    )
+    assert not missing, f"_maybe_dump_k_class_significance_batch is missing operand kwargs: {sorted(missing)}"
     for name in required:
-        assert sig.parameters[name].default is None, (
-            f"{name} default must stay None so callers without operands still work"
-        )
+        assert (
+            sig.parameters[name].default is None
+        ), f"{name} default must stay None so callers without operands still work"
 
 
 def test_kclass_dump_call_site_passes_operand_kwargs():
@@ -426,19 +424,15 @@ def test_kclass_dump_call_site_passes_operand_kwargs():
     # The half_weights_used branch must distinguish windowed vs
     # unwindowed weights — that's how the dump records what the score
     # actually used.
-    assert "half_weights_windowed if use_window else half_weights" in window, (
-        "Dump call site lost the windowed/unwindowed half_weights selection"
-    )
+    assert (
+        "half_weights_windowed if use_window else half_weights" in window
+    ), "Dump call site lost the windowed/unwindowed half_weights selection"
 
 
 def test_kclass_significance_dump_threads_one_based_iteration():
     assert "debug_iteration" in inspect.signature(iteration_loop._score_half_dense).parameters
-    assert "debug_iteration" in inspect.signature(
-        k_class_mod.run_dense_k_class_em_adaptive
-    ).parameters
-    assert "debug_iteration" in inspect.signature(
-        sig_mod._compute_k_class_significance_batched
-    ).parameters
+    assert "debug_iteration" in inspect.signature(k_class_mod.run_dense_k_class_em_adaptive).parameters
+    assert "debug_iteration" in inspect.signature(sig_mod._compute_k_class_significance_batched).parameters
     loop_source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
     score_source = inspect.getsource(iteration_loop._score_half_dense)
     adaptive_source = inspect.getsource(k_class_mod.run_dense_k_class_em_adaptive)
@@ -451,25 +445,16 @@ def test_kclass_significance_dump_threads_one_based_iteration():
     assert score_source.count("debug_iteration=debug_iteration") >= 3
     assert adaptive_source.count("debug_iteration=debug_iteration") >= 1
     assert "debug_iteration=debug_iteration" in significance_source
-    firstiter_probe_source = inspect.getsource(
-        k_class_mod._run_dense_k_class_joint_firstiter_score_probe
-    )
+    firstiter_probe_source = inspect.getsource(k_class_mod._run_dense_k_class_joint_firstiter_score_probe)
     assert "collect_significance=_significance_debug_dump_matches(" in firstiter_probe_source
 
 
 def test_k1_firstiter_threads_host_precision_translation_phase_source():
     adaptive_source = inspect.getsource(k_class_mod.run_dense_k_class_em_adaptive)
-    joint_probe_source = inspect.getsource(
-        k_class_mod._run_dense_k_class_joint_firstiter_score_probe
-    )
+    joint_probe_source = inspect.getsource(k_class_mod._run_dense_k_class_joint_firstiter_score_probe)
     assert "if n_classes == 1 and coarse_translation_phase_source is not None:" in adaptive_source
-    assert (
-        'coarse_probe_kwargs["translation_phase_source"]' in adaptive_source
-    )
-    assert (
-        'translation_phase_source=engine_kwargs.get("translation_phase_source")'
-        in joint_probe_source
-    )
+    assert 'coarse_probe_kwargs["translation_phase_source"]' in adaptive_source
+    assert 'translation_phase_source=engine_kwargs.get("translation_phase_source")' in joint_probe_source
 
 
 def test_significance_dump_work_is_gated_before_scoring(monkeypatch, tmp_path):
@@ -520,12 +505,9 @@ def test_kclass_dump_writes_operand_arrays_to_npz(monkeypatch, tmp_path):
     rotations = np.tile(np.eye(3, dtype=np.float32), (n_rot, 1, 1))
     translations = np.zeros((n_trans, 2), dtype=np.float32)
     class_weight_mats = [
-        np.ones((n_images, n_rot * n_trans), dtype=np.float64) / (n_rot * n_trans)
-        for _ in range(n_classes)
+        np.ones((n_images, n_rot * n_trans), dtype=np.float64) / (n_rot * n_trans) for _ in range(n_classes)
     ]
-    batch_sig_mask = np.ones(
-        (n_images, n_classes * n_rot * n_trans), dtype=bool
-    )
+    batch_sig_mask = np.ones((n_images, n_classes * n_rot * n_trans), dtype=bool)
     batch_n_sig = np.array([n_classes * n_rot * n_trans], dtype=np.int64)
     hard_assignment_batch = np.array([0], dtype=np.int64)
     class_assignment_batch = np.array([0], dtype=np.int64)
@@ -535,33 +517,37 @@ def test_kclass_dump_writes_operand_arrays_to_npz(monkeypatch, tmp_path):
     max_posterior = np.array([0.5], dtype=np.float64)
     class_log_priors = np.zeros(n_classes, dtype=np.float64)
 
-    shifted_data = np.zeros(
-        (n_images * n_trans, n_pix), dtype=np.complex128
-    )
+    shifted_data = np.zeros((n_images * n_trans, n_pix), dtype=np.complex128)
     ctf2_data = np.zeros((n_images, n_pix), dtype=np.float64)
     window_indices = np.arange(n_pix, dtype=np.int32)
     half_weights_used = np.ones(n_pix, dtype=np.float64)
-    coarse_gaussian_shifted_corrected = np.arange(
-        n_images * n_trans * n_pix,
-        dtype=np.float32,
-    ).reshape(n_images, n_trans, n_pix).astype(np.complex64)
+    coarse_gaussian_shifted_corrected = (
+        np.arange(
+            n_images * n_trans * n_pix,
+            dtype=np.float32,
+        )
+        .reshape(n_images, n_trans, n_pix)
+        .astype(np.complex64)
+    )
     projected_reference_rotation_ids = np.asarray([0, 2], dtype=np.int32)
-    projected_reference_per_class = np.arange(
-        n_classes * projected_reference_rotation_ids.size * n_pix,
-        dtype=np.float32,
-    ).reshape(n_classes, projected_reference_rotation_ids.size, n_pix).astype(np.complex64)
+    projected_reference_per_class = (
+        np.arange(
+            n_classes * projected_reference_rotation_ids.size * n_pix,
+            dtype=np.float32,
+        )
+        .reshape(n_classes, projected_reference_rotation_ids.size, n_pix)
+        .astype(np.complex64)
+    )
     component_shape = (
         n_classes,
         n_images,
         projected_reference_rotation_ids.size,
         n_trans,
     )
-    projected_reference_norm_score_per_class = np.arange(
-        np.prod(component_shape), dtype=np.float64
-    ).reshape(component_shape)
-    projected_cross_score_per_class = (
-        -projected_reference_norm_score_per_class - 1.0
+    projected_reference_norm_score_per_class = np.arange(np.prod(component_shape), dtype=np.float64).reshape(
+        component_shape
     )
+    projected_cross_score_per_class = -projected_reference_norm_score_per_class - 1.0
 
     dump_dir = tmp_path / "dump"
     dump_dir.mkdir()
@@ -596,9 +582,7 @@ def test_kclass_dump_writes_operand_arrays_to_npz(monkeypatch, tmp_path):
         coarse_gaussian_shifted_corrected=coarse_gaussian_shifted_corrected,
         projected_reference_rotation_ids=projected_reference_rotation_ids,
         projected_reference_per_class=projected_reference_per_class,
-        projected_reference_norm_score_per_class=(
-            projected_reference_norm_score_per_class
-        ),
+        projected_reference_norm_score_per_class=(projected_reference_norm_score_per_class),
         projected_cross_score_per_class=projected_cross_score_per_class,
         debug_iteration=2,
     )
@@ -638,10 +622,12 @@ def test_kclass_dump_writes_operand_arrays_to_npz(monkeypatch, tmp_path):
         n_trans,
     )
     np.testing.assert_array_equal(
-        payload["projected_reference_rotation_ids"], projected_reference_rotation_ids,
+        payload["projected_reference_rotation_ids"],
+        projected_reference_rotation_ids,
     )
     np.testing.assert_array_equal(
-        payload["projected_reference_per_class"], projected_reference_per_class,
+        payload["projected_reference_per_class"],
+        projected_reference_per_class,
     )
     np.testing.assert_array_equal(
         payload["projected_reference_norm_score_per_class"],
@@ -1117,12 +1103,8 @@ def test_sparse_pass2_dump_writes_score_and_recon_operand_arrays(monkeypatch, tm
         assert name in payload.files, f"Sparse pass-2 dump npz is missing schema field {name!r}"
     assert payload["shifted_corrected"].shape == (n_trans, n_score_pix)
     np.testing.assert_array_equal(payload["direct_score_input"], direct_score_input[0])
-    np.testing.assert_array_equal(
-        payload["direct_preprocessed_score_input"], direct_preprocessed[0]
-    )
-    np.testing.assert_array_equal(
-        payload["direct_pixel_correction"], direct_pixel_correction[0]
-    )
+    np.testing.assert_array_equal(payload["direct_preprocessed_score_input"], direct_preprocessed[0])
+    np.testing.assert_array_equal(payload["direct_pixel_correction"], direct_pixel_correction[0])
     np.testing.assert_array_equal(payload["direct_inverse_noise_score"], direct_inverse_noise)
     np.testing.assert_array_equal(payload["direct_ctf_rfloat_score"], direct_ctf_rfloat[0])
     assert float(payload["relion_preprocess_normalization_factor"]) == 0.75
@@ -1160,9 +1142,7 @@ def test_sparse_pass2_dump_can_retain_only_selected_rotation_rows(monkeypatch, t
     monkeypatch.setenv("RECOVAR_PASS2_DUMP_ORIGINAL_INDICES", "42")
     monkeypatch.setenv("RECOVAR_PASS2_DUMP_ROTATION_ROWS", "1,3")
     monkeypatch.setenv("RECOVAR_PASS2_DUMP_RAW_OPERANDS", "1")
-    raw_diff2 = np.arange(n_rot * n_trans, dtype=np.float32).reshape(
-        1, n_rot, n_trans
-    ) + np.float32(100)
+    raw_diff2 = np.arange(n_rot * n_trans, dtype=np.float32).reshape(1, n_rot, n_trans) + np.float32(100)
     full_to_compact = np.asarray([-1, 0, 1, 2, 3, 4], dtype=np.int32)
 
     sparse_pass2_mod._maybe_dump_pass2_bucket(
@@ -1183,9 +1163,7 @@ def test_sparse_pass2_dump_can_retain_only_selected_rotation_rows(monkeypatch, t
         window_indices=np.arange(n_pix, dtype=np.int32),
         shifted_corrected_score_split=np.ones((1, n_trans, n_pix), dtype=np.complex64),
         direct_score_input=np.arange(n_pix, dtype=np.float32)[None, :].astype(np.complex64),
-        direct_preprocessed_score_input=(
-            np.arange(n_pix, dtype=np.float32)[None, :].astype(np.complex64) + 2j
-        ),
+        direct_preprocessed_score_input=(np.arange(n_pix, dtype=np.float32)[None, :].astype(np.complex64) + 2j),
         direct_pixel_correction=np.ones((1, n_pix), dtype=np.float32) * 3,
         direct_preprocess_normalization_factors=np.asarray([0.25], dtype=np.float32),
         direct_integer_pre_shifts=np.asarray([[1, 2]], dtype=np.int32),
@@ -1225,17 +1203,10 @@ def test_sparse_pass2_dump_can_retain_only_selected_rotation_rows(monkeypatch, t
         np.testing.assert_array_equal(payload["direct_pixel_correction"], 3)
         assert float(payload["relion_preprocess_normalization_factor"]) == 0.25
         np.testing.assert_array_equal(payload["relion_integer_pre_shift"], [1, 2])
-        assert (
-            str(payload["raw_operand_schema"])
-            == "recovar-k1-pass2-selected-raw-operands-v1"
-        )
+        assert str(payload["raw_operand_schema"]) == "recovar-k1-pass2-selected-raw-operands-v1"
         assert int(payload["raw_operand_actual_rotation_count"]) == 2
-        np.testing.assert_array_equal(
-            payload["relion_raw_diff2"], raw_diff2[0, [1, 3]]
-        )
-        np.testing.assert_array_equal(
-            payload["raw_operand_raw_diff2"], raw_diff2[0, [1, 3]]
-        )
+        np.testing.assert_array_equal(payload["relion_raw_diff2"], raw_diff2[0, [1, 3]])
+        np.testing.assert_array_equal(payload["raw_operand_raw_diff2"], raw_diff2[0, [1, 3]])
         np.testing.assert_array_equal(
             payload["raw_operand_shifted_corrected"],
             np.ones((n_trans, n_pix), dtype=np.complex64),
@@ -1246,17 +1217,13 @@ def test_sparse_pass2_dump_can_retain_only_selected_rotation_rows(monkeypatch, t
         )
         np.testing.assert_array_equal(
             payload["raw_operand_proj_half"],
-            np.arange(n_rot * n_pix, dtype=np.float32)
-            .reshape(n_rot, n_pix)[[1, 3]]
-            .astype(np.complex64),
+            np.arange(n_rot * n_pix, dtype=np.float32).reshape(n_rot, n_pix)[[1, 3]].astype(np.complex64),
         )
         np.testing.assert_array_equal(
             payload["raw_operand_half_weights"],
             np.ones(n_pix, dtype=np.float32),
         )
-        np.testing.assert_array_equal(
-            payload["raw_operand_relion_full_to_compact"], full_to_compact
-        )
+        np.testing.assert_array_equal(payload["raw_operand_relion_full_to_compact"], full_to_compact)
         assert float(payload["raw_operand_highres_xi2_half"]) == 17.5
 
 
@@ -1264,9 +1231,7 @@ def test_sparse_pass2_raw_operand_dump_fails_closed_without_raw_diff2(
     monkeypatch,
     tmp_path,
 ):
-    experiment_dataset = SimpleNamespace(
-        dataset_indices=np.asarray([42], dtype=np.int64)
-    )
+    experiment_dataset = SimpleNamespace(dataset_indices=np.asarray([42], dtype=np.int64))
     per_image_inputs = {
         "oversampled_rots": [np.eye(3, dtype=np.float32)[None]],
         "oversampled_rot_indices": [np.asarray([7], dtype=np.int64)],
@@ -1294,9 +1259,7 @@ def test_sparse_pass2_raw_operand_dump_fails_closed_without_raw_diff2(
             proj_half=np.ones((1, 1, 2), dtype=np.complex64),
             half_weights_used=np.ones(2, dtype=np.float32),
             window_indices=np.arange(2, dtype=np.int32),
-            shifted_corrected_score_split=np.ones(
-                (1, 1, 2), dtype=np.complex64
-            ),
+            shifted_corrected_score_split=np.ones((1, 1, 2), dtype=np.complex64),
         )
 
 
@@ -1304,9 +1267,7 @@ def test_sparse_pass2_raw_operand_dump_uses_normalized_cc_score_without_diff2(
     monkeypatch,
     tmp_path,
 ):
-    experiment_dataset = SimpleNamespace(
-        dataset_indices=np.asarray([42], dtype=np.int64)
-    )
+    experiment_dataset = SimpleNamespace(dataset_indices=np.asarray([42], dtype=np.int64))
     per_image_inputs = {
         "oversampled_rots": [np.eye(3, dtype=np.float32)[None]],
         "oversampled_rot_indices": [np.asarray([7], dtype=np.int64)],
@@ -1507,11 +1468,7 @@ def test_kclass_dense_pass2_dump_preserves_selected_raw_diff2(monkeypatch, tmp_p
         n_rot * n_trans,
         dtype=np.float32,
     ).reshape(1, n_rot, n_trans)
-    raw_diff2 = (
-        np.arange(n_rot * n_trans, dtype=np.float32)
-        .reshape(n_rot, n_trans)
-        + np.float32(500.0)
-    )
+    raw_diff2 = np.arange(n_rot * n_trans, dtype=np.float32).reshape(n_rot, n_trans) + np.float32(500.0)
 
     dump_dir = tmp_path / "pass2"
     monkeypatch.setenv("RECOVAR_PASS2_DUMP_DIR", str(dump_dir))
@@ -1554,14 +1511,8 @@ def test_kclass_pass2_dump_preserves_effective_raw_operands(monkeypatch, tmp_pat
         "log_prior": [np.asarray([0.1, -0.2], dtype=np.float32)],
     }
     candidate_mask = np.ones((1, n_rot, n_trans), dtype=bool)
-    shifted_corrected = (
-        np.arange(n_trans * n_pix, dtype=np.float32).reshape(n_trans, n_pix)
-        + 1j
-    ).astype(np.complex64)
-    proj_half = (
-        np.arange(n_rot * n_pix, dtype=np.float32).reshape(n_rot, n_pix)
-        - 2j
-    ).astype(np.complex64)
+    shifted_corrected = (np.arange(n_trans * n_pix, dtype=np.float32).reshape(n_trans, n_pix) + 1j).astype(np.complex64)
+    proj_half = (np.arange(n_rot * n_pix, dtype=np.float32).reshape(n_rot, n_pix) - 2j).astype(np.complex64)
     corr_img_score = np.arange(n_pix, dtype=np.float32) + 0.5
     half_weights = np.arange(n_pix, dtype=np.float32) + 1.0
     full_to_compact = np.asarray([0, -1, 1, 2, 3], dtype=np.int32)
@@ -1604,9 +1555,7 @@ def test_kclass_pass2_dump_preserves_effective_raw_operands(monkeypatch, tmp_pat
     )
 
     payload = np.load(dump_dir / "pass2_orig000042_class001_cs014.npz")
-    assert str(payload["raw_operand_schema"]) == (
-        "recovar-kclass-pass2-effective-raw-operands-v2"
-    )
+    assert str(payload["raw_operand_schema"]) == ("recovar-kclass-pass2-effective-raw-operands-v2")
     assert int(payload["raw_operand_actual_rotation_count"]) == n_rot
     np.testing.assert_array_equal(
         payload["raw_operand_raw_diff2"],
@@ -1728,14 +1677,14 @@ def test_pass2_dump_target_rows_require_requested_iteration(monkeypatch, tmp_pat
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        (None, False),         # unset → off (174b4c09 ships with default off while validated)
+        (None, False),  # unset → off (174b4c09 ships with default off while validated)
         ("", False),
         ("0", False),
         ("no", False),
         ("false", False),
         ("1", True),
         ("true", True),
-        ("TRUE", True),        # case-insensitive
+        ("TRUE", True),  # case-insensitive
         ("yes", True),
         ("YES", True),
         ("on", True),
@@ -1849,7 +1798,7 @@ def test_k1_firstiter_sparse_pass2_uses_exact_relion_cc_scorer():
     """The exact scorer must be wired into the production fine pass, not only its probe."""
 
     source = inspect.getsource(k_class_mod._run_sparse_firstiter_global_winner_subset_pass2)
-    assert 'relion_exact_fine_normalized_cc=n_classes == 1' in source
+    assert "relion_exact_fine_normalized_cc=n_classes == 1" in source
 
 
 # ----------------------------------------------------------------------
@@ -1869,6 +1818,6 @@ def test_iteration_loop_threads_fmask_edge_through_to_postprocess():
     ``--maskedge`` are different units).
     """
     source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
-    assert "relion_fmask_edge=RELION_WIDTH_FMASK_EDGE" in source, (
-        "iteration_loop must forward RELION_WIDTH_FMASK_EDGE to _reconstruct_and_postprocess_means"
-    )
+    assert (
+        "relion_fmask_edge=RELION_WIDTH_FMASK_EDGE" in source
+    ), "iteration_loop must forward RELION_WIDTH_FMASK_EDGE to _reconstruct_and_postprocess_means"

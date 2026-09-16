@@ -13,6 +13,8 @@ M-step accumulators ``Ft_y`` / ``Ft_ctf``, hard assignments, and per-image
 RELION stats.
 """
 
+# ruff: noqa: E402
+
 import inspect
 
 import numpy as np
@@ -22,6 +24,8 @@ pytest.importorskip("jax")
 import jax.numpy as jnp
 
 import recovar.core.fourier_transform_utils as ftu
+from recovar.em.dense_single_volume.helpers import oversampling as oversampling_module
+from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as sparse_pass2_module
 from recovar.em.dense_single_volume.helpers.oversampling import (
     _compute_pass2_stats_sparse_perimage_reference,
     compute_pass2_stats_sparse,
@@ -36,8 +40,6 @@ from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
     _score_pass2_bucket_relion_gpu_diff2,
     _winner_take_all_bucket_probs,
 )
-from recovar.em.dense_single_volume.helpers import sparse_pass2_bucketed as sparse_pass2_module
-from recovar.em.dense_single_volume.helpers import oversampling as oversampling_module
 
 pytestmark = pytest.mark.unit
 
@@ -211,9 +213,9 @@ def _compare_outputs(
             bucketed = np.asarray(bucketed)
             peak = max(float(np.max(np.abs(reference))), np.finfo(np.float32).tiny)
             scaled_error = float(np.max(np.abs(reference - bucketed))) / peak
-            assert scaled_error <= accumulator_scaled_rtol, (
-                f"{label} peak-scaled error {scaled_error:.9g} exceeds {accumulator_scaled_rtol:.9g}"
-            )
+            assert (
+                scaled_error <= accumulator_scaled_rtol
+            ), f"{label} peak-scaled error {scaled_error:.9g} exceeds {accumulator_scaled_rtol:.9g}"
 
     # Hard assignments must match exactly (decoded from probs argmax).
     np.testing.assert_array_equal(np.asarray(ha_ref), np.asarray(ha_b))
@@ -281,14 +283,12 @@ def test_sparse_pass2_score_matches_relion_common_min_direct_diff2_for_finite_in
     """Sparse pass-2 uses RELION's common-min float32 direct-diff2 scores."""
     rng = np.random.default_rng(123)
     batch, n_rot, n_trans, n_half = 2, 3, 4, 5
-    image = (
-        rng.normal(size=(batch, n_trans, n_half)) + 1j * rng.normal(size=(batch, n_trans, n_half))
-    ).astype(np.complex64)
+    image = (rng.normal(size=(batch, n_trans, n_half)) + 1j * rng.normal(size=(batch, n_trans, n_half))).astype(
+        np.complex64
+    )
     ctf = rng.uniform(0.35, 1.25, size=(batch, n_half)).astype(np.float32)
     noise = rng.uniform(0.7, 2.0, size=(batch, n_half)).astype(np.float32)
-    proj = (
-        rng.normal(size=(batch, n_rot, n_half)) + 1j * rng.normal(size=(batch, n_rot, n_half))
-    ).astype(np.complex64)
+    proj = (rng.normal(size=(batch, n_rot, n_half)) + 1j * rng.normal(size=(batch, n_rot, n_half))).astype(np.complex64)
     half_weights = np.array([1.0, 2.0, 2.0, 2.0, 1.0], dtype=np.float32)
     rot_prior = rng.normal(scale=0.1, size=(batch, n_rot)).astype(np.float32)
     trans_prior = rng.normal(scale=0.1, size=(batch, n_trans)).astype(np.float32)
@@ -325,13 +325,11 @@ def test_sparse_pass2_score_matches_relion_common_min_direct_diff2_for_finite_in
 def test_sparse_pass2_normalized_cc_score_matches_dense_formula():
     rng = np.random.default_rng(456)
     batch, n_rot, n_trans, n_half = 2, 3, 4, 5
-    shifted = (
-        rng.normal(size=(batch, n_trans, n_half)) + 1j * rng.normal(size=(batch, n_trans, n_half))
-    ).astype(np.complex64)
+    shifted = (rng.normal(size=(batch, n_trans, n_half)) + 1j * rng.normal(size=(batch, n_trans, n_half))).astype(
+        np.complex64
+    )
     score_weight = rng.uniform(0.2, 1.4, size=(batch, n_half)).astype(np.float32)
-    proj = (
-        rng.normal(size=(batch, n_rot, n_half)) + 1j * rng.normal(size=(batch, n_rot, n_half))
-    ).astype(np.complex64)
+    proj = (rng.normal(size=(batch, n_rot, n_half)) + 1j * rng.normal(size=(batch, n_rot, n_half))).astype(np.complex64)
     half_weights = np.array([1.0, 2.0, 2.0, 2.0, 1.0], dtype=np.float32)
     mask = np.ones((batch, n_rot, n_trans), dtype=bool)
     mask[1, 2, 3] = False
@@ -557,9 +555,7 @@ def test_sparse_pass2_prepare_per_image_inputs_honors_explicit_float64_dtype():
     np.testing.assert_array_equal(bucket["rotations"][0, :4], score_rotations)
     np.testing.assert_array_equal(bucket["mstep_rotations"][0, :4], mstep_rotations)
     assert bucket["log_prior"][0, 0] == 1.0 + 2.0**-40
-    np.testing.assert_allclose(
-        f64_out["oversampled_rots"][0], default_out["oversampled_rots"][0], atol=1e-6
-    )
+    np.testing.assert_allclose(f64_out["oversampled_rots"][0], default_out["oversampled_rots"][0], atol=1e-6)
 
 
 def test_sparse_pass2_distinct_mstep_rotations_do_not_change_score_path(monkeypatch):
@@ -915,11 +911,17 @@ class TestSparsePass2Bucketed:
 
     def test_exact_full_candidate_lists_route_to_bucketed_scorer(self, monkeypatch):
         """Full support must not silently bypass the exact RELION scorer."""
-        sentinel = object()
 
-        def capture_bucketed(*args, **kwargs):
-            del args
-            assert kwargs["relion_exact_fine_gaussian"] is True
+        class _SentinelResult:
+            def to_legacy_tuple(self, settings):
+                del settings
+                return self
+
+        sentinel = _SentinelResult()
+
+        def capture_bucketed(data, settings):
+            del data
+            assert settings.relion_exact_fine_gaussian is True
             return sentinel
 
         def fail_legacy(*args, **kwargs):

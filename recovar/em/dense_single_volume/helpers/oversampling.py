@@ -28,6 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .sparse_pass2_types import SparsePass2Data, SparsePass2Settings
 from .types import make_noise_stats, make_relion_stats
 
 logger = logging.getLogger(__name__)
@@ -860,50 +861,53 @@ def compute_pass2_stats_sparse(
     if not use_perimage_reference and not full_grid_reference:
         from .sparse_pass2_bucketed import compute_pass2_stats_sparse_bucketed
 
-        return compute_pass2_stats_sparse_bucketed(
-            experiment_dataset,
-            volume,
-            mean_variance,
-            noise_variance,
-            translations,
-            significant_sample_indices,
-            nside_level,
-            disc_type,
-            oversampling_order=oversampling_order,
-            current_size=current_size,
-            reconstruction_current_size=reconstruction_current_size,
-            translation_step=translation_step,
+        data = SparsePass2Data(
+            experiment_dataset=experiment_dataset,
+            volume=volume,
+            mean_variance=mean_variance,
+            noise_variance=noise_variance,
+            translations=translations,
+            significant_sample_indices=significant_sample_indices,
             rotation_log_prior=rotation_log_prior,
-            score_with_masked_images=score_with_masked_images,
-            return_stats=return_stats,
             translation_log_prior=translation_log_prior,
-            accumulate_noise=accumulate_noise,
-            half_spectrum_scoring=half_spectrum_scoring,
-            projection_padding_factor=projection_padding_factor,
-            reconstruction_padding_factor=reconstruction_padding_factor,
             image_corrections=image_corrections,
             scale_corrections=scale_corrections,
             group_ids=group_ids,
             scale_correction_group_count=scale_correction_group_count,
             scale_correction_data_vs_prior=scale_correction_data_vs_prior,
             image_pre_shifts=image_pre_shifts,
-            use_float64_scoring=use_float64_scoring,
             translation_prior_centers=translation_prior_centers,
-            do_gridding_correction=do_gridding_correction,
-            square_window=square_window,
-            random_perturbation=random_perturbation,
             normalization_log_z=normalization_log_z,
             normalization_other_score_log_z=normalization_other_score_log_z,
-            normalization_score_mode=normalization_score_mode,
-            return_score_log_z=return_score_log_z,
-            return_score_log_z_only=return_score_log_z_only,
-            disable_adjoint_y=disable_adjoint_y,
-            disable_adjoint_ctf=disable_adjoint_ctf,
             fine_rotations_override=fine_rotations_override,
             fine_mstep_rotations_override=fine_mstep_rotations_override,
             fine_rotation_parent_override=fine_rotation_parent_override,
             fine_translations_override=fine_translations_override,
             fine_translation_parent_override=fine_translation_parent_override,
+            relion_projector_half=relion_projector_half,
+        )
+        settings = SparsePass2Settings(
+            nside_level=nside_level,
+            disc_type=disc_type,
+            oversampling_order=oversampling_order,
+            current_size=current_size,
+            reconstruction_current_size=reconstruction_current_size,
+            translation_step=translation_step,
+            score_with_masked_images=score_with_masked_images,
+            return_stats=return_stats,
+            accumulate_noise=accumulate_noise,
+            half_spectrum_scoring=half_spectrum_scoring,
+            projection_padding_factor=projection_padding_factor,
+            reconstruction_padding_factor=reconstruction_padding_factor,
+            use_float64_scoring=use_float64_scoring,
+            do_gridding_correction=do_gridding_correction,
+            square_window=square_window,
+            random_perturbation=random_perturbation,
+            normalization_score_mode=normalization_score_mode,
+            return_score_log_z=return_score_log_z,
+            return_score_log_z_only=return_score_log_z_only,
+            disable_adjoint_y=disable_adjoint_y,
+            disable_adjoint_ctf=disable_adjoint_ctf,
             relion_half_volume_mstep=relion_half_volume_mstep,
             relion_x_half_mstep=relion_x_half_mstep,
             relion_fine_mstep_prune=relion_fine_mstep_prune,
@@ -913,7 +917,6 @@ def compute_pass2_stats_sparse(
             relion_fine_diff2_fused_ffi=relion_fine_diff2_fused_ffi,
             relion_f32_fine_posterior=relion_f32_fine_posterior,
             relion_exact_fine_normalized_cc=relion_exact_fine_normalized_cc,
-            relion_projector_half=relion_projector_half,
             relion_projector_r_max=relion_projector_r_max,
             adaptive_fraction=adaptive_fraction,
             bpref_device_signature_active=bpref_device_signature_active,
@@ -922,6 +925,7 @@ def compute_pass2_stats_sparse(
             preserve_bpref_particle_order=preserve_bpref_particle_order,
             source_faithful_spectrum_norm=source_faithful_spectrum_norm,
         )
+        return compute_pass2_stats_sparse_bucketed(data, settings).to_legacy_tuple(settings)
 
     if relion_projector_half is not None:
         raise NotImplementedError("RELION projector sparse pass-2 requires the bucketed implementation")

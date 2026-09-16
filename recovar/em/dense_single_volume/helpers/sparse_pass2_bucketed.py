@@ -153,6 +153,11 @@ from recovar.em.dense_single_volume.helpers.relion_fine_scoring import (
 from recovar.em.dense_single_volume.helpers.significant_support import (
     ComplementSignificantSampleIndices,
 )
+from recovar.em.dense_single_volume.helpers.sparse_pass2_types import (
+    SparsePass2Data,
+    SparsePass2Result,
+    SparsePass2Settings,
+)
 from recovar.em.dense_single_volume.helpers.translation_prior import (
     translation_prior_centers_for_images,
     translation_sqdist_angstrom,
@@ -10724,76 +10729,79 @@ def _prepare_bucket_io(
 
 
 def compute_pass2_stats_sparse_bucketed(
-    experiment_dataset,
-    volume,
-    mean_variance,
-    noise_variance,
-    translations,
-    significant_sample_indices,
-    nside_level,
-    disc_type,
-    *,
-    oversampling_order,
-    current_size,
-    reconstruction_current_size=None,
-    translation_step,
-    rotation_log_prior,
-    score_with_masked_images,
-    return_stats,
-    translation_log_prior,
-    accumulate_noise,
-    half_spectrum_scoring,
-    projection_padding_factor,
-    reconstruction_padding_factor,
-    image_corrections,
-    scale_corrections,
-    image_pre_shifts,
-    use_float64_scoring,
-    translation_prior_centers=None,
-    do_gridding_correction=False,
-    square_window=False,
-    random_perturbation,
-    group_ids=None,
-    scale_correction_group_count=None,
-    scale_correction_data_vs_prior=None,
-    normalization_log_z=None,
-    normalization_other_score_log_z=None,
-    normalization_score_mode=None,
-    return_score_log_z=False,
-    return_score_log_z_only=False,
-    disable_adjoint_y=False,
-    disable_adjoint_ctf=False,
-    rotation_block_size_for_quantization=5000,
-    fine_rotations_override=None,
-    fine_mstep_rotations_override=None,
-    fine_rotation_parent_override=None,
-    fine_translations_override=None,
-    fine_translation_parent_override=None,
-    relion_half_volume_mstep=False,
-    relion_x_half_mstep=False,
-    relion_fine_mstep_prune=False,
-    relion_firstiter_score_mode="gaussian",
-    relion_firstiter_winner_take_all=False,
-    relion_exact_fine_gaussian=True,
-    relion_fine_diff2_fused_ffi=False,
-    relion_f32_fine_posterior=False,
-    relion_exact_fine_normalized_cc=False,
-    relion_projector_half=None,
-    relion_projector_r_max=None,
-    adaptive_fraction=0.999,
-    bpref_device_signature_active: bool = False,
-    bpref_class_index: int = 0,
-    include_unweighted_norm_high_shell: bool = True,
-    preserve_bpref_particle_order: bool = False,
-    source_faithful_spectrum_norm: bool = False,
-):
+    data: SparsePass2Data,
+    settings: SparsePass2Settings,
+) -> SparsePass2Result:
     """Bucketed batched implementation of sparse pass-2 oversampling.
 
-    Returns the same tuple as ``compute_pass2_stats_sparse``.
+    The historical facade serializes the stable result to its tuple API.
 
     ``relion_exact_fine_gaussian`` enables RELION's direct fine-search
     diff2/minimum ordering in the active ACC precision (float32 or float64).
     """
+    experiment_dataset = data.experiment_dataset
+    volume = data.volume
+    mean_variance = data.mean_variance
+    noise_variance = data.noise_variance
+    translations = data.translations
+    significant_sample_indices = data.significant_sample_indices
+    rotation_log_prior = data.rotation_log_prior
+    translation_log_prior = data.translation_log_prior
+    image_corrections = data.image_corrections
+    scale_corrections = data.scale_corrections
+    group_ids = data.group_ids
+    scale_correction_group_count = data.scale_correction_group_count
+    scale_correction_data_vs_prior = data.scale_correction_data_vs_prior
+    image_pre_shifts = data.image_pre_shifts
+    translation_prior_centers = data.translation_prior_centers
+    normalization_log_z = data.normalization_log_z
+    normalization_other_score_log_z = data.normalization_other_score_log_z
+    fine_rotations_override = data.fine_rotations_override
+    fine_mstep_rotations_override = data.fine_mstep_rotations_override
+    fine_rotation_parent_override = data.fine_rotation_parent_override
+    fine_translations_override = data.fine_translations_override
+    fine_translation_parent_override = data.fine_translation_parent_override
+    relion_projector_half = data.relion_projector_half
+
+    nside_level = settings.nside_level
+    disc_type = settings.disc_type
+    oversampling_order = settings.oversampling_order
+    current_size = settings.current_size
+    reconstruction_current_size = settings.reconstruction_current_size
+    translation_step = settings.translation_step
+    score_with_masked_images = settings.score_with_masked_images
+    return_stats = settings.return_stats
+    accumulate_noise = settings.accumulate_noise
+    half_spectrum_scoring = settings.half_spectrum_scoring
+    projection_padding_factor = settings.projection_padding_factor
+    reconstruction_padding_factor = settings.reconstruction_padding_factor
+    use_float64_scoring = settings.use_float64_scoring
+    do_gridding_correction = settings.do_gridding_correction
+    square_window = settings.square_window
+    random_perturbation = settings.random_perturbation
+    normalization_score_mode = settings.normalization_score_mode
+    return_score_log_z = settings.return_score_log_z
+    return_score_log_z_only = settings.return_score_log_z_only
+    disable_adjoint_y = settings.disable_adjoint_y
+    disable_adjoint_ctf = settings.disable_adjoint_ctf
+    rotation_block_size_for_quantization = settings.rotation_block_size_for_quantization
+    relion_half_volume_mstep = settings.relion_half_volume_mstep
+    relion_x_half_mstep = settings.relion_x_half_mstep
+    relion_fine_mstep_prune = settings.relion_fine_mstep_prune
+    relion_firstiter_score_mode = settings.relion_firstiter_score_mode
+    relion_firstiter_winner_take_all = settings.relion_firstiter_winner_take_all
+    relion_exact_fine_gaussian = settings.relion_exact_fine_gaussian
+    relion_fine_diff2_fused_ffi = settings.relion_fine_diff2_fused_ffi
+    relion_f32_fine_posterior = settings.relion_f32_fine_posterior
+    relion_exact_fine_normalized_cc = settings.relion_exact_fine_normalized_cc
+    relion_projector_r_max = settings.relion_projector_r_max
+    adaptive_fraction = settings.adaptive_fraction
+    bpref_device_signature_active = settings.bpref_device_signature_active
+    bpref_class_index = settings.bpref_class_index
+    include_unweighted_norm_high_shell = settings.include_unweighted_norm_high_shell
+    preserve_bpref_particle_order = settings.preserve_bpref_particle_order
+    source_faithful_spectrum_norm = settings.source_faithful_spectrum_norm
+
     device_signature_configured = bool(
         _runtime_environment().get("RECOVAR_BPREF_DEVICE_SIGNATURE_DUMP_DIR", "").strip()
     )
@@ -14540,7 +14548,10 @@ def compute_pass2_stats_sparse_bucketed(
     )
 
     if return_score_log_z_only:
-        return log_evidence, score_log_z
+        return SparsePass2Result(
+            log_evidence_per_image=log_evidence,
+            score_log_z=score_log_z,
+        )
 
     if score_only:
         full_volume_size = int(np.prod(recon_volume_shape))
@@ -14628,6 +14639,7 @@ def compute_pass2_stats_sparse_bucketed(
             wsum_scale_correction_aa=noise_scale_correction_aa_total,
         )
 
+    relion_stats = None
     if return_stats:
         relion_stats = make_relion_stats(
             log_evidence_per_image=log_evidence,
@@ -14635,32 +14647,18 @@ def compute_pass2_stats_sparse_bucketed(
             max_posterior_per_image=max_posterior,
             rotation_posterior_sums=rotation_posterior_sums,
         )
-        result = (
-            Ft_y_total,
-            Ft_ctf_total,
-            hard_assignment,
-            best_rotations,
-            best_translations,
-            best_rotation_indices,
-            relion_stats,
-        )
-        if return_score_log_z:
-            result = result + (score_log_z,)
-        if accumulate_noise:
-            result = result + (merged_noise_stats,)
-        return result
-
-    result = (
-        Ft_y_total,
-        Ft_ctf_total,
-        hard_assignment,
-        best_rotations,
-        best_translations,
-        best_rotation_indices,
+    return SparsePass2Result(
+        Ft_y=Ft_y_total,
+        Ft_ctf=Ft_ctf_total,
+        hard_assignment=hard_assignment,
+        best_rotations=best_rotations,
+        best_translations=best_translations,
+        best_rotation_indices=best_rotation_indices,
+        relion_stats=relion_stats,
+        log_evidence_per_image=None if relion_stats is None else relion_stats.log_evidence_per_image,
+        score_log_z=score_log_z if return_score_log_z else None,
+        noise_stats=merged_noise_stats,
     )
-    if accumulate_noise:
-        result = result + (merged_noise_stats,)
-    return result
 
 
 def _shared_k_class_noise_variance(noise_variance, n_classes: int):
