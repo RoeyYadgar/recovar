@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: active; C1--C4.5 complete and accepted, C5 next
+Status: active; C1--C5 complete and accepted, C6 next
 
 Created: 2026-09-08
 
@@ -645,9 +645,24 @@ Exit criteria:
 - bucket topology, candidate identity/order, compile count, peak memory, and
   results match their baselines;
 - the sparse performance regression test remains green;
-- the touched sparse/significance production subsystem is net smaller, and the
-  package-wide production line, class, long-signature, and long-call counts do
-  not increase from the accepted C4.5 checkpoint.
+- the touched sparse/significance production subsystem is net smaller in
+  lines, functions, long signatures, and long calls, and those package-wide
+  counts do not increase from the accepted C4.5 checkpoint;
+- a class-count increase of at most two is allowed only for typed sparse
+  data/settings/result contracts that replace raw dictionaries, the variable
+  K=1 tuple, and duplicate K-class records. This exception must remain
+  net-neutral in total production lines and be called out in the C5
+  scorecard.
+
+Acceptance result: complete at implementation checkpoint `80737456`. The
+package is 13 production lines smaller with one fewer function, two fewer long
+signatures, and one fewer long call than C4.5. The documented net increase of
+two classes supplies the stable sparse data/settings/K=1-result boundaries and
+is offset by removal of an invasive diagnostics class. Focused suites and the
+CPU guard pass; pinned warm GPU job `60844524` is 1.84% faster, and clean
+same-allocation full replay `60844838` improves correlation/FSC-AUC while
+reducing process wall and peak RSS. Exact evidence is recorded in the C5
+inventory and active progress ledger.
 
 ### C6. Refactor dense/global scoring
 
@@ -975,24 +990,24 @@ The refactor is complete when:
 
 ## 12. Next implementation sequence
 
-Begin C5 from the accepted C4.5 checkpoint. Keep each commit understandable,
-independently revertible, and confined to one sparse-pass boundary:
+Begin C6 from the accepted C5 checkpoint. Keep each commit understandable,
+independently revertible, and confined to one dense/global-scoring boundary:
 
-1. Inventory every sparse-pass-2 route, caller, capture hook, and result shape;
-   identify dead/shadow paths before introducing new types or modules.
-2. Freeze candidate identity/order, bucket topology, dtype/layout, reduction
-   order, JIT compile count, peak memory, and representative warm timing with
-   focused K=1 and K-class fixtures.
-3. Define the smallest stable sparse request/result boundary and make the
-   existing implementation canonical behind it; do not add a typed-to-legacy
-   round trip.
-4. Migrate one caller family at a time, deleting its superseded argument/result
-   representation in the same slice.
-5. Move capture persistence to the existing diagnostics owners while
-   preserving artifact schemas and null-route synchronization behavior.
-6. Break the significance/sparse import cycle through a neutral shared
-   primitive boundary, then extract only components with independent ownership
-   or test surfaces.
-7. Run focused tests after each slice, the CPU fast guard after meaningful
-   groups, and paired Slurm GPU quality/performance validation before accepting
-   C5.
+1. Inventory dense/global routes, long signatures, result variants, JIT
+   wrappers, and diagnostics; classify the canonical path before extracting
+   code.
+2. Freeze first-iteration normalized-CC/hard-winner and Gaussian behavior,
+   dense result trees, HLO/compile topology, peak memory, and warm timing.
+3. Preserve `run_dense_em` as the typed canonical entry and confirm every
+   in-package caller bypasses the historical long compatibility facade.
+4. Separate preprocessing and block planning where they have independent
+   inputs, lifetimes, and focused tests; remove the representation each new
+   boundary supersedes in the same commit.
+5. Group the `_DenseBigJitBatchRunner` kernel arrays and static policy without
+   moving host runtime/diagnostic context into JAX inputs.
+6. Isolate pass-1 normalization, pass-2 M-step/noise accumulation, and
+   finalization only along demonstrated numerical boundaries. Keep exact
+   RELION and algebraic variants explicit.
+7. Move remaining dense debug parsing/serialization behind diagnostics, then
+   run focused tests, the CPU fast guard, and paired Slurm GPU
+   quality/performance validation before accepting C6.

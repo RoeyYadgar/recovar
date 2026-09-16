@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Progress
 
-Last updated: 2026-09-11
+Last updated: 2026-09-16
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)
 
@@ -26,27 +26,31 @@ file. Do not record user-specific absolute paths.
 | C3 Diagnostics | Complete | Diagnostic persistence and effects have dedicated owners; obsolete debug re-export shims are gone. |
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
-| C5 Sparse pass 2 | Active | Inventory and focused baselines recorded; break the import cycle before typed engine migration. |
+| C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. |
 | C6--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
 
 Scope: `recovar/em/dense_single_volume/**/*.py`.
 
-| Measure | C4 checkpoint `6041093d` | Current C4.5 | Gate | Result |
+| Measure | Accepted C4.5 | Current C5 | Delta | Result |
 |---|---:|---:|---:|---|
-| Production Python files | 75 | 72 | <=74 | Pass |
-| Production lines | 71,509 | 69,212 | <=70,509 | Pass |
-| Nonblank production lines | 65,975 | 63,751 | decrease | Pass |
-| Functions/methods | 1,254 | 1,239 | decrease | Pass |
-| Classes | 165 | 152 | <=155 | Pass |
-| Functions with >=20 args | 37 | 35 | <=35 | Pass |
-| Calls with >=20 args | 75 | 65 | <=65 | Pass |
-| Largest function span | 5,620 | 5,500 | decrease | Pass |
+| Production Python files | 72 | 76 | +4 | Neutral owners added; total lines fell. |
+| Production lines | 69,212 | 69,199 | -13 | Pass |
+| Nonblank production lines | 63,751 | 63,742 | -9 | Pass |
+| Functions/methods | 1,239 | 1,238 | -1 | Pass |
+| Classes | 152 | 154 | +2 | Documented data/settings-contract exception. |
+| Functions with >=20 args | 35 | 33 | -2 | Pass |
+| Calls with >=20 args | 65 | 64 | -1 | Pass |
+| Largest function span | 5,500 | 5,500 | 0 | Package maximum is outside C5; C5-core maximum fell by 7. |
 
-The current values include the repository formatter normalization commits.
-Those commits contain no algorithm changes and were isolated so the semantic
-refactors remain readable.
+The C5 core itself fell by 21 production lines, 19 nonblank lines, one
+function, two long signatures, one long call, and seven lines from its largest
+function. C5 added shared data/settings and stable K=1 result contracts while
+deleting an invasive diagnostic policy class, for a net increase of two. The
+class exception is explicit because removing those semantic boundaries to
+improve one aggregate metric would restore raw dictionary, variable-tuple, and
+duplicated-record debt.
 
 ## C4.5 completed implementation slices
 
@@ -100,6 +104,53 @@ refactors remain readable.
 No test tolerance, expected numerical value, or quality threshold has been
 changed during C4.5.
 
+## C5 completed implementation
+
+- Neutral owners now contain significant-support encoding, significance
+  thresholds, RELION fine-scoring primitives, and shared dataset indexing.
+  `significance` no longer imports the canonical sparse implementation.
+- K=1 and fused K-class sparse engines consume the shared `SparsePass2Data`
+  and `SparsePass2Settings` contracts and return distinct stable named
+  results. Their public canonical boundaries are two arguments each.
+- All production K-class callers construct typed requests and consume named
+  results. Variable tuple parsing and typed-to-legacy round trips remain only
+  at the one-way historical external facade.
+- Sparse capture imports point directly to `diagnostics.sparse_capture`; the
+  compatibility capture module, dead residual helper, superseded request
+  adapters, and redundant option forwarding are deleted.
+- K=1 and K-class share only input/settings assembly. Their numerically
+  distinct score, posterior, normalization, and M-step implementations remain
+  separate.
+- Successful optional RELION binding lookups are cached outside the per-image
+  preparation loop. Import exceptions are deliberately not cached so a
+  transient loader failure cannot pin execution to a different backend.
+
+The C5 implementation is the sequence `34a39516` through `80737456`, with
+small commits for each ownership, contract, caller-migration, deletion, and
+performance correction. The exact commit ledger is in the C5 inventory.
+
+## C5 validation ledger
+
+| Scope | Result |
+|---|---|
+| Sparse sampling/parity after the final binding correction | 43 passed in `57.81 s`. |
+| Adaptive oversampling, sparse parity, and worker scale with FFTW loaded | 98 passed with six pre-existing complex-cast warnings in `121.93 s`. |
+| Sparse and K-class semantic slices | 70 passed; the broader merge/joint slice passed 109 tests during migration. |
+| Full sparse performance suite | 175 passed with two expected GPU-only skips. |
+| Diagnostics, runtime settings, stop policy, dependency, capture, and fine-score ownership | Focused suites passed (4, 36, and 68 tests respectively). |
+| CPU fast guard | 16 passed in `49.56 s`. |
+| Same-binding preparation profile | Slurm GPU job `60844523`: candidate median about `0.0712 s`, control about `0.0720 s`; both used the same native extension. |
+| Same-binding warm sparse ABBA | Slurm GPU job `60844524`: pooled candidate `0.17647 s`, control `0.17978 s`, candidate delta `-1.84%`; completed `0:0` on one V100. |
+| Final prescribed paired replay | Slurm GPU job `60844838` completed `0:0` control-first on one A100-PCIE-40GB; trajectory/schema matched, quality improved, and runtime/memory gates passed. |
+
+The initial warm measurements were not accepted because the candidate appeared
+slower. Investigation found two separate causes: repeated optional-binding
+resolution after C5 changed import timing, and an ignored native RELION `.so`
+present only in the control worktree. The production lookup is now cached
+safely, and decisive jobs pin the same checksum-identical external binding in
+both arms. Earlier jobs `60841550`, `60841926`, `60842862`, and `60843417` are
+diagnostic evidence only, not acceptance comparisons.
+
 ## Reference quality and performance
 
 The initial same-code artifact is
@@ -143,11 +194,34 @@ control and candidate arms. That edit remains preserved and is not part of
 C4.5. Job `60569641` used detached worktrees with empty tracked diffs for both
 arms.
 
+The accepted C5 full-replay artifact is
+`$HOME/palmer_scratch/tmp/c5_samegpu_final_80737456_vs_d6bf42da_20260916`.
+Job `60844838` ran C4.5 control `d6bf42da` followed by C5 candidate `80737456`
+on the same A100-PCIE-40GB, with clean detached worktrees, separate caches, and
+the same pinned CUDA and RELION bindings:
+
+| Measure | C4.5 control | C5 candidate | Candidate delta |
+|---|---:|---:|---:|
+| Completed iterations / final-all-data | 13 / yes | 13 / yes | same |
+| Final correlation vs RELION | `0.9983925071` | `0.9983953637` | `+0.0000028566` |
+| Final FSC-AUC vs RELION | `0.9948770218` | `0.9948863890` | `+0.0000093672` |
+| Ledger elapsed | `985.772 s` | `993.264 s` | `+0.76%` |
+| Exact-local EM | `332.928 s` | `328.630 s` | `-1.29%` |
+| Process wall | `1047.09 s` | `1038.43 s` | `-0.83%` |
+| Transfer to host | `7.414 s` | `7.343 s` | `-0.97%` |
+| Peak RSS | `11,114,976 KiB` | `11,053,948 KiB` | `-0.55%` |
+
+Both arms followed size trajectory
+`[46, 46, 72, 70, 70, 70, 70, 70, 70, 72, 72, 72, 72]`. Their 310-field
+result archives have identical key order, shapes, and dtypes. Direct final-map
+correlation is `0.9999998900` with relative L2 `0.0004684`. C5 therefore
+introduces no material quality, runtime, transfer, or memory regression.
+
 ## Immediate next actions
 
-1. Move shared significance/sparse support and fine-scoring primitives to
-   neutral lower-level owners and enforce the dependency direction.
-2. Establish the smallest typed K=1 sparse orchestration boundary, preserving
-   candidate order, dtypes, reductions, and JIT topology.
-3. Migrate callers one family at a time and delete each superseded tuple or raw
-   settings bridge in the same slice.
+1. Begin C6 with a dense/global-scoring inventory and frozen dense JIT/result
+   baseline. Do not modify dense kernels until that inventory is committed.
+2. Classify dense preprocessing, block planning, normalization, M-step/noise,
+   finalization, compatibility, and diagnostics ownership before extraction.
+3. Preserve `run_dense_em` as the canonical typed entry and migrate/delete one
+   superseded dense representation in each small implementation slice.

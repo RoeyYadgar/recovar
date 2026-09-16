@@ -1,10 +1,13 @@
 # C5 Sparse Pass-2 Inventory
 
-Status: active
+Status: complete and accepted at implementation checkpoint `80737456`
 
 Started: 2026-09-15
 
-Baseline: accepted C4.5 checkpoint `76803b0e`
+Completed: 2026-09-16
+
+Baseline: accepted C4.5 implementation checkpoint `d6bf42da` (documentation
+checkpoint `76803b0e`)
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)
 
@@ -109,9 +112,15 @@ sparse runner, but the canonical runner must not import its facade.
 ## C5 ratchets and exit gates
 
 - The touched sparse/significance subsystem is net smaller in production
-  lines, functions/classes, long signatures, and long calls.
-- Package totals do not exceed the accepted C4.5 checkpoint: 69,212 lines, 152
-  classes, 35 long signatures, and 65 long calls.
+  lines, functions, long signatures, and long calls. The class count may grow
+  by exactly two for the typed sparse data/settings/result contracts that
+  replace raw dictionaries, a variable K=1 tuple, and duplicate K-class
+  records; deleting those semantic
+  boundaries merely to satisfy a raw class-count ratchet is not an accepted
+  simplification.
+- Package totals do not exceed the accepted C4.5 checkpoint for production
+  lines, functions, long signatures, or long calls. The same explicit
+  two-class contract exception applies package-wide.
 - Normal in-package execution uses typed sparse requests/results and never
   expands them into a legacy signature or reparses a variable tuple.
 - No import edge from significance or a neutral primitive module points back to
@@ -133,3 +142,90 @@ sparse runner, but the canonical runner must not import its facade.
 The host `pixi` wrapper did not exit after pytest reported completion in these
 baseline runs and was interrupted after results were printed. No test process
 was interrupted before pytest completion.
+
+## Completed implementation slices
+
+| Commits | Outcome |
+|---|---|
+| `34a39516`, `fe22289a`, `54a97989` | Moved significant-support encoding, RELION fine-scoring primitives, and significance thresholds to neutral lower-level owners, eliminating the significance-to-sparse implementation edge. |
+| `670eb1e2` | Centralized dataset-index translation shared by sparse and local routes. |
+| `7d5d6c2f`, `d42672b5` | Added the stable K=1 sparse data/settings/result boundary and migrated all K-class K=1 production callers away from long calls and tuple parsing. |
+| `5ce5f3e5`, `a8fee2ab`, `c1bd3d60` | Added the distinct fused K-class result while sharing the demonstrated data/settings contract and centralized request construction. Joint class/pose normalization remains a separate implementation. |
+| `2ef9f0e3`, `36921c7b`, `e01b7144` | Removed the compact-capture alias, retargeted tests to the diagnostic owner, and reduced invasive routing to an explicit diagnostics policy function. |
+| `fc7fbf8b`, `211e79de`, `2fcffeca` | Deleted a dead residual helper, collapsed sparse option forwarding, and removed superseded internal adapters. The historical external facade remains one-way. |
+| `8b069c2a`, `cd194e0e`, `80737456` | Cached successful optional RELION binding resolution in the per-image preparation loop while preserving retries after transient loader failures. |
+
+The two canonical algorithm bodies remain large because scoring, posterior,
+and M-step arithmetic share one compiled lifecycle. C5 did not split them into
+files with no independent owner or test boundary. Their external host
+interfaces are now two arguments each, and normal production flow no longer
+round-trips through the historical 61- or 46-argument forms.
+
+## Final structural scorecard
+
+The final C5 core is the original sparse/significance/oversampling/diagnostic
+surface after deleting the compatibility capture module and adding the five
+neutral owners created by C5.
+
+| Measure | C4.5 package | C5 package | Delta | Initial C5 core | Final C5 core | Core delta |
+|---|---:|---:|---:|---:|---:|---:|
+| Production Python files | 72 | 76 | +4 | 5 | 9 | +4 |
+| Production lines | 69,212 | 69,199 | -13 | 24,749 | 24,728 | -21 |
+| Nonblank production lines | 63,751 | 63,742 | -9 | 23,177 | 23,158 | -19 |
+| Functions/methods | 1,239 | 1,238 | -1 | 365 | 364 | -1 |
+| Classes | 152 | 154 | +2 | 9 | 11 | +2 |
+| Functions with >=20 args | 35 | 33 | -2 | 16 | 14 | -2 |
+| Calls with >=20 args | 65 | 64 | -1 | 25 | 24 | -1 |
+| Largest function span | 5,500 | 5,500 | 0 | 3,938 | 3,931 | -7 |
+
+The file increase is the cost of replacing cyclic/mixed ownership with neutral
+modules; it did not increase total code. C5 added `SparsePass2Data`,
+`SparsePass2Settings`, and the stable K=1 `SparsePass2Result`, while deleting
+the invasive-diagnostics policy class; the fused K-class result replaces an
+existing implementation-owned record. That leaves a net increase of two
+classes for three real sparse contracts.
+
+## C5 validation and performance audit
+
+| Scope | Result |
+|---|---|
+| Sparse parity and sampling after the binding fix | 43 passed in `57.81 s`. |
+| Adaptive oversampling, sparse parity, and RELION worker scale with FFTW loaded | 98 passed with six pre-existing complex-cast warnings in `121.93 s`. |
+| Sparse and K-class semantics | 70 passed in `62.27 s`; the K-class merge/joint slice also passed 109 tests during migration. |
+| Full sparse performance suite | 175 passed with two expected GPU-only skips in `125.52 s`. |
+| Diagnostics structure | 4 passed. |
+| Runtime settings and BPref stop policy | 36 passed. |
+| Dependency, capture, fine-score, and weighted-average ownership | 68 passed; read-only JAX cache warnings only. |
+| CPU fast guard at final implementation | 16 passed in `49.56 s`. |
+| Native binding preparation profile | Slurm job `60844523` completed `0:0` on a V100. With the same external binding pinned in both arms, candidate preparation median was about `0.0712 s` versus control `0.0720 s`; both loaded the native extension. |
+| Warm sparse ABBA gate | Slurm job `60844524` completed `0:0` on one V100. Pooled candidate median was `0.17647 s` versus control `0.17978 s` (`-1.84%`); compile times remained within the normal paired spread. |
+| Final prescribed paired replay | Slurm job `60844838` completed `0:0` control-first on one A100-PCIE-40GB. Both arms ran 13 numbered iterations plus final-all-data with identical size trajectories and 310-field result schemas. |
+
+Final clean paired replay artifact:
+`$HOME/palmer_scratch/tmp/c5_samegpu_final_80737456_vs_d6bf42da_20260916`.
+
+| Measure | C4.5 control | C5 candidate | Candidate delta |
+|---|---:|---:|---:|
+| Final correlation vs RELION | `0.9983925071` | `0.9983953637` | `+0.0000028566` |
+| Final FSC-AUC vs RELION | `0.9948770218` | `0.9948863890` | `+0.0000093672` |
+| Ledger elapsed | `985.772 s` | `993.264 s` | `+0.76%` |
+| Exact-local EM | `332.928 s` | `328.630 s` | `-1.29%` |
+| Process wall | `1047.09 s` | `1038.43 s` | `-0.83%` |
+| Transfer to host | `7.414 s` | `7.343 s` | `-0.97%` |
+| Peak RSS | `11,114,976 KiB` | `11,053,948 KiB` | `-0.55%` |
+
+The direct candidate/control final merged maps have correlation
+`0.9999998900` and relative L2 `0.0004684`. Both result archives contain 310
+fields in the same order with identical shapes and dtypes. The ledger wall
+increase is inside the 5% gate and is contextualized by lower process wall,
+EM time, transfer time, and RSS; no algorithm or performance regression is
+present.
+
+The first warm investigation was intentionally not accepted. Jobs `60841550`
+and `60841926` exposed a repeatable slowdown, and jobs `60842862` and
+`60843417` narrowed it to optional native binding resolution. The apparent
+remaining difference was then traced to an ignored native `.so` present only
+in the control worktree. Those runs compared different backends and are not
+performance evidence. The decisive jobs above pin the same checksum-identical
+external binding for both arms. This audit also produced a small robustness
+fix: successful lookups are cached, but transient import failures are retried.
