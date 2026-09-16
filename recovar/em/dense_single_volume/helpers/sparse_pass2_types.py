@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, fields
+from typing import Any, Mapping, Self
+
+
+def _declared_options(cls, options: Mapping[str, Any], overrides: Mapping[str, Any]):
+    """Select only fields declared by ``cls`` from an orchestration option map."""
+
+    field_names = {field.name for field in fields(cls)}
+    values = {name: value for name, value in options.items() if name in field_names}
+    unknown_overrides = set(overrides) - field_names
+    if unknown_overrides:
+        unknown = ", ".join(sorted(unknown_overrides))
+        raise TypeError(f"unknown {cls.__name__} option(s): {unknown}")
+    values.update(overrides)
+    return values
 
 
 @dataclass(frozen=True)
@@ -33,6 +46,12 @@ class SparsePass2Data:
     fine_translations_override: Any | None = None
     fine_translation_parent_override: Any | None = None
     relion_projector_half: Any | None = None
+
+    @classmethod
+    def from_options(cls, options: Mapping[str, Any], **overrides: Any) -> Self:
+        """Build from a larger orchestration map while rejecting unknown overrides."""
+
+        return cls(**_declared_options(cls, options, overrides))
 
 
 @dataclass(frozen=True)
@@ -77,6 +96,12 @@ class SparsePass2Settings:
     include_unweighted_norm_high_shell: bool = True
     preserve_bpref_particle_order: bool = False
     source_faithful_spectrum_norm: bool = False
+
+    @classmethod
+    def from_options(cls, options: Mapping[str, Any], **overrides: Any) -> Self:
+        """Build from a larger orchestration map while rejecting unknown overrides."""
+
+        return cls(**_declared_options(cls, options, overrides))
 
 
 @dataclass(frozen=True)
@@ -143,6 +168,12 @@ class SparseKClassPass2Data:
     fine_translation_parent_override: Any | None = None
     relion_projector_half: Any | None = None
 
+    @classmethod
+    def from_options(cls, options: Mapping[str, Any], **overrides: Any) -> Self:
+        """Build fused data from its surrounding K-class option map."""
+
+        return cls(**_declared_options(cls, options, overrides))
+
 
 @dataclass(frozen=True)
 class SparseKClassPass2Settings:
@@ -173,6 +204,12 @@ class SparseKClassPass2Settings:
     relion_projector_r_max: int | None = None
     adaptive_fraction: float = 0.999
     bpref_device_signature_active: bool = False
+
+    @classmethod
+    def from_options(cls, options: Mapping[str, Any], **overrides: Any) -> Self:
+        """Build fused settings from its surrounding K-class option map."""
+
+        return cls(**_declared_options(cls, options, overrides))
 
 
 @dataclass(frozen=True)

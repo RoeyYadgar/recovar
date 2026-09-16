@@ -1061,56 +1061,23 @@ def _run_sparse_k_class_adaptive_pass2(
         fused_common.pop("source_faithful_spectrum_norm", None)
         fused_common["relion_projector_half"] = relion_projector_half_by_class
         fused_common["relion_projector_r_max"] = relion_projector_r_max
-        fused_data = SparseKClassPass2Data(
+        fused_options = dict(
+            fused_common,
             experiment_dataset=experiment_dataset,
             volumes=means_array,
             mean_variance=mean_variance,
             noise_variance=noise_variance,
             translations=coarse_translations_np,
             significant_sample_indices_by_class=sig_sample_indices_by_class,
-            rotation_log_priors_by_class=[_class_rotation_prior(class_index) for class_index in range(n_classes)],
-            translation_log_prior=fused_common.get("translation_log_prior"),
-            image_corrections=fused_common.get("image_corrections"),
-            scale_corrections=fused_common.get("scale_corrections"),
-            group_ids=fused_common.get("group_ids"),
-            scale_correction_group_count=fused_common.get("scale_correction_group_count"),
-            scale_correction_data_vs_prior=fused_common.get("scale_correction_data_vs_prior"),
-            image_pre_shifts=fused_common.get("image_pre_shifts"),
-            translation_prior_centers=fused_common.get("translation_prior_centers"),
-            fine_rotations_override=fused_common.get("fine_rotations_override"),
-            fine_mstep_rotations_override=fused_common.get("fine_mstep_rotations_override"),
-            fine_rotation_parent_override=fused_common.get("fine_rotation_parent_override"),
-            fine_translations_override=fused_common.get("fine_translations_override"),
-            fine_translation_parent_override=fused_common.get("fine_translation_parent_override"),
-            relion_projector_half=fused_common.get("relion_projector_half"),
+            rotation_log_priors_by_class=[_class_rotation_prior(index) for index in range(n_classes)],
         )
-        fused_settings = SparseKClassPass2Settings(
-            nside_level=fused_common["nside_level"],
-            disc_type=fused_common["disc_type"],
-            oversampling_order=fused_common["oversampling_order"],
-            current_size=fused_common["current_size"],
-            translation_step=fused_common["translation_step"],
-            score_with_masked_images=fused_common["score_with_masked_images"],
-            return_stats=fused_common["return_stats"],
+        fused_data = SparseKClassPass2Data.from_options(fused_options)
+        fused_settings = SparseKClassPass2Settings.from_options(
+            fused_options,
             accumulate_noise=accumulate_noise,
-            half_spectrum_scoring=fused_common["half_spectrum_scoring"],
-            projection_padding_factor=fused_common["projection_padding_factor"],
-            reconstruction_padding_factor=fused_common["reconstruction_padding_factor"],
-            use_float64_scoring=fused_common["use_float64_scoring"],
-            do_gridding_correction=fused_common["do_gridding_correction"],
-            square_window=fused_common["square_window"],
-            random_perturbation=fused_common["random_perturbation"],
-            relion_half_volume_mstep=fused_common["relion_half_volume_mstep"],
-            relion_x_half_mstep=fused_common["relion_x_half_mstep"],
             relion_fine_mstep_prune_mode=_k_class_fused_relion_fine_mstep_prune_mode_override(
                 relion_fine_mstep_prune=bool(base_engine_kwargs.get("relion_fine_mstep_prune", False)),
             ),
-            relion_firstiter_score_mode=fused_common["relion_firstiter_score_mode"],
-            relion_firstiter_winner_take_all=fused_common["relion_firstiter_winner_take_all"],
-            relion_exact_fine_gaussian=fused_common["relion_exact_fine_gaussian"],
-            relion_projector_r_max=fused_common.get("relion_projector_r_max"),
-            adaptive_fraction=fused_common["adaptive_fraction"],
-            bpref_device_signature_active=fused_common["bpref_device_signature_active"],
         )
         try:
             fused = compute_k_class_pass2_stats_sparse_fused(fused_data, fused_settings)
@@ -1183,7 +1150,8 @@ def _run_sparse_k_class_adaptive_pass2(
         disable_adjoint_ctf: bool = False,
     ) -> SparsePass2Result:
         class_common = _common_for_class(class_index)
-        data = SparsePass2Data(
+        data_options = dict(
+            class_common,
             experiment_dataset=experiment_dataset,
             volume=means_array[class_index],
             mean_variance=_select_class_value(mean_variance, class_index, n_classes),
@@ -1191,64 +1159,24 @@ def _run_sparse_k_class_adaptive_pass2(
             translations=coarse_translations_np,
             significant_sample_indices=sig_sample_indices_by_class[class_index],
             rotation_log_prior=_class_rotation_prior(class_index),
-            translation_log_prior=class_common.get("translation_log_prior"),
-            image_corrections=class_common.get("image_corrections"),
-            scale_corrections=class_common.get("scale_corrections"),
-            group_ids=class_common.get("group_ids"),
-            scale_correction_group_count=class_common.get("scale_correction_group_count"),
-            scale_correction_data_vs_prior=class_common.get("scale_correction_data_vs_prior"),
-            image_pre_shifts=class_common.get("image_pre_shifts"),
-            translation_prior_centers=class_common.get("translation_prior_centers"),
             normalization_log_z=normalization_log_z,
             normalization_other_score_log_z=normalization_other_score_log_z,
-            fine_rotations_override=class_common.get("fine_rotations_override"),
-            fine_mstep_rotations_override=class_common.get("fine_mstep_rotations_override"),
-            fine_rotation_parent_override=class_common.get("fine_rotation_parent_override"),
-            fine_translations_override=class_common.get("fine_translations_override"),
-            fine_translation_parent_override=class_common.get("fine_translation_parent_override"),
             relion_projector_half=_select_projector_half_for_class(
                 relion_projector_half_by_class,
                 class_index,
                 n_classes,
             ),
         )
-        settings = SparsePass2Settings(
-            nside_level=class_common["nside_level"],
-            disc_type=class_common["disc_type"],
-            oversampling_order=class_common["oversampling_order"],
-            current_size=class_common["current_size"],
-            reconstruction_current_size=class_common["reconstruction_current_size"],
-            translation_step=class_common["translation_step"],
-            score_with_masked_images=class_common["score_with_masked_images"],
-            return_stats=class_common["return_stats"],
+        data = SparsePass2Data.from_options(data_options)
+        settings = SparsePass2Settings.from_options(
+            class_common,
             accumulate_noise=accumulate_class_noise,
-            half_spectrum_scoring=class_common["half_spectrum_scoring"],
-            projection_padding_factor=class_common["projection_padding_factor"],
-            reconstruction_padding_factor=class_common["reconstruction_padding_factor"],
-            use_float64_scoring=class_common["use_float64_scoring"],
-            do_gridding_correction=class_common["do_gridding_correction"],
-            square_window=class_common["square_window"],
-            random_perturbation=class_common["random_perturbation"],
             normalization_score_mode=normalization_score_mode,
             return_score_log_z=return_score_log_z,
             return_score_log_z_only=return_score_log_z_only,
             disable_adjoint_y=disable_adjoint_y,
             disable_adjoint_ctf=disable_adjoint_ctf,
-            relion_half_volume_mstep=class_common["relion_half_volume_mstep"],
-            relion_x_half_mstep=class_common["relion_x_half_mstep"],
-            relion_fine_mstep_prune=class_common["relion_fine_mstep_prune"],
-            relion_firstiter_score_mode=class_common["relion_firstiter_score_mode"],
-            relion_firstiter_winner_take_all=class_common["relion_firstiter_winner_take_all"],
-            relion_exact_fine_gaussian=class_common["relion_exact_fine_gaussian"],
-            relion_fine_diff2_fused_ffi=class_common["relion_fine_diff2_fused_ffi"],
-            relion_f32_fine_posterior=class_common["relion_f32_fine_posterior"],
-            relion_exact_fine_normalized_cc=class_common["relion_exact_fine_normalized_cc"],
             relion_projector_r_max=relion_projector_r_max,
-            adaptive_fraction=class_common["adaptive_fraction"],
-            bpref_device_signature_active=class_common["bpref_device_signature_active"],
-            include_unweighted_norm_high_shell=class_common["include_unweighted_norm_high_shell"],
-            preserve_bpref_particle_order=class_common.get("preserve_bpref_particle_order", False),
-            source_faithful_spectrum_norm=class_common["source_faithful_spectrum_norm"],
         )
         return compute_pass2_stats_sparse_bucketed(data, settings)
 
@@ -2295,7 +2223,8 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
         class_kwargs = _dense_options_for_class(pass2_kwargs, class_index, n_classes)
         class_kwargs = _subset_image_axis_engine_kwargs(class_kwargs, image_indices, n_images)
 
-        data = SparsePass2Data(
+        data_options = dict(
+            class_kwargs,
             experiment_dataset=subset_dataset,
             volume=means_array[class_index],
             mean_variance=_select_class_value(mean_variance, class_index, n_classes),
@@ -2304,12 +2233,6 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
             significant_sample_indices=subset_sig,
             rotation_log_prior=_class_rotation_prior(class_index),
             translation_log_prior=None,
-            image_corrections=class_kwargs.get("image_corrections"),
-            scale_corrections=class_kwargs.get("scale_corrections"),
-            group_ids=class_kwargs.get("group_ids"),
-            scale_correction_group_count=class_kwargs.get("scale_correction_group_count"),
-            image_pre_shifts=class_kwargs.get("image_pre_shifts"),
-            translation_prior_centers=class_kwargs.get("translation_prior_centers"),
             fine_rotations_override=common["fine_rotations_override"],
             fine_mstep_rotations_override=common["fine_mstep_rotations_override"],
             fine_rotation_parent_override=common["fine_rotation_parent_override"],
@@ -2321,34 +2244,36 @@ def _run_sparse_firstiter_global_winner_subset_pass2(
                 n_classes,
             ),
         )
-        settings = SparsePass2Settings(
-            nside_level=common["nside_level"],
-            disc_type=common["disc_type"],
-            oversampling_order=common["oversampling_order"],
-            current_size=common["current_size"],
-            reconstruction_current_size=common["reconstruction_current_size"],
-            translation_step=common["translation_step"],
-            score_with_masked_images=common["score_with_masked_images"],
-            return_stats=common["return_stats"],
-            accumulate_noise=accumulate_noise,
-            half_spectrum_scoring=common["half_spectrum_scoring"],
-            projection_padding_factor=common["projection_padding_factor"],
-            reconstruction_padding_factor=common["reconstruction_padding_factor"],
-            use_float64_scoring=common["use_float64_scoring"],
-            do_gridding_correction=common["do_gridding_correction"],
-            square_window=common["square_window"],
-            random_perturbation=common["random_perturbation"],
-            relion_half_volume_mstep=common["relion_half_volume_mstep"],
-            relion_x_half_mstep=common["relion_x_half_mstep"],
-            relion_firstiter_score_mode=common["relion_firstiter_score_mode"],
-            relion_firstiter_winner_take_all=common["relion_firstiter_winner_take_all"],
-            relion_exact_fine_normalized_cc=common["relion_exact_fine_normalized_cc"],
-            relion_projector_r_max=relion_projector_r_max,
-            bpref_class_index=class_index,
-            bpref_device_signature_active=common["bpref_device_signature_active"],
-            preserve_bpref_particle_order=common.get("preserve_bpref_particle_order", False),
-            source_faithful_spectrum_norm=common["source_faithful_spectrum_norm"],
-        )
+        data = SparsePass2Data.from_options(data_options)
+        settings_options = {
+            "nside_level": common["nside_level"],
+            "disc_type": common["disc_type"],
+            "oversampling_order": common["oversampling_order"],
+            "current_size": common["current_size"],
+            "reconstruction_current_size": common["reconstruction_current_size"],
+            "translation_step": common["translation_step"],
+            "score_with_masked_images": common["score_with_masked_images"],
+            "return_stats": common["return_stats"],
+            "accumulate_noise": accumulate_noise,
+            "half_spectrum_scoring": common["half_spectrum_scoring"],
+            "projection_padding_factor": common["projection_padding_factor"],
+            "reconstruction_padding_factor": common["reconstruction_padding_factor"],
+            "use_float64_scoring": common["use_float64_scoring"],
+            "do_gridding_correction": common["do_gridding_correction"],
+            "square_window": common["square_window"],
+            "random_perturbation": common["random_perturbation"],
+            "relion_half_volume_mstep": common["relion_half_volume_mstep"],
+            "relion_x_half_mstep": common["relion_x_half_mstep"],
+            "relion_firstiter_score_mode": common["relion_firstiter_score_mode"],
+            "relion_firstiter_winner_take_all": common["relion_firstiter_winner_take_all"],
+            "relion_exact_fine_normalized_cc": common["relion_exact_fine_normalized_cc"],
+            "relion_projector_r_max": relion_projector_r_max,
+            "bpref_class_index": class_index,
+            "bpref_device_signature_active": common["bpref_device_signature_active"],
+            "preserve_bpref_particle_order": common.get("preserve_bpref_particle_order", False),
+            "source_faithful_spectrum_norm": common["source_faithful_spectrum_norm"],
+        }
+        settings = SparsePass2Settings.from_options(settings_options)
         result = compute_pass2_stats_sparse_bucketed(data, settings)
         hard_full = np.zeros(n_images, dtype=np.int32)
         hard_full[image_indices] = _sparse_pose_ids_to_fine_grid(
