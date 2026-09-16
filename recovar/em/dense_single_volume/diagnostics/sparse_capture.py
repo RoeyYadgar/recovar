@@ -139,38 +139,29 @@ def write_sparse_npz_compressed(path, **payload) -> None:
     NPZ_DIAGNOSTICS.write_fields(path, compressed=True, **payload)
 
 
-class InvasiveSparseDiagnostics:
-    """Sparse diagnostic operations that intentionally alter execution flow."""
+def prioritize_invasive_target_buckets(
+    buckets,
+    *,
+    stopped_pass2_dump: bool,
+    stopped_norm_dump: bool,
+    is_requested: Callable[[object], bool],
+):
+    """Move requested buckets first only for an explicitly stopped run."""
 
-    __slots__ = ()
-
-    def prioritize_target_buckets(
-        self,
-        buckets,
-        *,
-        stopped_pass2_dump: bool,
-        stopped_norm_dump: bool,
-        is_requested: Callable[[object], bool],
-    ):
-        """Move requested buckets first only for an explicitly stopped run."""
-
-        if not (stopped_pass2_dump or stopped_norm_dump):
-            return buckets
-        requested = []
-        remaining = []
-        for bucket in buckets:
-            (requested if is_requested(bucket) else remaining).append(bucket)
-        if not requested:
-            return buckets
-        logger.info(
-            "Sparse K=1 pass-2 stopped diagnostic: moving %d requested dump bucket(s) before %d unrelated bucket(s)",
-            len(requested),
-            len(remaining),
-        )
-        return requested + remaining
-
-
-INVASIVE_SPARSE_DIAGNOSTICS = InvasiveSparseDiagnostics()
+    if not (stopped_pass2_dump or stopped_norm_dump):
+        return buckets
+    requested = []
+    remaining = []
+    for bucket in buckets:
+        (requested if is_requested(bucket) else remaining).append(bucket)
+    if not requested:
+        return buckets
+    logger.info(
+        "Sparse K=1 pass-2 stopped diagnostic: moving %d requested dump bucket(s) before %d unrelated bucket(s)",
+        len(requested),
+        len(remaining),
+    )
+    return requested + remaining
 
 
 def _sha256_file(path: Path) -> str:

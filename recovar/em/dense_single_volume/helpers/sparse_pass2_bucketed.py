@@ -42,12 +42,12 @@ import numpy as np
 import recovar.core.fourier_transform_utils as fourier_transform_utils
 from recovar.core.configs import ForwardModelConfig
 from recovar.em.dense_single_volume.diagnostics.sparse_capture import (
-    INVASIVE_SPARSE_DIAGNOSTICS,
     compact_capture_requested_for_original_indices,
     compact_capture_requested_particle_count,
     maybe_capture_k1_production_bucket,
     maybe_capture_k1_production_bucket_chunked,
     pass2_dump_progress,
+    prioritize_invasive_target_buckets,
     raise_pass2_dump_complete,
     require_chunked_capture_capacity,
     stop_after_bpref_contribution_dump,
@@ -10142,7 +10142,7 @@ def _prioritize_stopped_pass2_dump_buckets(
     stopped_norm_dump = _env_flag_enabled(
         "RECOVAR_PASS2_DUMP_NORM_RESIDUAL_INPUTS", default=False
     ) and _env_flag_enabled(_NORM_RESIDUAL_DUMP_STOP_AFTER_TARGET_ENV, default=False)
-    return INVASIVE_SPARSE_DIAGNOSTICS.prioritize_target_buckets(
+    return prioritize_invasive_target_buckets(
         buckets,
         stopped_pass2_dump=stopped_pass2_dump,
         stopped_norm_dump=stopped_norm_dump,
