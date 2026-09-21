@@ -29,7 +29,7 @@ file. Do not record user-specific absolute paths.
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
-| C6 Dense/global scoring | In progress | Inventory and 94-test dense baseline frozen at `2d64b501`; compiled-kernel GPU baseline is next. |
+| C6 Dense/global scoring | In progress | Inventory, 94-test dense baseline, result-tree contract `aea8e282`, and GPU compile/HLO/memory/warm baseline job `61006843` are frozen. |
 | C7--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
@@ -235,9 +235,9 @@ introduces no material quality, runtime, transfer, or memory regression.
 
 ## Immediate next actions
 
-1. Freeze the C6 compiled-kernel result tree, specialization topology, peak
-   memory, and warm timing before changing its interface.
-2. Group the dense big-JIT arrays/state and static policy, then migrate its
+1. Group the dense big-JIT arrays/state and static policy, then migrate its
    sole production adapter and focused tests without a compatibility round trip.
-3. Separate dense preprocessing, planning, normalization, M-step/noise,
+2. Separate dense preprocessing, planning, normalization, M-step/noise,
    finalization, and diagnostics only at independently testable boundaries.
+3. Compare every compiled variant against job `61006843` before advancing to
+   later dense host-orchestration slices.

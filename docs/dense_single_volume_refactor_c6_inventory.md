@@ -148,10 +148,31 @@ use `run_dense_em` and `DenseEMResult`.
 |---|---|
 | Required parity ancestry at documentation checkpoint `2d64b501` | All five required parity-fix ancestors present. |
 | Dense engine/JIT prescribed baseline | 94 passed with two expected custom-CUDA-only skips in `47.67 s`. |
+| Dense result-tree contract | Commit `aea8e282`: Gaussian and normalized-CC pass-1 variants have the same named 12-leaf shapes/dtypes; focused file passes 24 tests. |
+| Compiled-kernel baseline | Slurm GPU job `61006843` completed `0:0` on one A100. Four static variants compiled once each; result trees, StableHLO fingerprints, output hashes, warm timing, and peak device memory are frozen below. |
 | C5 full replay reference | Accepted same-allocation job `60844838`; use the artifact and quality/performance table in the active progress ledger. |
 | Exact-double post-C5 replay | Job `61006782` completed `0:0` through five iterations with final merged RELION FSC-AUC `0.9946195501`; artifact `$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`. |
 
 The host `pixi` wrapper remained alive after pytest reported completion and was
 interrupted only after the final result was printed. No pytest process was
-interrupted before completion. C6-specific GPU compile/memory/warm baselines
-will be added before the first compiled-kernel interface change.
+interrupted before completion.
+
+## Compiled-kernel GPU baseline
+
+Artifact:
+`$HOME/palmer_scratch/tmp/c6_dense_baseline_aea8e282_20260921`.
+The deterministic fixture uses 64-pixel images/volumes, 8 images, 64
+rotations, 8 translations, and seed `20260921`. Each row was measured after
+clearing JAX caches; cache size changed from zero to one in every row.
+
+| Variant | Compile | Warm median | Peak device memory | StableHLO ops | Operation-sequence SHA-256 |
+|---|---:|---:|---:|---:|---|
+| Gaussian pass 1 | `0.8684 s` | `0.651 ms` | `18.33 MiB` | 120 | `5de5a89b6b78f67a` |
+| Gaussian M-step | `0.4259 s` | `0.906 ms` | `26.23 MiB` | 179 | `5f8e03e9c8f3e640` |
+| Normalized-CC pass 1 | `0.2451 s` | `0.635 ms` | `26.23 MiB` | 118 | `f3160ebc376ebc6e` |
+| Normalized-CC hard M-step | `0.3297 s` | `1.130 ms` | `26.23 MiB` | 243 | `be1722a4b104d0c` |
+
+The JSON artifact retains complete operation and text hashes plus every output
+shape, dtype, and byte hash. C6 acceptance compares the same fixture on the
+same GPU model; compile time is contextual, while compile count, operation
+topology, output hashes, peak memory, and warmed distributions are gates.
