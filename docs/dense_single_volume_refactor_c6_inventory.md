@@ -142,6 +142,12 @@ use `run_dense_em` and `DenseEMResult`.
 - Diagnostic-null execution remains observationally identical and does not
   disable the canonical compiled path.
 
+## Completed implementation slices
+
+| Commit | Outcome |
+|---|---|
+| `c379a512` | Replaced the 44-argument compiled bucket signature and 27-field host adapter with batch-lifetime data, block/pass state, and hashable static-policy groups. Removed the superseded window-constant record and both long production calls. |
+
 ## Initial validation ledger
 
 | Scope | Result |
@@ -150,6 +156,7 @@ use `run_dense_em` and `DenseEMResult`.
 | Dense engine/JIT prescribed baseline | 94 passed with two expected custom-CUDA-only skips in `47.67 s`. |
 | Dense result-tree contract | Commit `aea8e282`: Gaussian and normalized-CC pass-1 variants have the same named 12-leaf shapes/dtypes; focused file passes 24 tests. |
 | Compiled-kernel baseline | Slurm GPU job `61006843` completed `0:0` on one A100. Four static variants compiled once each; result trees, StableHLO fingerprints, output hashes, warm timing, and peak device memory are frozen below. |
+| Grouped compiled-kernel validation | Slurm GPU job `61006876` completed `0:0` on the same A100 UUID. Every result leaf hash, StableHLO operation sequence/count, compile count, and peak-memory byte count matches the baseline. Sub-millisecond warm samples remain diagnostic pending the paired end-to-end gate. |
 | C5 full replay reference | Accepted same-allocation job `60844838`; use the artifact and quality/performance table in the active progress ledger. |
 | Exact-double post-C5 replay | Job `61006782` completed `0:0` through five iterations with final merged RELION FSC-AUC `0.9946195501`; artifact `$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`. |
 
@@ -176,3 +183,10 @@ The JSON artifact retains complete operation and text hashes plus every output
 shape, dtype, and byte hash. C6 acceptance compares the same fixture on the
 same GPU model; compile time is contextual, while compile count, operation
 topology, output hashes, peak memory, and warmed distributions are gates.
+
+The grouped-boundary candidate artifact is
+`$HOME/palmer_scratch/tmp/c6_dense_candidate_c379a512_20260921`. The baseline
+and candidate used the same A100 UUID. The Gaussian M-step warm median differed
+by `0.285 ms` in seven sub-millisecond samples even though the compiled HLO and
+peak memory are identical; this is not used as a speed claim. The required
+paired full replay remains the material runtime gate.
