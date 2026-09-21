@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: active; C1--C5 complete and accepted, C6 in progress
+Status: active; C1--C6 complete and accepted, C7 in progress queue
 
 Created: 2026-09-08
 
@@ -988,7 +988,7 @@ The refactor is complete when:
 - each retained class/module earns its boundary through independent ownership,
   validation, or invalid-state prevention rather than extraction alone.
 
-## 12. Next implementation sequence
+## 12. C6 implementation sequence (completed)
 
 Begin C6 from the accepted C5 checkpoint. Keep each commit understandable,
 independently revertible, and confined to one dense/global-scoring boundary:
@@ -1011,3 +1011,9 @@ independently revertible, and confined to one dense/global-scoring boundary:
 7. Move remaining dense debug parsing/serialization behind diagnostics, then
    run focused tests, the CPU fast guard, and paired Slurm GPU
    quality/performance validation before accepting C6.
+
+C6 was accepted at commits `993ece4d` (dense pass-2 host-stage extraction) and
+`419240c2` (progress and inventory closure). The final structural ratchet,
+focused suite, CPU fast guard, parity ancestry check, and Slurm GPU replay
+passed; see the C6 inventory for exact results and the `$HOME`-relative
+artifact path. C7 may now begin from this accepted checkpoint.
