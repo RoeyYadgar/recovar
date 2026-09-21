@@ -151,12 +151,13 @@ use `run_dense_em` and `DenseEMResult`.
 | `77eec9c5` | Moved class-prior application into `DenseScoreConstraints`, added a bound per-batch block view, and removed the dense engine's nested score-constraint closure plus redundant runner fields. The existing fallback and big-JIT routes use the same bound block inputs. |
 | `702df30b` | Grouped the exact-local score diagnostic tensors into `LocalScoreDumpCapture`; the writer now accepts eight routing arguments instead of 26 while preserving the existing payload and artifact schema. |
 | `3c758d5c` | Shared the dense pass-1/pass-2 score-constraint application helper; both passes retain the same constraint ordering and JAX call while removing duplicated host unpacking. |
+| `0829d908` | Removed the score-mode parameter and duplicate branch from the RELION image-correction helper; Gaussian and normalized-CC routes already used identical correction factors. |
 
 The current structural measurement after this slice is 76 production files,
-69,199 lines, 63,730 nonblank lines, 1,237 functions, 157 classes, 31 long
+69,196 lines, 63,727 nonblank lines, 1,237 functions, 157 classes, 31 long
 signatures, 62 long calls, and a 5,500-line package maximum. The seven-file
-C6 core is 6,032 lines, 5,467 nonblank lines, 104 functions, 27 classes, two
-long signatures, one long call, and a 1,482-line dense-engine maximum. The
+C6 core is 6,029 lines, 5,464 nonblank lines, 104 functions, 27 classes, two
+long signatures, one long call, and a 1,481-line dense-engine maximum. The
 core and package line totals are below the C6 baseline; the added helper is a
 small host-only consolidation and does not add a runtime context layer.
 
