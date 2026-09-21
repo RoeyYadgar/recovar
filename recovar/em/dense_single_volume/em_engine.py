@@ -141,7 +141,7 @@ logger = logging.getLogger(__name__)
 NVTX_DOMAIN_EM = "recovar_em"
 
 
-def _relion_image_correction_factors(batch_corr, batch_scale, *, score_mode: str):
+def _relion_image_correction_factors(batch_corr, batch_scale):
     """Return RELION score/image-norm correction factors.
 
     ``image_corrections`` carries ``(avg_norm / normcorr) * scale`` and
@@ -153,8 +153,6 @@ def _relion_image_correction_factors(batch_corr, batch_scale, *, score_mode: str
     """
 
     image_only_corr = batch_corr / batch_scale
-    if score_mode == "normalized_cc":
-        return batch_corr, image_only_corr
     return batch_corr, image_only_corr
 
 
@@ -1172,7 +1170,6 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
             score_batch_corr, image_only_corr = _relion_image_correction_factors(
                 batch_corr,
                 batch_scale,
-                score_mode=relion_firstiter_score_mode,
             )
             applied_image_corr = batch_scale if relion_cuda_preprocess else score_batch_corr
             applied_recon_corr = batch_scale if relion_cuda_preprocess else batch_corr
