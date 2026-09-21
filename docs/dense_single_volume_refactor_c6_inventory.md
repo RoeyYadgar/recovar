@@ -150,7 +150,7 @@ use `run_dense_em` and `DenseEMResult`.
 | `0b6e2bb9` | Moved dense debug-route resolution from `_DenseDebugOptions` and direct environment reads in `em_engine.py` into `DenseDiagnosticsPlan`; added a focused route-resolution regression test. The numerical path remains unchanged. |
 | `77eec9c5` | Moved class-prior application into `DenseScoreConstraints`, added a bound per-batch block view, and removed the dense engine's nested score-constraint closure plus redundant runner fields. The existing fallback and big-JIT routes use the same bound block inputs. |
 | `702df30b` | Grouped the exact-local score diagnostic tensors into `LocalScoreDumpCapture`; the writer now accepts eight routing arguments instead of 26 while preserving the existing payload and artifact schema. |
-| Pending C6 slice | Shared the dense pass-1/pass-2 score-constraint application helper; both passes retain the same constraint ordering and JAX call while removing duplicated host unpacking. |
+| `3c758d5c` | Shared the dense pass-1/pass-2 score-constraint application helper; both passes retain the same constraint ordering and JAX call while removing duplicated host unpacking. |
 
 The current structural measurement after this slice is 76 production files,
 69,199 lines, 63,730 nonblank lines, 1,237 functions, 157 classes, 31 long
