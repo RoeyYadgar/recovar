@@ -481,6 +481,25 @@ def _dense_mstep_block(
     )
 
 
+def _apply_dense_block_score_constraints(
+    scores,
+    *,
+    block: _DenseRotationBlock,
+    score_constraint_blocks,
+    valid_image_mask,
+    score_mode: str,
+):
+    """Apply one block's prior and candidate constraints in pass order."""
+
+    constraint_inputs = score_constraint_blocks(block.r0, block.r1)
+    return apply_dense_score_constraints(
+        scores,
+        *constraint_inputs,
+        valid_image_mask,
+        score_mode=score_mode,
+    )
+
+
 def _adjoint_dense_mstep_volume(
     half_block,
     *,
@@ -1463,22 +1482,11 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
             )
 
             pass1_postprocess_t0 = time.time()
-            (
-                rotation_prior_block,
-                translation_prior_block,
-                candidate_mask_block,
-                valid_rotation_mask,
-            ) = batch_score_constraint_blocks(
-                block.r0,
-                block.r1,
-            )
-            scores = apply_dense_score_constraints(
+            scores = _apply_dense_block_score_constraints(
                 scores,
-                rotation_prior_block,
-                translation_prior_block,
-                candidate_mask_block,
-                valid_rotation_mask,
-                valid_image_mask,
+                block=block,
+                score_constraint_blocks=batch_score_constraint_blocks,
+                valid_image_mask=valid_image_mask,
                 score_mode=relion_firstiter_score_mode,
             )
 
@@ -1699,22 +1707,11 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
             timing.pass2_score_s += time.time() - score_t0
 
             pass2_postprocess_t0 = time.time()
-            (
-                rotation_prior_block,
-                translation_prior_block,
-                candidate_mask_block,
-                valid_rotation_mask,
-            ) = batch_score_constraint_blocks(
-                block.r0,
-                block.r1,
-            )
-            scores = apply_dense_score_constraints(
+            scores = _apply_dense_block_score_constraints(
                 scores,
-                rotation_prior_block,
-                translation_prior_block,
-                candidate_mask_block,
-                valid_rotation_mask,
-                valid_image_mask,
+                block=block,
+                score_constraint_blocks=batch_score_constraint_blocks,
+                valid_image_mask=valid_image_mask,
                 score_mode=relion_firstiter_score_mode,
             )
             if sync_timers:
