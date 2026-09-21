@@ -17,8 +17,10 @@ from recovar.em.dense_single_volume.diagnostics.local_capture import (
 )
 from recovar.em.dense_single_volume.em_engine import (
     _dense_big_jit_disabled_reason,
+    _dense_pass2_skip_mask,
     _pad_dense_big_jit_image_axis,
     _relion_image_correction_factors,
+    _SparsePass2Profile,
 )
 from recovar.em.dense_single_volume.helpers import projection as projection_helpers
 from recovar.em.dense_single_volume.helpers.adjoint import (
@@ -439,6 +441,26 @@ def test_dense_big_jit_allows_sparse_pass2_skip_path():
         )
         is None
     )
+
+
+def test_dense_pass2_skip_mask_updates_profile_without_materializing_posteriors():
+    profile = _SparsePass2Profile()
+    skip_mask = _dense_pass2_skip_mask(
+        [jnp.asarray([-20.0, -20.0]), jnp.asarray([0.0, 0.0])],
+        [2, 2],
+        jnp.zeros(2),
+        jnp.ones(2, dtype=bool),
+        profile,
+        2,
+        2,
+        jnp.float32,
+        False,
+    )
+
+    np.testing.assert_array_equal(skip_mask, np.array([True, False]))
+    assert profile.total_blocks == 2
+    assert profile.skipped_blocks == 1
+    assert profile.omitted_mass_upper_image_count == 2
 
 
 def test_dense_big_jit_allows_noise_accumulation_without_debug_split():

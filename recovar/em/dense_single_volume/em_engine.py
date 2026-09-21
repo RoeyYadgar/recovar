@@ -306,6 +306,54 @@ def _iter_dense_rotation_blocks(rotations_padded, n_rot: int, n_blocks: int, rot
         )
 
 
+def _dense_pass2_skip_mask(
+    block_max_per_image,
+    block_pose_counts,
+    log_Z,
+    valid_image_mask,
+    sparse_profile,
+    n_blocks,
+    actual_batch_size,
+    normalization_dtype,
+    sync_timers,
+):
+    skip_pass2_block = np.zeros(n_blocks, dtype=bool)
+    if not block_max_per_image:
+        return skip_pass2_block
+    block_max_matrix = jnp.stack(block_max_per_image, axis=0)
+    block_log_pose_counts = jnp.log(jnp.asarray(block_pose_counts, dtype=normalization_dtype))[:, None]
+    finite_log_z = jnp.isfinite(log_Z) & valid_image_mask
+    log_omitted_mass_upper = jnp.where(
+        finite_log_z[None, :],
+        block_log_pose_counts
+        + block_max_matrix.astype(normalization_dtype)
+        - log_Z[None, :].astype(normalization_dtype),
+        jnp.inf,
+    )
+    skip_candidate = (log_omitted_mass_upper < sparse_profile.log_threshold) | (~valid_image_mask[None, :])
+    skip_pass2_block = np.asarray(jnp.all(skip_candidate, axis=1), dtype=bool)
+    sparse_profile.total_blocks += int(n_blocks)
+    sparse_profile.skipped_blocks += int(skip_pass2_block.sum())
+    if np.any(skip_pass2_block):
+        skipped_mass_upper_np = np.asarray(
+            jnp.sum(
+                jnp.where(
+                    jnp.asarray(skip_pass2_block)[:, None], jnp.exp(jnp.minimum(log_omitted_mass_upper, 50.0)), 0.0
+                ),
+                axis=0,
+            ),
+            dtype=np.float64,
+        )
+        sparse_profile.omitted_mass_upper_sum += float(np.sum(skipped_mass_upper_np))
+        sparse_profile.omitted_mass_upper_max = max(
+            sparse_profile.omitted_mass_upper_max, float(np.max(skipped_mass_upper_np))
+        )
+        sparse_profile.omitted_mass_upper_image_count += int(actual_batch_size)
+    if sync_timers:
+        _block_until_ready(block_max_matrix, log_omitted_mass_upper)
+    return skip_pass2_block
+
+
 @dataclass(frozen=True)
 class _DenseBigJitBatchRunner:
     """Host-side adapter for one batch's dense big-JIT bucket calls."""
@@ -1545,58 +1593,26 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
             hard_assignment[batch_rows_np] = np.asarray(best_argmax_pass1[:actual_batch_size])
             start_idx = end_idx
             continue
-        skip_pass2_block = np.zeros(n_blocks, dtype=bool)
         pass2_skipmask_t0 = time.time()
-        if block_max_per_image:
-            block_max_matrix = jnp.stack(block_max_per_image, axis=0)
-            block_log_pose_counts = jnp.log(
-                jnp.asarray(block_pose_counts, dtype=precision_policy.normalization_real_dtype),
-            )[:, None]
-            finite_log_z = jnp.isfinite(log_Z) & valid_image_mask
-            log_omitted_mass_upper = jnp.where(
-                finite_log_z[None, :],
-                block_log_pose_counts
-                + block_max_matrix.astype(precision_policy.normalization_real_dtype)
-                - log_Z[None, :].astype(precision_policy.normalization_real_dtype),
-                jnp.inf,
-            )
-            skip_candidate = (log_omitted_mass_upper < sparse_profile.log_threshold) | (~valid_image_mask[None, :])
-            skip_pass2_block = np.asarray(
-                jnp.all(skip_candidate, axis=1),
-                dtype=bool,
-            )
-            sparse_profile.total_blocks += int(n_blocks)
-            sparse_profile.skipped_blocks += int(skip_pass2_block.sum())
-            if np.any(skip_pass2_block):
-                skipped_mass_upper = jnp.sum(
-                    jnp.where(
-                        jnp.asarray(skip_pass2_block)[:, None],
-                        jnp.exp(jnp.minimum(log_omitted_mass_upper, 50.0)),
-                        0.0,
-                    ),
-                    axis=0,
-                )
-                skipped_mass_upper_np = np.asarray(skipped_mass_upper, dtype=np.float64)
-                sparse_profile.omitted_mass_upper_sum += float(np.sum(skipped_mass_upper_np))
-                sparse_profile.omitted_mass_upper_max = max(
-                    sparse_profile.omitted_mass_upper_max,
-                    float(np.max(skipped_mass_upper_np)),
-                )
-                sparse_profile.omitted_mass_upper_image_count += int(actual_batch_size)
-            if sync_timers:
-                _block_until_ready(block_max_matrix, log_omitted_mass_upper)
+        skip_pass2_block = _dense_pass2_skip_mask(
+            block_max_per_image,
+            block_pose_counts,
+            log_Z,
+            valid_image_mask,
+            sparse_profile,
+            n_blocks,
+            actual_batch_size,
+            precision_policy.normalization_real_dtype,
+            sync_timers,
+        )
         timing.pass2_skipmask_s += time.time() - pass2_skipmask_t0
 
-        # -- PASS 2: recompute scores, normalize, accumulate M-step --
         if relion_firstiter_winner_take_all:
             best_score = best_score_pass1
             best_argmax = best_argmax_pass1
         else:
             best_score = jnp.full(batch_size, -jnp.inf)
             best_argmax = jnp.zeros(batch_size, dtype=jnp.int32)
-        # Pass 1 and pass 2 intentionally remain separate: pass 1 streams the
-        # logsumexp denominator, and pass 2 normalizes/accumulates without
-        # materializing the full (batch, rotation, translation) posterior.
         for block in _iter_dense_rotation_blocks(
             rotations_padded,
             n_rot,
@@ -1780,7 +1796,6 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
                     _block_until_ready(Ft_ctf)
                 timing.adjoint_ctf_s += time.time() - adjoint_ctf_t0
 
-            # -- Noise accumulation for this rotation block --
             if accumulate_noise:
                 noise_t0 = time.time()
                 if translation_sqdist_ang is not None:
@@ -1917,7 +1932,6 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
         hard_assignment[batch_rows_np] = np.asarray(best_argmax[:actual_batch_size])
         start_idx = end_idx
 
-    # -- SOLVE --
     from recovar.reconstruction import relion_functions
 
     if score_only:
@@ -1953,8 +1967,6 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
 
     noise_stats = None
     if accumulate_noise:
-        # Keep detailed shell diagnostics off the default info path: this block
-        # runs once per dense bucket in RELION replay and can dominate logs.
         try:
             n_log_shells = min(6, len(noise_wsum))
             logger.debug(
