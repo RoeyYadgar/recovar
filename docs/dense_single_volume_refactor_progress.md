@@ -29,7 +29,7 @@ file. Do not record user-specific absolute paths.
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
-| C6 Dense/global scoring | In progress | Grouped big-JIT boundary `c379a512`, diagnostics plan `0b6e2bb9`, and batch-bound score constraints `77eec9c5` are validated; five-iteration GPU replay `61007337` reached final merged FSC-AUC `0.9970972713`; dense host-stage separation remains. |
+| C6 Dense/global scoring | In progress | Grouped big-JIT boundary `c379a512`, diagnostics plan `0b6e2bb9`, batch-bound score constraints `77eec9c5`, and the local score capture grouping are validated; five-iteration GPU replay `61007337` reached final merged FSC-AUC `0.9970972713`; dense host-stage separation remains. |
 | C7--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard

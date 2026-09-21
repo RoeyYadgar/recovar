@@ -114,13 +114,27 @@ def test_local_diagnostics_emit_injects_call_identity_and_updates_targets(monkey
     )
     captured = {}
 
-    def fake_writer(**kwargs):
+    def fake_writer(capture, **kwargs):
+        captured.update(vars(capture))
         captured.update(kwargs)
         return set()
 
     monkeypatch.setattr(local_diagnostics, "maybe_write_debug_score_dump", fake_writer)
 
-    session.emit_score(scores="scores")
+    session.emit_score(
+        experiment_dataset=None,
+        local_layout=None,
+        bucket=None,
+        image_pre_shifts=None,
+        scores="scores",
+        probs=None,
+        log_Z=None,
+        best_log_score=None,
+        max_posterior=None,
+        reconstruction_sample_mask=None,
+        reconstruction_rotation_mask=None,
+        n_significant_samples=None,
+    )
 
     assert captured["scores"] == "scores"
     assert captured["current_size"] == 8

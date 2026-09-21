@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from recovar.em.dense_single_volume.diagnostics.local_capture import (
+    LocalScoreDumpCapture,
     current_size_matches_request,
     iteration_matches_request,
     maybe_write_debug_fused_posterior_dump,
@@ -202,7 +203,7 @@ class LocalDiagnosticsSession:
 
     def emit_score(self, **payload: Any) -> None:
         self.score.pending_targets = maybe_write_debug_score_dump(
-            **payload,
+            LocalScoreDumpCapture(**payload),
             current_size=self.current_size,
             debug_iteration=self.iteration,
             debug_pass_label=self.pass_label,

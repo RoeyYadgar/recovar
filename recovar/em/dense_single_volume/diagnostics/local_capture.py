@@ -599,6 +599,31 @@ def _local_candidate_metadata(
     }
 
 
+@dataclass(frozen=True)
+class LocalScoreDumpCapture:
+    """Score tensors and metadata captured for one local diagnostic write."""
+
+    experiment_dataset: Any
+    local_layout: Any
+    bucket: Any
+    image_pre_shifts: Any
+    scores: Any
+    probs: Any
+    log_Z: Any
+    best_log_score: Any
+    max_posterior: Any
+    reconstruction_sample_mask: Any
+    reconstruction_rotation_mask: Any
+    n_significant_samples: Any
+    shifted_score_split: Any = None
+    shifted_recon_split: Any = None
+    ctf2_over_nv_score: Any = None
+    ctf2_over_nv_recon: Any = None
+    proj_weighted: Any = None
+    proj_for_noise: Any = None
+    proj_abs2_weighted: Any = None
+
+
 def maybe_write_debug_fused_posterior_dump(
     *,
     experiment_dataset,
@@ -785,29 +810,11 @@ def maybe_write_debug_fused_posterior_dump(
 
 
 def maybe_write_debug_score_dump(
+    capture: LocalScoreDumpCapture,
     *,
-    experiment_dataset,
-    local_layout,
-    bucket,
-    image_pre_shifts,
-    scores,
-    probs,
-    log_Z,
-    best_log_score,
-    max_posterior,
-    reconstruction_sample_mask,
-    reconstruction_rotation_mask,
-    n_significant_samples,
     current_size,
     debug_iteration,
     debug_pass_label: str | None = None,
-    shifted_score_split=None,
-    shifted_recon_split=None,
-    ctf2_over_nv_score=None,
-    ctf2_over_nv_recon=None,
-    proj_weighted=None,
-    proj_for_noise=None,
-    proj_abs2_weighted=None,
     dump_dir: Path | None,
     pending_targets: set[int],
     requested_current_sizes: set[int] | None = None,
@@ -824,6 +831,18 @@ def maybe_write_debug_score_dump(
     earlier one at the same path.
     """
 
+    experiment_dataset = capture.experiment_dataset
+    local_layout = capture.local_layout
+    bucket = capture.bucket
+    image_pre_shifts = capture.image_pre_shifts
+    scores = capture.scores
+    probs = capture.probs
+    log_Z = capture.log_Z
+    best_log_score = capture.best_log_score
+    max_posterior = capture.max_posterior
+    reconstruction_sample_mask = capture.reconstruction_sample_mask
+    reconstruction_rotation_mask = capture.reconstruction_rotation_mask
+    n_significant_samples = capture.n_significant_samples
     if dump_dir is None or not pending_targets:
         return pending_targets
     if not current_size_matches_request(requested_current_sizes, current_size):
@@ -862,53 +881,53 @@ def maybe_write_debug_score_dump(
     }
     shifted_score_np = (
         _target_rows_to_numpy(
-            shifted_score_split,
+            capture.shifted_score_split,
             target_rows,
-            _debug_capture_dtype(shifted_score_split, complex_values=True),
+            _debug_capture_dtype(capture.shifted_score_split, complex_values=True),
         )
-        if dump_operands and shifted_score_split is not None
+        if dump_operands and capture.shifted_score_split is not None
         else None
     )
     shifted_recon_np = (
         _target_rows_to_numpy(
-            shifted_recon_split,
+            capture.shifted_recon_split,
             target_rows,
-            _debug_capture_dtype(shifted_recon_split, complex_values=True),
+            _debug_capture_dtype(capture.shifted_recon_split, complex_values=True),
         )
-        if dump_operands and shifted_recon_split is not None
+        if dump_operands and capture.shifted_recon_split is not None
         else None
     )
     ctf2_over_nv_np = (
-        _target_rows_to_numpy(ctf2_over_nv_score, target_rows, _debug_capture_dtype(ctf2_over_nv_score))
-        if dump_operands and ctf2_over_nv_score is not None
+        _target_rows_to_numpy(capture.ctf2_over_nv_score, target_rows, _debug_capture_dtype(capture.ctf2_over_nv_score))
+        if dump_operands and capture.ctf2_over_nv_score is not None
         else None
     )
     ctf2_over_nv_recon_np = (
-        _target_rows_to_numpy(ctf2_over_nv_recon, target_rows, _debug_capture_dtype(ctf2_over_nv_recon))
-        if dump_operands and ctf2_over_nv_recon is not None
+        _target_rows_to_numpy(capture.ctf2_over_nv_recon, target_rows, _debug_capture_dtype(capture.ctf2_over_nv_recon))
+        if dump_operands and capture.ctf2_over_nv_recon is not None
         else None
     )
     proj_weighted_np = (
         _target_rows_to_numpy(
-            proj_weighted,
+            capture.proj_weighted,
             target_rows,
-            _debug_capture_dtype(proj_weighted, complex_values=True),
+            _debug_capture_dtype(capture.proj_weighted, complex_values=True),
         )
-        if dump_operands and proj_weighted is not None
+        if dump_operands and capture.proj_weighted is not None
         else None
     )
     proj_for_noise_np = (
         _target_rows_to_numpy(
-            proj_for_noise,
+            capture.proj_for_noise,
             target_rows,
-            _debug_capture_dtype(proj_for_noise, complex_values=True),
+            _debug_capture_dtype(capture.proj_for_noise, complex_values=True),
         )
-        if dump_operands and proj_for_noise is not None
+        if dump_operands and capture.proj_for_noise is not None
         else None
     )
     proj_abs2_weighted_np = (
-        _target_rows_to_numpy(proj_abs2_weighted, target_rows, _debug_capture_dtype(proj_abs2_weighted))
-        if dump_operands and proj_abs2_weighted is not None
+        _target_rows_to_numpy(capture.proj_abs2_weighted, target_rows, _debug_capture_dtype(capture.proj_abs2_weighted))
+        if dump_operands and capture.proj_abs2_weighted is not None
         else None
     )
 

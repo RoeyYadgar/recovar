@@ -32,6 +32,7 @@ from recovar.core.configs import ForwardModelConfig
 from recovar.em.dense_single_volume import local_em_batch_planning
 from recovar.em.dense_single_volume.dense_em_types import DenseEMResult
 from recovar.em.dense_single_volume.diagnostics.local_capture import (
+    LocalScoreDumpCapture,
     current_size_matches_request,
     iteration_matches_request,
     maybe_write_debug_score_dump,
@@ -4951,18 +4952,20 @@ def test_local_score_debug_dump_records_attempted_pose_metadata(tmp_path):
 
     def write_dump(*, current_size):
         return maybe_write_debug_score_dump(
-            experiment_dataset=_Dataset(),
-            local_layout=layout,
-            bucket=bucket,
-            image_pre_shifts=np.array([[2.0, -1.0]], dtype=np.float32),
-            scores=np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]], dtype=np.float32),
-            probs=np.array([[[0.05, 0.10, 0.15], [0.20, 0.25, 0.25]]], dtype=np.float32),
-            log_Z=np.array([7.0], dtype=np.float32),
-            best_log_score=np.array([6.0], dtype=np.float32),
-            max_posterior=np.array([0.25], dtype=np.float32),
-            reconstruction_sample_mask=np.ones((1, 2, 3), dtype=bool),
-            reconstruction_rotation_mask=np.ones((1, 2), dtype=bool),
-            n_significant_samples=np.array([6], dtype=np.int32),
+            LocalScoreDumpCapture(
+                experiment_dataset=_Dataset(),
+                local_layout=layout,
+                bucket=bucket,
+                image_pre_shifts=np.array([[2.0, -1.0]], dtype=np.float32),
+                scores=np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]], dtype=np.float32),
+                probs=np.array([[[0.05, 0.10, 0.15], [0.20, 0.25, 0.25]]], dtype=np.float32),
+                log_Z=np.array([7.0], dtype=np.float32),
+                best_log_score=np.array([6.0], dtype=np.float32),
+                max_posterior=np.array([0.25], dtype=np.float32),
+                reconstruction_sample_mask=np.ones((1, 2, 3), dtype=bool),
+                reconstruction_rotation_mask=np.ones((1, 2), dtype=bool),
+                n_significant_samples=np.array([6], dtype=np.int32),
+            ),
             current_size=current_size,
             debug_iteration=9,
             dump_dir=tmp_path,
