@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: active; C1--C5 complete and accepted, C6 next
+Status: active; C1--C5 complete and accepted, C6 in progress
 
 Created: 2026-09-08
 

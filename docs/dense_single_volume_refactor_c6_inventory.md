@@ -1,0 +1,157 @@
+# C6 Dense/Global Scoring Inventory
+
+Status: in progress; inventory and baseline gate
+
+Started: 2026-09-21
+
+Baseline: accepted C5 implementation checkpoint `80737456`, including the
+post-acceptance exact-double correction `5c7e7c74` and documentation checkpoint
+`2d64b501`
+
+Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)
+
+Progress: [`dense_single_volume_refactor_progress.md`](dense_single_volume_refactor_progress.md)
+
+Use `$REPO_ROOT` for the checkout and `$HOME` for user-owned artifacts. Do not
+record user-specific absolute paths.
+
+## Scope and invariants
+
+C6 replaces dense/global host plumbing and compiled-kernel interfaces without
+changing score formulas, score/prior ordering, candidate identity/order,
+normalization or reduction order, M-step/noise arithmetic, dtype/layout,
+Fourier windows, random-number use, JAX dispatch, or diagnostic artifact
+schemas. Gaussian and first-iteration normalized-CC/hard-winner routes remain
+explicit. Exact RELION and algebraic primitives remain distinct unless an
+existing exact test establishes equivalence.
+
+The primary implementation surfaces are:
+
+- `em_engine.py`: the typed dense host entry, preprocessing and block planning,
+  two-pass orchestration, M-step/noise accumulation, finalization, diagnostics,
+  and compatibility facade;
+- `dense_big_jit.py`: the compiled per-rotation-bucket score, normalization,
+  M-step, adjoint, and noise boundary;
+- `dense_em_types.py`: the public typed dense request/result contracts;
+- `helpers/preprocessing.py`, `helpers/projection.py`, and
+  `helpers/scoring.py`: existing numerical owners retained by C6;
+- `diagnostics/local_capture.py`: the existing dense/local diagnostic parsing
+  and serialization owner.
+
+## Initial structural scorecard
+
+The C6 core below comprises those seven modules.
+
+| Measure | Package | C6 core |
+|---|---:|---:|
+| Production Python files | 76 | 7 |
+| Production lines | 69,205 | 6,060 |
+| Nonblank production lines | 63,748 | 5,504 |
+| Functions/methods | 1,238 | 107 |
+| Classes | 154 | 24 |
+| Functions with >=20 args | 33 | 4 |
+| Calls with >=20 args | 64 | 3 |
+| Largest function span | 5,500 | 1,538 |
+
+Primary dense hotspots:
+
+| Surface | Arguments/fields | Span | Initial role |
+|---|---:|---:|---|
+| `run_dense_em` | 1 typed request | 1,538 | Canonical host implementation; all dense stages still share one body. |
+| `run_dense_bucket_big_jit` | 44 arguments | 217 | Canonical compiled bucket implementation. |
+| `_DenseBigJitBatchRunner` | 27 fields; 15-argument `run` | 100 | Host adapter that expands its fields into the 44-argument JIT call. |
+| `run_em` | 39 arguments | 55 | One-way external compatibility facade. |
+| `compute_e_step_weights` | 10 arguments | 199 | Public materialized-posterior compatibility/reference route. |
+
+Two of the four C6-core long signatures and one long call belong to shared
+local diagnostic serialization rather than dense production execution. They
+are counted for a conservative subsystem ratchet but are not C6 algorithm
+targets unless dense diagnostic migration touches them.
+
+## Route and compatibility classification
+
+| Surface | Current consumer | Classification / C6 action |
+|---|---|---|
+| `run_dense_em(DenseEMRequest)` | Iteration loop, K-class orchestration, and adaptive oversampling | Canonical typed host entry. Retain and simplify in place. |
+| `run_em(...)` | Scripts, initial-model callers, and direct tests | External compatibility facade. Keep one-way request construction and legacy tuple serialization; no production caller may use it. |
+| `make_dense_em_request(...)` | Compatibility facade and typed-request tests | Host compatibility constructor. Keep outside numerical loops. |
+| `run_dense_bucket_big_jit(...)` | `_DenseBigJitBatchRunner` and focused tests | Canonical compiled bucket body. Replace its flat 44-argument interface with grouped array/state and static-policy contracts without changing its result tree or static specialization axes. |
+| `_DenseBigJitBatchRunner` | `run_dense_em` only | Thin host adapter target. It may assemble block-specific inputs but must not own runtime environment or diagnostic context. |
+| non-big-JIT branch inside `run_dense_em` | Dense diagnostic and component-capture routes | Required explicit fallback/reference route. Preserve its arithmetic and observation points; do not silently merge it with big-JIT. |
+| `compute_e_step_weights(...)` | Public export and focused tests only | Materialized-posterior compatibility/reference route, not normal production execution. Keep explicitly separate unless a stable typed posterior-result contract can replace it without hiding its memory semantics. |
+| `DenseEMResult.to_legacy_tuple(...)` | `run_em` only | Allowed outward serialization at the compatibility boundary. Typed production callers consume named fields directly. |
+
+Repository routing inspection found no in-package production call to `run_em`
+and no in-package consumer of a flag-dependent dense tuple. All normal callers
+use `run_dense_em` and `DenseEMResult`.
+
+## Numerical and diagnostic boundaries
+
+- First-iteration normalized CC deliberately ignores pose priors while keeping
+  candidate and padding masks. Its hard-winner M-step is a separate explicit
+  route from Gaussian posterior normalization.
+- Gaussian pass 1 uses streaming block logsumexp; pass 2 recomputes scores and
+  performs soft or hard M-step accumulation. The existing merge/reduction
+  order is frozen.
+- Dense noise accumulation and RELION half-volume BPref accumulation are
+  optional products of pass 2. Their exact/algebraic layout choices remain
+  visible policy, not inferred diagnostics.
+- Dense debug environment parsing already delegates to
+  `diagnostics/local_capture.py`, but `_DenseDebugOptions.from_env` and the
+  debug eligibility decision remain in `em_engine.py`. C6 will move the
+  resolved diagnostic plan behind the diagnostics boundary while keeping
+  observation calls explicit.
+- Runtime configuration remains host-owned. It must not become a JAX PyTree or
+  implicit global read inside numerical kernels.
+
+## Planned implementation slices
+
+1. Freeze dense result PyTrees, Gaussian and normalized-CC/hard-winner outputs,
+   compiled specialization topology, peak memory, and warm timing.
+2. Define grouped compiled bucket arrays/state and a hashable static policy;
+   migrate `_DenseBigJitBatchRunner` and focused tests in the same commit, with
+   no legacy internal expansion path.
+3. Separate immutable dense run planning and per-batch preprocessing only where
+   the extracted value owns independently testable validation or derived
+   metadata. Delete superseded local representation in each slice.
+4. Isolate pass-1 normalization, pass-2 M-step/noise accumulation, and result
+   finalization along the existing numerical boundaries. Keep big-JIT and
+   diagnostic fallback execution explicit.
+5. Move the remaining dense environment parsing and serialization policy
+   behind diagnostics while preserving capture schemas and observation order.
+6. Delete superseded adapters and dead/shadow dense routes, then run structural,
+   focused CPU, and paired GPU quality/performance gates.
+
+## C6 ratchets and exit gates
+
+- The C6 core is net smaller in production lines, functions, long signatures,
+  and long calls. Package totals do not increase from this checkpoint.
+- Any new class must replace a flat representation or prevent an invalid state
+  in the same commit; extraction alone is not sufficient.
+- Normal production execution remains typed request to typed result and never
+  expands through `run_em` or reparses a variable tuple.
+- `run_dense_bucket_big_jit` has stable grouped inputs and a stable named
+  result. Static policy remains explicit so JAX specialization topology does
+  not change accidentally.
+- Gaussian and first-iteration normalized-CC/hard-winner outputs match their
+  frozen focused baselines exactly on CPU and within the established GPU
+  arithmetic contract.
+- Dense HLO/module topology, compile count, peak memory, and warm timing remain
+  within the accepted gate. Quality gates use FSC/FSC-AUC; map correlation is
+  diagnostic only.
+- Diagnostic-null execution remains observationally identical and does not
+  disable the canonical compiled path.
+
+## Initial validation ledger
+
+| Scope | Result |
+|---|---|
+| Required parity ancestry at documentation checkpoint `2d64b501` | All five required parity-fix ancestors present. |
+| Dense engine/JIT prescribed baseline | 94 passed with two expected custom-CUDA-only skips in `47.67 s`. |
+| C5 full replay reference | Accepted same-allocation job `60844838`; use the artifact and quality/performance table in the active progress ledger. |
+| Exact-double post-C5 replay | Job `61006782` completed `0:0` through five iterations with final merged RELION FSC-AUC `0.9946195501`; artifact `$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`. |
+
+The host `pixi` wrapper remained alive after pytest reported completion and was
+interrupted only after the final result was printed. No pytest process was
+interrupted before completion. C6-specific GPU compile/memory/warm baselines
+will be added before the first compiled-kernel interface change.

@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Progress
 
-Last updated: 2026-09-16
+Last updated: 2026-09-21
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)
 
@@ -9,6 +9,8 @@ C4 audit: [`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volu
 C4.5 inventory: [`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)
 
 C5 inventory: [`dense_single_volume_refactor_c5_inventory.md`](dense_single_volume_refactor_c5_inventory.md)
+
+C6 inventory: [`dense_single_volume_refactor_c6_inventory.md`](dense_single_volume_refactor_c6_inventory.md)
 
 Historical C0--C4 log:
 [`dense_single_volume_refactor_progress_archive_c0_c4.md`](dense_single_volume_refactor_progress_archive_c0_c4.md)
@@ -27,7 +29,8 @@ file. Do not record user-specific absolute paths.
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
-| C6--C10 | Not started | Follow the authoritative plan in order. |
+| C6 Dense/global scoring | In progress | Inventory and 94-test dense baseline frozen at `2d64b501`; compiled-kernel GPU baseline is next. |
+| C7--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
 
@@ -232,9 +235,9 @@ introduces no material quality, runtime, transfer, or memory regression.
 
 ## Immediate next actions
 
-1. Begin C6 with a dense/global-scoring inventory and frozen dense JIT/result
-   baseline. Do not modify dense kernels until that inventory is committed.
-2. Classify dense preprocessing, block planning, normalization, M-step/noise,
-   finalization, compatibility, and diagnostics ownership before extraction.
-3. Preserve `run_dense_em` as the canonical typed entry and migrate/delete one
-   superseded dense representation in each small implementation slice.
+1. Freeze the C6 compiled-kernel result tree, specialization topology, peak
+   memory, and warm timing before changing its interface.
+2. Group the dense big-JIT arrays/state and static policy, then migrate its
+   sole production adapter and focused tests without a compatibility round trip.
+3. Separate dense preprocessing, planning, normalization, M-step/noise,
+   finalization, and diagnostics only at independently testable boundaries.
