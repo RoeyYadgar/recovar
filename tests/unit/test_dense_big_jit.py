@@ -1,12 +1,14 @@
 """Equivalence tests for the dense/global bucket big-JIT boundary."""
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
-pytest.importorskip("jax")
-import jax.numpy as jnp
-
-from recovar.em.dense_single_volume.dense_big_jit import run_dense_bucket_big_jit
+from recovar.em.dense_single_volume.dense_big_jit import DenseBucketResult, run_dense_bucket_big_jit
+from recovar.em.dense_single_volume.diagnostics.local_capture import (
+    DensePerPoseScoreDumpRequest,
+    maybe_write_dense_per_pose_score_dump,
+)
 from recovar.em.dense_single_volume.em_engine import (
     _dense_big_jit_disabled_reason,
     _pad_dense_big_jit_image_axis,
@@ -33,10 +35,6 @@ from recovar.em.dense_single_volume.helpers.scoring import (
     _merge_block_logsumexp,
     _update_logsumexp,
     _winner_take_all_probs_for_block,
-)
-from recovar.em.dense_single_volume.diagnostics.local_capture import (
-    DensePerPoseScoreDumpRequest,
-    maybe_write_dense_per_pose_score_dump,
 )
 
 pytestmark = pytest.mark.unit
@@ -375,6 +373,42 @@ def test_dense_big_jit_pass1_matches_dense_primitives():
         rtol=1e-6,
         atol=1e-6,
     )
+
+
+@pytest.mark.parametrize("score_mode", ["gaussian", "normalized_cc"])
+def test_dense_big_jit_result_pytree_contract(score_mode):
+    result = _run_big_jit(_inputs(), run_mstep=False, score_mode=score_mode)
+
+    assert isinstance(result, DenseBucketResult)
+    assert result._fields == (
+        "Ft_y",
+        "Ft_ctf",
+        "noise_wsum",
+        "noise_a2",
+        "noise_xa",
+        "noise_sigma2_offset",
+        "block_max",
+        "block_sum_exp",
+        "block_best",
+        "block_argmax",
+        "max_posterior",
+        "probs_sum_t",
+    )
+    assert len(result) == 12
+    assert [(tuple(leaf.shape), leaf.dtype) for leaf in result] == [
+        ((VOLUME_SIZE,), jnp.dtype(jnp.complex64)),
+        ((VOLUME_SIZE,), jnp.dtype(jnp.complex64)),
+        ((0,), jnp.dtype(jnp.float32)),
+        ((0,), jnp.dtype(jnp.float32)),
+        ((0,), jnp.dtype(jnp.float32)),
+        ((), jnp.dtype(jnp.float32)),
+        ((N_IMAGES,), jnp.dtype(jnp.float32)),
+        ((N_IMAGES,), jnp.dtype(jnp.float64)),
+        ((N_IMAGES,), jnp.dtype(jnp.float32)),
+        ((N_IMAGES,), jnp.dtype(jnp.int64)),
+        ((N_IMAGES,), jnp.dtype(jnp.float32)),
+        ((N_IMAGES, N_ROT), jnp.dtype(jnp.float32)),
+    ]
 
 
 def test_dense_big_jit_allows_sparse_pass2_skip_path():
