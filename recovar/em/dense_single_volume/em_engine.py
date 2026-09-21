@@ -42,7 +42,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from recovar.core.configs import ForwardModelConfig
-from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
 
@@ -67,11 +66,10 @@ from .dense_em_types import (
 )
 from .diagnostics.local_capture import (
     DenseCcComponentCapture,
+    DenseDiagnosticsPlan,
     DenseNoiseComponentCapture,
     maybe_write_dense_cc_components,
     maybe_write_dense_per_pose_score_dump,
-    parse_dense_noise_component_dump_request,
-    parse_dense_per_pose_score_dump_request,
     write_dense_noise_components,
 )
 from .helpers.adjoint import (
@@ -158,14 +156,6 @@ def _relion_image_correction_factors(batch_corr, batch_scale, *, score_mode: str
     if score_mode == "normalized_cc":
         return batch_corr, image_only_corr
     return batch_corr, image_only_corr
-
-
-def _noise_split_diagnostics_requested() -> bool:
-    """Return whether per-shell A2/XA noise split diagnostics are needed."""
-    return bool(
-        _runtime_environment().get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
-        or _runtime_environment().get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
-    )
 
 
 def _dense_big_jit_disabled_reason(
@@ -290,31 +280,6 @@ class _SparsePass2Profile:
             "sparse_pass2_omitted_mass_upper_max": float(self.omitted_mass_upper_max),
             "sparse_pass2_omitted_mass_upper_sum": float(self.omitted_mass_upper_sum),
         }
-
-
-@dataclass(frozen=True)
-class _DenseDebugOptions:
-    """Environment-gated dense debug outputs for one EM call."""
-
-    noise_component_dump_dir: object | None
-    noise_component_dump_targets: frozenset[int]
-    noise_component_dump_enabled: bool
-    per_pose_score_dump: object
-    return_noise_split: bool
-
-    @classmethod
-    def from_env(cls, current_size: int | None) -> "_DenseDebugOptions":
-        dump_dir, dump_targets, dump_current_sizes = parse_dense_noise_component_dump_request()
-        dump_enabled = dump_dir is not None and (
-            dump_current_sizes is None or int(current_size or -1) in dump_current_sizes
-        )
-        return cls(
-            noise_component_dump_dir=dump_dir,
-            noise_component_dump_targets=frozenset(dump_targets),
-            noise_component_dump_enabled=bool(dump_enabled),
-            per_pose_score_dump=parse_dense_per_pose_score_dump_request(),
-            return_noise_split=_noise_split_diagnostics_requested(),
-        )
 
 
 @dataclass(frozen=True)
@@ -794,7 +759,7 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
         )
     image_shape = experiment_dataset.image_shape
     volume_shape = experiment_dataset.volume_shape
-    debug_options = _DenseDebugOptions.from_env(current_size)
+    debug_options = DenseDiagnosticsPlan.from_environment(current_size)
     # Pad volume in real space for smoother trilinear projection.
     if projection_padding_factor > 1:
         from recovar.reconstruction.relion_functions import pad_volume_for_projection
@@ -1232,9 +1197,7 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
 
         indices_np_for_debug = None
         original_indices_np_for_debug = None
-        if debug_options.per_pose_score_dump.enabled or _runtime_environment().get(
-            "RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR"
-        ):
+        if debug_options.per_pose_score_dump.enabled or debug_options.cc_component_dump_enabled:
             indices_np_for_debug = np.asarray(indices, dtype=np.int64)
             original_indices_np_for_debug = np.asarray(
                 experiment_dataset.original_image_indices_from_local(indices_np_for_debug),

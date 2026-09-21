@@ -15,6 +15,7 @@ from recovar.em.dense_single_volume.diagnostics.config import (
     diagnostics_environment,
 )
 from recovar.em.dense_single_volume.diagnostics.events import DiagnosticEffect, TraceKind
+from recovar.em.dense_single_volume.diagnostics.local_capture import DenseDiagnosticsPlan
 from recovar.em.dense_single_volume.firstiter_cc import _safe_firstiter_cc_image_batch_size
 from recovar.em.dense_single_volume.local_caches import (
     _local_processed_half_cache_enabled,
@@ -214,6 +215,29 @@ def test_diagnostic_overrides_do_not_mutate_process_environment(monkeypatch):
             assert diagnostics_environment()[name] == "inner"
         assert diagnostics_environment()[name] == "captured"
     assert diagnostics_environment()[name] == "outer"
+
+
+@pytest.mark.unit
+def test_dense_diagnostics_plan_resolves_dense_capture_routes(tmp_path):
+    noise_dir = tmp_path / "noise"
+    scores_dir = tmp_path / "scores"
+    with diagnostic_environment_overrides(
+        RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR=str(noise_dir),
+        RECOVAR_DENSE_NOISE_COMPONENT_DUMP_GLOBAL_INDICES="2,5",
+        RECOVAR_DENSE_NOISE_COMPONENT_DUMP_CURRENT_SIZE="64",
+        RECOVAR_DEBUG_PER_POSE_DUMP_DIR=str(scores_dir),
+        RECOVAR_DEBUG_PER_POSE_DUMP_TARGET="7",
+        RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR=str(tmp_path / "cc"),
+    ):
+        plan = DenseDiagnosticsPlan.from_environment(64)
+
+    assert plan.noise_component_dump_dir == noise_dir
+    assert plan.noise_component_dump_targets == frozenset({2, 5})
+    assert plan.noise_component_dump_enabled is True
+    assert plan.return_noise_split is True
+    assert plan.cc_component_dump_enabled is True
+    assert plan.per_pose_score_dump.dump_dir == scores_dir
+    assert plan.per_pose_score_dump.target == 7
 
 
 @pytest.mark.unit

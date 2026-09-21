@@ -96,11 +96,11 @@ use `run_dense_em` and `DenseEMResult`.
 - Dense noise accumulation and RELION half-volume BPref accumulation are
   optional products of pass 2. Their exact/algebraic layout choices remain
   visible policy, not inferred diagnostics.
-- Dense debug environment parsing already delegates to
-  `diagnostics/local_capture.py`, but `_DenseDebugOptions.from_env` and the
-  debug eligibility decision remain in `em_engine.py`. C6 will move the
-  resolved diagnostic plan behind the diagnostics boundary while keeping
-  observation calls explicit.
+- Dense debug environment parsing and per-call eligibility now resolve through
+  `diagnostics/local_capture.py::DenseDiagnosticsPlan`; `em_engine.py` keeps
+  only the explicit observation calls. The plan includes dense noise, CC,
+  per-pose, and noise-split routes, while the capture writers retain their
+  existing artifact schemas and observation order.
 - Runtime configuration remains host-owned. It must not become a JAX PyTree or
   implicit global read inside numerical kernels.
 
@@ -147,6 +147,7 @@ use `run_dense_em` and `DenseEMResult`.
 | Commit | Outcome |
 |---|---|
 | `c379a512` | Replaced the 44-argument compiled bucket signature and 27-field host adapter with batch-lifetime data, block/pass state, and hashable static-policy groups. Removed the superseded window-constant record and both long production calls. |
+| working tree | Moved dense debug-route resolution from `_DenseDebugOptions` and direct environment reads in `em_engine.py` into `DenseDiagnosticsPlan`; added a focused route-resolution regression test. The numerical path remains unchanged. |
 
 ## Initial validation ledger
 
@@ -157,6 +158,7 @@ use `run_dense_em` and `DenseEMResult`.
 | Dense result-tree contract | Commit `aea8e282`: Gaussian and normalized-CC pass-1 variants have the same named 12-leaf shapes/dtypes; focused file passes 24 tests. |
 | Compiled-kernel baseline | Slurm GPU job `61006843` completed `0:0` on one A100. Four static variants compiled once each; result trees, StableHLO fingerprints, output hashes, warm timing, and peak device memory are frozen below. |
 | Grouped compiled-kernel validation | Slurm GPU job `61006876` completed `0:0` on the same A100 UUID. Every result leaf hash, StableHLO operation sequence/count, compile count, and peak-memory byte count matches the baseline. Sub-millisecond warm samples remain diagnostic pending the paired end-to-end gate. |
+| Dense diagnostics-plan slice | `tests/unit/test_dense_runtime_options.py tests/unit/test_dense_big_jit.py -q`: 60 passed. `git diff --check` passed. The slice is awaiting a small descriptive commit when repository commit approval is available. |
 | C5 full replay reference | Accepted same-allocation job `60844838`; use the artifact and quality/performance table in the active progress ledger. |
 | Exact-double post-C5 replay | Job `61006782` completed `0:0` through five iterations with final merged RELION FSC-AUC `0.9946195501`; artifact `$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`. |
 

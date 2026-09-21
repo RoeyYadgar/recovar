@@ -30,6 +30,37 @@ class DensePerPoseScoreDumpRequest:
 
 
 @dataclass(frozen=True)
+class DenseDiagnosticsPlan:
+    """Environment-resolved dense diagnostic routes for one EM call."""
+
+    noise_component_dump_dir: Path | None
+    noise_component_dump_targets: frozenset[int]
+    noise_component_dump_enabled: bool
+    cc_component_dump_enabled: bool
+    per_pose_score_dump: DensePerPoseScoreDumpRequest
+    return_noise_split: bool
+
+    @classmethod
+    def from_environment(cls, current_size: int | None) -> "DenseDiagnosticsPlan":
+        dump_dir, dump_targets, dump_current_sizes = parse_dense_noise_component_dump_request()
+        dump_enabled = dump_dir is not None and (
+            dump_current_sizes is None or int(current_size or -1) in dump_current_sizes
+        )
+        environment = _runtime_environment()
+        return cls(
+            noise_component_dump_dir=dump_dir,
+            noise_component_dump_targets=frozenset(dump_targets),
+            noise_component_dump_enabled=bool(dump_enabled),
+            cc_component_dump_enabled=bool(environment.get("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR")),
+            per_pose_score_dump=parse_dense_per_pose_score_dump_request(),
+            return_noise_split=bool(
+                environment.get("RECOVAR_NOISE_DEBUG_DUMP_DIR")
+                or environment.get("RECOVAR_DENSE_NOISE_COMPONENT_DUMP_DIR")
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class DenseCcComponentCapture:
     """Values already available at one dense CC scoring block."""
 
