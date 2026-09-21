@@ -287,6 +287,31 @@ def test_relion_corr_img_converts_noise_units_after_native_xfloat_product():
     np.testing.assert_array_equal(actual, expected)
 
 
+def test_relion_corr_img_preserves_double_native_noise_precision():
+    image_shape = (384, 384)
+    native_noise_variance = np.asarray(
+        [1.262594123456e-6, 1.362360987654e-6],
+        dtype=np.float64,
+    )
+    fourier_scale = np.float64(image_shape[0] ** 4)
+    recovar_noise_variance = native_noise_variance * fourier_scale
+    ctf_rfloat = np.asarray([0.994443123456, -0.7135792468], dtype=np.float64)
+    scale = np.asarray([1.0, 0.30007338523864746], dtype=np.float64)
+    expected = ((1.0 / native_noise_variance) * (ctf_rfloat * ctf_rfloat) * (scale * scale)) / fourier_scale
+
+    actual = np.asarray(
+        _relion_cuda_corr_img_from_native_noise_variance(
+            recovar_noise_variance,
+            ctf_rfloat,
+            image_shape,
+            scale,
+            output_dtype=jnp.float64,
+        )
+    )
+    assert actual.dtype == np.float64
+    np.testing.assert_array_equal(actual, expected)
+
+
 def test_relion_pixel_correction_divides_by_rfloat_ctf_before_xfloat_cast():
     scale = np.asarray([[1.0]], dtype=np.float32)
     ctf_rfloat = np.asarray([[0.07354116995482596, 0.1265216380265534]], dtype=np.float64)

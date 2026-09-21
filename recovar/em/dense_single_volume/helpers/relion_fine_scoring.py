@@ -90,21 +90,27 @@ def relion_cuda_corr_img_from_native_noise_variance(
     ctf_rfloat,
     image_shape,
     scale=None,
+    *,
+    output_dtype=jnp.float32,
 ):
     """Form score-unit ``corr_img`` with RELION's native-FFT cast order."""
 
+    output_dtype = jnp.dtype(output_dtype)
+    if output_dtype not in (jnp.dtype(jnp.float32), jnp.dtype(jnp.float64)):
+        raise TypeError(f"output_dtype must be float32 or float64, got {output_dtype}")
     image_size = int(image_shape[0])
     if tuple(image_shape) != (image_size, image_size):
         raise ValueError(f"RELION corr_img requires a square image, got {image_shape}")
     native_fourier_scale_rfloat = jnp.asarray(image_size**4, dtype=jnp.float64)
     native_variance = jnp.asarray(noise_variance, dtype=jnp.float64) / native_fourier_scale_rfloat
-    native_inverse_noise = jnp.reciprocal(native_variance).astype(jnp.float32)
+    native_inverse_noise = jnp.reciprocal(native_variance).astype(output_dtype)
     native_corr_img = relion_cuda_corr_img_from_rfloat_ctf(
         native_inverse_noise,
         ctf_rfloat,
         scale,
+        output_dtype=output_dtype,
     )
-    return (native_corr_img.astype(jnp.float64) / native_fourier_scale_rfloat).astype(jnp.float32)
+    return (native_corr_img.astype(jnp.float64) / native_fourier_scale_rfloat).astype(output_dtype)
 
 
 def relion_cuda_pixel_correction_from_rfloat_ctf(
