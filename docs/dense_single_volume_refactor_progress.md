@@ -26,7 +26,7 @@ file. Do not record user-specific absolute paths.
 | C3 Diagnostics | Complete | Diagnostic persistence and effects have dedicated owners; obsolete debug re-export shims are gone. |
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
-| C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. |
+| C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
 | C6--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
@@ -142,6 +142,7 @@ performance correction. The exact commit ledger is in the C5 inventory.
 | Same-binding preparation profile | Slurm GPU job `60844523`: candidate median about `0.0712 s`, control about `0.0720 s`; both used the same native extension. |
 | Same-binding warm sparse ABBA | Slurm GPU job `60844524`: pooled candidate `0.17647 s`, control `0.17978 s`, candidate delta `-1.84%`; completed `0:0` on one V100. |
 | Final prescribed paired replay | Slurm GPU job `60844838` completed `0:0` control-first on one A100-PCIE-40GB; trajectory/schema matched, quality improved, and runtime/memory gates passed. |
+| Post-acceptance exact-double BPref correction | Commit `5c7e7c74`: focused corr-image tests 5 passed; explicit sparse float64 test passed; full sparse performance suite 176 passed with two expected GPU-only skips; CPU fast guard 16 passed. Slurm GPU job `61006782` completed `0:0` through five iterations on one V100. |
 
 The initial warm measurements were not accepted because the candidate appeared
 slower. Investigation found two separate causes: repeated optional-binding
@@ -150,6 +151,18 @@ present only in the control worktree. The production lookup is now cached
 safely, and decisive jobs pin the same checksum-identical external binding in
 both arms. Earlier jobs `60841550`, `60841926`, `60842862`, and `60843417` are
 diagnostic evidence only, not acceptance comparisons.
+
+Commit `5c7e7c74` fixes a latent double-only interface mismatch exposed by the
+exact RELION BPref operand configuration: the sparse caller requested a
+float64 correction image, but the extracted native-noise helper neither
+accepted nor preserved an output dtype. The helper now has an explicit
+float32/float64 output contract; its default float32 operation order is
+unchanged. The exact reported configuration was replayed for five iterations
+in Slurm job `61006782`. It completed with size trajectory
+`[46, 46, 72, 70, 70]`, final recovar-vs-RELION merged-map correlation
+`0.9999962378`, ledger elapsed time `425.455 s`, and no final-all-data pass as
+requested by `--max_iter 5`. The portable artifact is
+`$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`.
 
 ## Reference quality and performance
 
