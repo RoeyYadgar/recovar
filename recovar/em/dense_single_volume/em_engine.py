@@ -317,9 +317,6 @@ class _DenseBigJitBatchRunner:
     data: DenseBucketData
     policy: DenseBucketPolicy
     score_constraint_blocks: object
-    start_idx: int
-    end_idx: int
-    batch_size: int
 
     def run(
         self,
@@ -342,7 +339,7 @@ class _DenseBigJitBatchRunner:
             translation_prior_block,
             candidate_mask_block,
             valid_rotation_mask,
-        ) = self.score_constraint_blocks(block.r0, block.r1, self.start_idx, self.end_idx, self.batch_size)
+        ) = self.score_constraint_blocks(block.r0, block.r1)
         state = DenseBucketState(
             Ft_y=Ft_y,
             Ft_ctf=Ft_ctf,
@@ -872,6 +869,7 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
         n_trans=n_trans,
         n_rot_padded=n_rot_padded,
         dtype=precision_policy.score_real_dtype,
+        class_log_prior=class_log_prior,
     )
     if score_constraints.rotation_prior_minmax is not None:
         logger.info(
@@ -915,33 +913,6 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
         logger.info("Dense big-JIT disabled for this run: unsupported %s", dense_big_jit_unsupported_reason)
     elif use_dense_big_jit:
         logger.info("Dense big-JIT enabled for dense/global rotation buckets")
-
-    def _dense_score_constraint_blocks(r0: int, r1: int, start: int, end: int, batch_count: int, rows=None):
-        (
-            rotation_prior_block,
-            translation_prior_block,
-            candidate_mask_block,
-            valid_rotation_mask,
-        ) = score_constraints.block_inputs(
-            r0=r0,
-            r1=r1,
-            start=start,
-            end=end,
-            rows=rows,
-            batch_count=batch_count,
-            rotation_block_size=rotation_block_size,
-        )
-        if class_log_prior != 0.0:
-            rotation_prior_block = rotation_prior_block + jnp.asarray(
-                class_log_prior,
-                dtype=rotation_prior_block.dtype,
-            )
-        return (
-            rotation_prior_block,
-            translation_prior_block,
-            candidate_mask_block,
-            valid_rotation_mask,
-        )
 
     # Initialize accumulators (at padded resolution for pf>1 backprojection)
     Ft_y = jnp.zeros(recon_volume_size, dtype=experiment_dataset.dtype)
@@ -1346,15 +1317,13 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
             _block_until_ready(*ready_values)
         timing.score_prep_s += time.time() - score_prep_t0
 
-        def batch_score_constraint_blocks(r0, r1, start, end, batch_count, _rows=batch_rows_np):
-            return _dense_score_constraint_blocks(
-                r0,
-                r1,
-                start,
-                end,
-                batch_count,
-                rows=_rows,
-            )
+        batch_score_constraint_blocks = score_constraints.for_batch(
+            start=start_idx,
+            end=end_idx,
+            rows=batch_rows_np,
+            batch_count=batch_size,
+            rotation_block_size=rotation_block_size,
+        )
 
         dense_big_jit_runner = _DenseBigJitBatchRunner(
             data=DenseBucketData(
@@ -1391,9 +1360,6 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
                 n_shells=(image_shape[0] // 2 + 1 if accumulate_noise else 0),
             ),
             score_constraint_blocks=batch_score_constraint_blocks,
-            start_idx=start_idx,
-            end_idx=end_idx,
-            batch_size=batch_size,
         )
 
         # -- PASS 1: streaming logsumexp over rotation blocks --
@@ -1502,13 +1468,9 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
                 translation_prior_block,
                 candidate_mask_block,
                 valid_rotation_mask,
-            ) = _dense_score_constraint_blocks(
+            ) = batch_score_constraint_blocks(
                 block.r0,
                 block.r1,
-                start_idx,
-                end_idx,
-                batch_size,
-                rows=batch_rows_np,
             )
             scores = apply_dense_score_constraints(
                 scores,
@@ -1742,13 +1704,9 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
                 translation_prior_block,
                 candidate_mask_block,
                 valid_rotation_mask,
-            ) = _dense_score_constraint_blocks(
+            ) = batch_score_constraint_blocks(
                 block.r0,
                 block.r1,
-                start_idx,
-                end_idx,
-                batch_size,
-                rows=batch_rows_np,
             )
             scores = apply_dense_score_constraints(
                 scores,

@@ -148,6 +148,7 @@ use `run_dense_em` and `DenseEMResult`.
 |---|---|
 | `c379a512` | Replaced the 44-argument compiled bucket signature and 27-field host adapter with batch-lifetime data, block/pass state, and hashable static-policy groups. Removed the superseded window-constant record and both long production calls. |
 | working tree | Moved dense debug-route resolution from `_DenseDebugOptions` and direct environment reads in `em_engine.py` into `DenseDiagnosticsPlan`; added a focused route-resolution regression test. The numerical path remains unchanged. |
+| working tree | Moved class-prior application into `DenseScoreConstraints`, added a bound per-batch block view, and removed the dense engine's nested score-constraint closure plus redundant runner fields. The existing fallback and big-JIT routes use the same bound block inputs. |
 
 ## Initial validation ledger
 
@@ -159,6 +160,7 @@ use `run_dense_em` and `DenseEMResult`.
 | Compiled-kernel baseline | Slurm GPU job `61006843` completed `0:0` on one A100. Four static variants compiled once each; result trees, StableHLO fingerprints, output hashes, warm timing, and peak device memory are frozen below. |
 | Grouped compiled-kernel validation | Slurm GPU job `61006876` completed `0:0` on the same A100 UUID. Every result leaf hash, StableHLO operation sequence/count, compile count, and peak-memory byte count matches the baseline. Sub-millisecond warm samples remain diagnostic pending the paired end-to-end gate. |
 | Dense diagnostics-plan slice | `tests/unit/test_dense_runtime_options.py tests/unit/test_dense_big_jit.py -q`: 60 passed. `git diff --check` passed. The slice is awaiting a small descriptive commit when repository commit approval is available. |
+| Dense score-constraint slice | Focused constraint/refinement cases: 16 passed; dense big-JIT/runtime options: 60 passed; half-spectrum, sampling/M-step, and normalized-CC suite: 72 passed with two expected custom-CUDA skips; CPU fast guard: 16 passed in `51.26 s`. |
 | C5 full replay reference | Accepted same-allocation job `60844838`; use the artifact and quality/performance table in the active progress ledger. |
 | Exact-double post-C5 replay | Job `61006782` completed `0:0` through five iterations with final merged RELION FSC-AUC `0.9946195501`; artifact `$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`. |
 

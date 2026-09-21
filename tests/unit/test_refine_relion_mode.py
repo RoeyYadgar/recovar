@@ -11420,6 +11420,23 @@ class TestRelionModeSmokeTest:
             (np.arange(24).reshape(3, 4, 2) % 3 == 0)[[2, 0], 1:3, :],
         )
 
+    def test_dense_score_constraints_apply_class_prior_in_bound_batch_view(self):
+        constraints = DenseScoreConstraints.from_inputs(
+            rotation_log_prior=np.zeros(2, dtype=np.float32),
+            translation_log_prior=None,
+            rotation_translation_mask=None,
+            n_images=1,
+            n_rot=2,
+            n_trans=1,
+            n_rot_padded=2,
+            class_log_prior=-3.5,
+        )
+
+        block_inputs = constraints.for_batch(start=0, end=1, batch_count=1, rotation_block_size=2)
+        rotation_prior, _translation_prior, _candidate_mask, _valid = block_inputs(0, 2)
+
+        np.testing.assert_array_equal(np.asarray(rotation_prior), np.full((1, 2), -3.5, dtype=np.float32))
+
     def test_relion_translation_prior_center_matches_accelerated_pdf_offset_units(self):
         prev = np.array([[0.0, -1.0], [1.0, 0.0], [-0.82310355, -0.82310355]], dtype=np.float32)
         expected = np.array([[0.0, 1.0 / 4.25], [-1.0 / 4.25, 0.0], [1.0 / 4.25, 1.0 / 4.25]], dtype=np.float32)

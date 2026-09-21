@@ -49,6 +49,7 @@ class DenseScoreConstraints:
     n_trans: int
     n_rot_padded: int
     prior_dtype: object = np.float32
+    class_log_prior: float = 0.0
 
     @classmethod
     def from_inputs(
@@ -62,6 +63,7 @@ class DenseScoreConstraints:
         n_trans: int,
         n_rot_padded: int,
         dtype: np.dtype = np.float32,
+        class_log_prior: float = 0.0,
     ) -> "DenseScoreConstraints":
         """``dtype`` defaults to float32 (RELION's accelerated-GPU precision);
         callers running double-precision scoring should pass ``np.float64`` --
@@ -175,7 +177,24 @@ class DenseScoreConstraints:
             n_trans=int(n_trans),
             n_rot_padded=int(n_rot_padded),
             prior_dtype=dtype,
+            class_log_prior=float(class_log_prior),
         )
+
+    def for_batch(self, *, start: int, end: int, batch_count: int, rows=None, rotation_block_size: int):
+        """Bind the image-batch coordinates used by the dense bucket runner."""
+
+        def block_inputs(r0: int, r1: int):
+            return self.block_inputs(
+                r0=r0,
+                r1=r1,
+                start=start,
+                end=end,
+                rows=rows,
+                batch_count=batch_count,
+                rotation_block_size=rotation_block_size,
+            )
+
+        return block_inputs
 
     def block_inputs(
         self,
@@ -252,6 +271,8 @@ class DenseScoreConstraints:
 
         valid = max(0, min(rotation_block_size, self.n_rot - int(r0)))
         valid_rotation_mask = jnp.arange(rotation_block_size) < valid
+        if self.class_log_prior != 0.0:
+            rotation_prior = rotation_prior + jnp.asarray(self.class_log_prior, dtype=rotation_prior.dtype)
         return rotation_prior, translation_prior, candidate_mask, valid_rotation_mask
 
 
