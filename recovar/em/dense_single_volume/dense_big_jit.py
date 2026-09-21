@@ -1,7 +1,7 @@
 """Dense/global single-volume EM bucket big-JIT path.
 
 This module provides the compiled per-rotation-bucket boundary used by
-``em_engine.run_em`` for eligible dense/global RELION buckets. Inputs stay in
+``em_engine.run_dense_em`` for eligible dense/global RELION buckets. Inputs stay in
 half-spectrum layout so the hot path avoids full Fourier image tensors.
 """
 
@@ -38,6 +38,65 @@ class DenseBucketResult(NamedTuple):
     block_argmax: jax.Array
     max_posterior: jax.Array
     probs_sum_t: jax.Array
+
+
+class DenseBucketData(NamedTuple):
+    """Batch-lifetime arrays shared by both passes of one dense bucket."""
+
+    shifted_score_half: jax.Array
+    batch_norm: jax.Array
+    score_weight_half: jax.Array
+    shifted_recon_half: jax.Array
+    ctf2_over_nv_recon_half: jax.Array
+    mean_for_proj: jax.Array
+    half_weights: jax.Array
+    valid_image_mask: jax.Array
+    window_indices: jax.Array
+    recon_window_indices: jax.Array
+
+
+class DenseBucketState(NamedTuple):
+    """Block/pass arrays that change across dense big-JIT calls."""
+
+    Ft_y: jax.Array
+    Ft_ctf: jax.Array
+    rotations_block: jax.Array
+    rotation_log_prior_block: jax.Array
+    translation_log_prior_block: jax.Array
+    candidate_mask_block: jax.Array
+    valid_rotation_mask: jax.Array
+    log_Z: jax.Array
+    shifted_noise_half: jax.Array | None = None
+    noise_variance_half: jax.Array | None = None
+    shell_indices_noise: jax.Array | None = None
+    translation_sqdist_ang: jax.Array | None = None
+    wta_argmax: jax.Array | None = None
+    wta_best_score: jax.Array | None = None
+    wta_block_r0: jax.Array | None = None
+
+
+class DenseBucketPolicy(NamedTuple):
+    """Hashable static specialization policy for a dense bucket."""
+
+    score_mode: str
+    zero_dc_for_scoring: bool
+    use_window: bool
+    use_float64_scoring: bool
+    use_float64_normalization: bool
+    run_mstep: bool
+    winner_take_all: bool
+    image_shape: tuple[int, int]
+    proj_volume_shape: tuple[int, int, int]
+    recon_volume_shape: tuple[int, int, int]
+    disc_type: str
+    projection_max_r: object
+    backprojection_max_r: object
+    mstep_half_volume: bool
+    disable_adjoint_y: bool
+    disable_adjoint_ctf: bool
+    accumulate_noise: bool
+    return_noise_split: bool
+    n_shells: int
 
 
 class _DenseBucketView(NamedTuple):
@@ -404,81 +463,21 @@ def _noise_half_sums(
 
 @partial(
     jax.jit,
-    static_argnames=(
-        "score_mode",
-        "zero_dc_for_scoring",
-        "use_window",
-        "use_float64_scoring",
-        "use_float64_normalization",
-        "run_mstep",
-        "winner_take_all",
-        "image_shape",
-        "proj_volume_shape",
-        "recon_volume_shape",
-        "disc_type",
-        "projection_max_r",
-        "backprojection_max_r",
-        "mstep_half_volume",
-        "disable_adjoint_y",
-        "disable_adjoint_ctf",
-        "accumulate_noise",
-        "return_noise_split",
-        "n_shells",
-    ),
+    static_argnames=("policy",),
 )
 def run_dense_bucket_big_jit(
-    shifted_score_half,
-    batch_norm,
-    score_weight_half,
-    shifted_recon_half,
-    ctf2_over_nv_recon_half,
-    mean_for_proj,
-    Ft_y,
-    Ft_ctf,
-    rotations_block,
-    half_weights,
-    rotation_log_prior_block,
-    translation_log_prior_block,
-    candidate_mask_block,
-    valid_rotation_mask,
-    valid_image_mask,
-    log_Z,
-    window_indices,
-    recon_window_indices,
-    shifted_noise_half=None,
-    noise_variance_half=None,
-    shell_indices_noise=None,
-    translation_sqdist_ang=None,
-    wta_argmax=None,
-    wta_best_score=None,
-    wta_block_r0=None,
-    *,
-    score_mode: str = "gaussian",
-    zero_dc_for_scoring: bool = True,
-    use_window: bool = False,
-    use_float64_scoring: bool = False,
-    use_float64_normalization: bool = True,
-    run_mstep: bool = True,
-    winner_take_all: bool = False,
-    image_shape,
-    proj_volume_shape,
-    recon_volume_shape,
-    disc_type: str,
-    projection_max_r="auto",
-    backprojection_max_r="auto",
-    mstep_half_volume: bool = False,
-    disable_adjoint_y: bool = False,
-    disable_adjoint_ctf: bool = False,
-    accumulate_noise: bool = False,
-    return_noise_split: bool = False,
-    n_shells: int = 0,
+    data: DenseBucketData,
+    state: DenseBucketState,
+    policy: DenseBucketPolicy,
 ) -> DenseBucketResult:
     """Run one dense/global rotation bucket inside one compiled boundary.
 
-    Inputs are half-spectrum arrays.  The caller owns batch preprocessing and
-    the two-pass schedule: call with ``run_mstep=False`` to get pass-1 block
-    logsumexp summaries, then call with ``run_mstep=True`` and the global
-    per-image ``log_Z`` to accumulate the M-step for the same bucket.
+    ``data`` owns half-spectrum arrays shared by both passes; ``state`` owns
+    block/pass arrays; and ``policy`` owns every static specialization axis.
+    The caller owns batch preprocessing and the two-pass schedule: set
+    ``policy.run_mstep=False`` to get pass-1 block logsumexp summaries, then
+    set it to true and provide the global per-image ``log_Z`` to accumulate
+    the M-step for the same bucket.
 
     ``rotation_log_prior_block`` must be shaped ``(batch, rot_block)`` and
     ``translation_log_prior_block`` must be shaped ``(batch, n_trans)``.  Use
@@ -487,6 +486,57 @@ def run_dense_bucket_big_jit(
     ``valid_image_mask`` marks real image rows when the caller pads a tail
     image batch to a stable shape class.
     """
+    (
+        shifted_score_half,
+        batch_norm,
+        score_weight_half,
+        shifted_recon_half,
+        ctf2_over_nv_recon_half,
+        mean_for_proj,
+        half_weights,
+        valid_image_mask,
+        window_indices,
+        recon_window_indices,
+    ) = data
+    (
+        Ft_y,
+        Ft_ctf,
+        rotations_block,
+        rotation_log_prior_block,
+        translation_log_prior_block,
+        candidate_mask_block,
+        valid_rotation_mask,
+        log_Z,
+        shifted_noise_half,
+        noise_variance_half,
+        shell_indices_noise,
+        translation_sqdist_ang,
+        wta_argmax,
+        wta_best_score,
+        wta_block_r0,
+    ) = state
+    (
+        score_mode,
+        zero_dc_for_scoring,
+        use_window,
+        use_float64_scoring,
+        use_float64_normalization,
+        run_mstep,
+        winner_take_all,
+        image_shape,
+        proj_volume_shape,
+        recon_volume_shape,
+        disc_type,
+        projection_max_r,
+        backprojection_max_r,
+        mstep_half_volume,
+        disable_adjoint_y,
+        disable_adjoint_ctf,
+        accumulate_noise,
+        return_noise_split,
+        n_shells,
+    ) = policy
+
     if score_mode not in ("gaussian", "normalized_cc"):
         raise ValueError(f"score_mode must be 'gaussian' or 'normalized_cc', got {score_mode!r}")
 
@@ -645,4 +695,10 @@ def run_dense_bucket_big_jit(
     )
 
 
-__all__ = ["DenseBucketResult", "run_dense_bucket_big_jit"]
+__all__ = [
+    "DenseBucketData",
+    "DenseBucketPolicy",
+    "DenseBucketResult",
+    "DenseBucketState",
+    "run_dense_bucket_big_jit",
+]

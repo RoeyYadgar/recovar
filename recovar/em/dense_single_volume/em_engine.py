@@ -46,7 +46,12 @@ from recovar.em.dense_single_volume.diagnostics.config import diagnostics_enviro
 from recovar.reconstruction import noise as noise_utils
 from recovar.utils.nvtx_shim import nvtx
 
-from .dense_big_jit import run_dense_bucket_big_jit
+from .dense_big_jit import (
+    DenseBucketData,
+    DenseBucketPolicy,
+    DenseBucketState,
+    run_dense_bucket_big_jit,
+)
 from .dense_em_types import (
     DenseCorrectionInputs,
     DenseEMInputs,
@@ -341,55 +346,15 @@ def _iter_dense_rotation_blocks(rotations_padded, n_rot: int, n_blocks: int, rot
 
 
 @dataclass(frozen=True)
-class _DenseBigJitConstants:
-    """Window metadata shared by dense big-JIT bucket calls."""
-
-    window_indices: object
-    recon_window_indices: object
-    projection_max_r: object
-    backprojection_max_r: object
-
-    @classmethod
-    def from_window(cls, window_spec, *, n_half: int):
-        return cls(
-            window_indices=window_spec.score_or_full_indices(n_half),
-            recon_window_indices=window_spec.recon_or_full_indices(n_half),
-            projection_max_r=window_spec.dense_big_jit_projection_max_r(),
-            backprojection_max_r=window_spec.dense_big_jit_backprojection_max_r(),
-        )
-
-
-@dataclass(frozen=True)
 class _DenseBigJitBatchRunner:
     """Host-side adapter for one batch's dense big-JIT bucket calls."""
 
-    shifted_score_half: object
-    batch_norm: object
-    score_weight_half: object
-    shifted_recon_half: object
-    ctf2_over_nv_half_with_dc: object
-    mean_for_proj: object
-    half_weights: object
-    valid_image_mask: object
-    constants: _DenseBigJitConstants
+    data: DenseBucketData
+    policy: DenseBucketPolicy
     score_constraint_blocks: object
     start_idx: int
     end_idx: int
     batch_size: int
-    score_mode: str
-    zero_dc_for_scoring: bool
-    use_window: bool
-    use_float64_scoring: bool
-    image_shape: tuple[int, int]
-    proj_volume_shape: tuple[int, int, int]
-    recon_volume_shape: tuple[int, int, int]
-    disc_type: str
-    disable_adjoint_y: bool
-    disable_adjoint_ctf: bool
-    mstep_half_volume: bool
-    accumulate_noise: bool
-    return_noise_split: bool
-    n_shells: int
 
     def run(
         self,
@@ -413,51 +378,27 @@ class _DenseBigJitBatchRunner:
             candidate_mask_block,
             valid_rotation_mask,
         ) = self.score_constraint_blocks(block.r0, block.r1, self.start_idx, self.end_idx, self.batch_size)
+        state = DenseBucketState(
+            Ft_y=Ft_y,
+            Ft_ctf=Ft_ctf,
+            rotations_block=jnp.asarray(block.rotations),
+            rotation_log_prior_block=rotation_prior_block,
+            translation_log_prior_block=translation_prior_block,
+            candidate_mask_block=candidate_mask_block,
+            valid_rotation_mask=valid_rotation_mask,
+            log_Z=log_z,
+            shifted_noise_half=shifted_noise_half,
+            noise_variance_half=noise_variance_half,
+            shell_indices_noise=shell_indices_noise,
+            translation_sqdist_ang=translation_sqdist_ang,
+            wta_argmax=wta_argmax,
+            wta_best_score=wta_best_score,
+            wta_block_r0=jnp.asarray(block.r0, dtype=jnp.int32),
+        )
         return run_dense_bucket_big_jit(
-            self.shifted_score_half,
-            self.batch_norm,
-            self.score_weight_half,
-            self.shifted_recon_half,
-            self.ctf2_over_nv_half_with_dc,
-            self.mean_for_proj,
-            Ft_y,
-            Ft_ctf,
-            jnp.asarray(block.rotations),
-            self.half_weights,
-            rotation_prior_block,
-            translation_prior_block,
-            candidate_mask_block,
-            valid_rotation_mask,
-            self.valid_image_mask,
-            log_z,
-            self.constants.window_indices,
-            self.constants.recon_window_indices,
-            shifted_noise_half,
-            noise_variance_half,
-            shell_indices_noise,
-            translation_sqdist_ang,
-            wta_argmax,
-            wta_best_score,
-            jnp.asarray(block.r0, dtype=jnp.int32),
-            score_mode=self.score_mode,
-            zero_dc_for_scoring=self.zero_dc_for_scoring,
-            use_window=self.use_window,
-            use_float64_scoring=self.use_float64_scoring,
-            use_float64_normalization=True,
-            run_mstep=run_mstep,
-            winner_take_all=winner_take_all,
-            image_shape=self.image_shape,
-            proj_volume_shape=self.proj_volume_shape,
-            recon_volume_shape=self.recon_volume_shape,
-            disc_type=self.disc_type,
-            projection_max_r=self.constants.projection_max_r,
-            backprojection_max_r=self.constants.backprojection_max_r,
-            mstep_half_volume=self.mstep_half_volume,
-            disable_adjoint_y=self.disable_adjoint_y,
-            disable_adjoint_ctf=self.disable_adjoint_ctf,
-            accumulate_noise=self.accumulate_noise,
-            return_noise_split=self.return_noise_split,
-            n_shells=self.n_shells,
+            self.data,
+            state,
+            self.policy._replace(run_mstep=run_mstep, winner_take_all=winner_take_all),
         )
 
 
@@ -1453,36 +1394,43 @@ def run_dense_em(request: DenseEMRequest) -> DenseEMResult:
             )
 
         dense_big_jit_runner = _DenseBigJitBatchRunner(
-            shifted_score_half=shifted_score_half,
-            batch_norm=batch_norm,
-            score_weight_half=score_weight_half,
-            shifted_recon_half=shifted_recon_half,
-            ctf2_over_nv_half_with_dc=ctf2_over_nv_half_with_dc,
-            mean_for_proj=mean_for_proj,
-            half_weights=half_weights,
-            valid_image_mask=valid_image_mask,
-            constants=_DenseBigJitConstants.from_window(
-                window_spec,
-                n_half=n_half,
+            data=DenseBucketData(
+                shifted_score_half=shifted_score_half,
+                batch_norm=batch_norm,
+                score_weight_half=score_weight_half,
+                shifted_recon_half=shifted_recon_half,
+                ctf2_over_nv_recon_half=ctf2_over_nv_half_with_dc,
+                mean_for_proj=mean_for_proj,
+                half_weights=half_weights,
+                valid_image_mask=valid_image_mask,
+                window_indices=window_spec.score_or_full_indices(n_half),
+                recon_window_indices=window_spec.recon_or_full_indices(n_half),
+            ),
+            policy=DenseBucketPolicy(
+                score_mode=relion_firstiter_score_mode,
+                zero_dc_for_scoring=half_spectrum_scoring,
+                use_window=use_window,
+                use_float64_scoring=use_float64_scoring,
+                use_float64_normalization=True,
+                run_mstep=False,
+                winner_take_all=False,
+                image_shape=image_shape,
+                proj_volume_shape=proj_volume_shape,
+                recon_volume_shape=recon_volume_shape,
+                disc_type=disc_type,
+                projection_max_r=window_spec.dense_big_jit_projection_max_r(),
+                backprojection_max_r=window_spec.dense_big_jit_backprojection_max_r(),
+                mstep_half_volume=relion_half_volume_mstep,
+                disable_adjoint_y=disable_adjoint_y,
+                disable_adjoint_ctf=disable_adjoint_ctf,
+                accumulate_noise=accumulate_noise,
+                return_noise_split=False,
+                n_shells=(image_shape[0] // 2 + 1 if accumulate_noise else 0),
             ),
             score_constraint_blocks=batch_score_constraint_blocks,
             start_idx=start_idx,
             end_idx=end_idx,
             batch_size=batch_size,
-            score_mode=relion_firstiter_score_mode,
-            zero_dc_for_scoring=half_spectrum_scoring,
-            use_window=use_window,
-            use_float64_scoring=use_float64_scoring,
-            image_shape=image_shape,
-            proj_volume_shape=proj_volume_shape,
-            recon_volume_shape=recon_volume_shape,
-            disc_type=disc_type,
-            disable_adjoint_y=disable_adjoint_y,
-            disable_adjoint_ctf=disable_adjoint_ctf,
-            mstep_half_volume=relion_half_volume_mstep,
-            accumulate_noise=accumulate_noise,
-            return_noise_split=False,
-            n_shells=(image_shape[0] // 2 + 1 if accumulate_noise else 0),
         )
 
         # -- PASS 1: streaming logsumexp over rotation blocks --

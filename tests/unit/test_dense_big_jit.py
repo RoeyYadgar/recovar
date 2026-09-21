@@ -4,7 +4,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from recovar.em.dense_single_volume.dense_big_jit import DenseBucketResult, run_dense_bucket_big_jit
+from recovar.em.dense_single_volume.dense_big_jit import (
+    DenseBucketData,
+    DenseBucketPolicy,
+    DenseBucketResult,
+    DenseBucketState,
+    run_dense_bucket_big_jit,
+)
 from recovar.em.dense_single_volume.diagnostics.local_capture import (
     DensePerPoseScoreDumpRequest,
     maybe_write_dense_per_pose_score_dump,
@@ -302,6 +308,9 @@ def _run_big_jit(
     noise_variance_half=None,
     shell_indices_noise=None,
     translation_sqdist_ang=None,
+    winner_take_all=False,
+    wta_argmax=None,
+    wta_best_score=None,
 ):
     if use_window:
         if current_size is None:
@@ -312,47 +321,57 @@ def _run_big_jit(
         window_indices = jnp.arange(N_HALF, dtype=jnp.int32)
         recon_window_indices = jnp.arange(N_HALF, dtype=jnp.int32)
         projection_max_r = "auto"
-    return run_dense_bucket_big_jit(
-        s["shifted_score_half"],
-        s["batch_norm"],
-        s["score_weight_half"],
-        s["shifted_recon_half"],
-        s["ctf2_over_nv_recon_half"],
-        s["mean_for_proj"],
-        jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
-        jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
-        s["rotations"],
-        s["half_weights"],
-        s["rotation_log_prior"],
-        s["translation_log_prior"],
-        s["candidate_mask"],
-        s["valid_rotation_mask"],
-        jnp.ones(N_IMAGES, dtype=bool) if valid_image_mask is None else valid_image_mask,
-        jnp.zeros(N_IMAGES, dtype=jnp.float32) if log_z is None else log_z,
-        window_indices,
-        recon_window_indices,
-        s["shifted_score_half"],
-        noise_variance_half,
-        shell_indices_noise,
-        translation_sqdist_ang,
+    data = DenseBucketData(
+        shifted_score_half=s["shifted_score_half"],
+        batch_norm=s["batch_norm"],
+        score_weight_half=s["score_weight_half"],
+        shifted_recon_half=s["shifted_recon_half"],
+        ctf2_over_nv_recon_half=s["ctf2_over_nv_recon_half"],
+        mean_for_proj=s["mean_for_proj"],
+        half_weights=s["half_weights"],
+        valid_image_mask=jnp.ones(N_IMAGES, dtype=bool) if valid_image_mask is None else valid_image_mask,
+        window_indices=window_indices,
+        recon_window_indices=recon_window_indices,
+    )
+    state = DenseBucketState(
+        Ft_y=jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
+        Ft_ctf=jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
+        rotations_block=s["rotations"],
+        rotation_log_prior_block=s["rotation_log_prior"],
+        translation_log_prior_block=s["translation_log_prior"],
+        candidate_mask_block=s["candidate_mask"],
+        valid_rotation_mask=s["valid_rotation_mask"],
+        log_Z=jnp.zeros(N_IMAGES, dtype=jnp.float32) if log_z is None else log_z,
+        shifted_noise_half=s["shifted_score_half"],
+        noise_variance_half=noise_variance_half,
+        shell_indices_noise=shell_indices_noise,
+        translation_sqdist_ang=translation_sqdist_ang,
+        wta_argmax=wta_argmax,
+        wta_best_score=wta_best_score,
+        wta_block_r0=jnp.asarray(0, dtype=jnp.int32),
+    )
+    policy = DenseBucketPolicy(
         score_mode=score_mode,
         zero_dc_for_scoring=False,
         use_window=use_window,
         use_float64_scoring=False,
         use_float64_normalization=True,
         run_mstep=run_mstep,
+        winner_take_all=winner_take_all,
         image_shape=IMAGE_SHAPE,
         proj_volume_shape=VOLUME_SHAPE,
         recon_volume_shape=VOLUME_SHAPE,
         disc_type="linear_interp",
         projection_max_r=projection_max_r,
         backprojection_max_r=projection_max_r,
+        mstep_half_volume=False,
         disable_adjoint_y=False,
         disable_adjoint_ctf=False,
         accumulate_noise=accumulate_noise,
         return_noise_split=return_noise_split,
         n_shells=n_shells,
     )
+    return run_dense_bucket_big_jit(data, state, policy)
 
 
 def test_dense_big_jit_pass1_matches_dense_primitives():
@@ -745,50 +764,12 @@ def test_dense_big_jit_winner_take_all_matches_one_hot_reference():
         True,
     )
 
-    result = run_dense_bucket_big_jit(
-        s["shifted_score_half"],
-        s["batch_norm"],
-        s["score_weight_half"],
-        s["shifted_recon_half"],
-        s["ctf2_over_nv_recon_half"],
-        s["mean_for_proj"],
-        jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
-        jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
-        s["rotations"],
-        s["half_weights"],
-        s["rotation_log_prior"],
-        s["translation_log_prior"],
-        s["candidate_mask"],
-        s["valid_rotation_mask"],
-        jnp.ones(N_IMAGES, dtype=bool),
-        jnp.zeros(N_IMAGES, dtype=jnp.float32),
-        jnp.arange(N_HALF, dtype=jnp.int32),
-        jnp.arange(N_HALF, dtype=jnp.int32),
-        None,
-        None,
-        None,
-        None,
-        best_argmax,
-        best_score,
-        jnp.asarray(0, dtype=jnp.int32),
-        score_mode="gaussian",
-        zero_dc_for_scoring=False,
-        use_window=False,
-        use_float64_scoring=False,
-        use_float64_normalization=True,
+    result = _run_big_jit(
+        s,
         run_mstep=True,
         winner_take_all=True,
-        image_shape=IMAGE_SHAPE,
-        proj_volume_shape=VOLUME_SHAPE,
-        recon_volume_shape=VOLUME_SHAPE,
-        disc_type="linear_interp",
-        projection_max_r="auto",
-        backprojection_max_r="auto",
-        disable_adjoint_y=False,
-        disable_adjoint_ctf=False,
-        accumulate_noise=False,
-        return_noise_split=False,
-        n_shells=0,
+        wta_argmax=best_argmax,
+        wta_best_score=best_score,
     )
 
     # Each image contributes 1.0 of probability mass (one-hot at the winner).
@@ -817,50 +798,12 @@ def test_dense_big_jit_winner_take_all_skips_invalid_images():
     # Mark image 1's winner as -inf (e.g. K-class adaptive 2-pass losing class).
     best_score = jnp.array([float(jnp.max(flat_scores, axis=1)[0]), -jnp.inf], dtype=jnp.float32)
 
-    result = run_dense_bucket_big_jit(
-        s["shifted_score_half"],
-        s["batch_norm"],
-        s["score_weight_half"],
-        s["shifted_recon_half"],
-        s["ctf2_over_nv_recon_half"],
-        s["mean_for_proj"],
-        jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
-        jnp.zeros(VOLUME_SIZE, dtype=jnp.complex64),
-        s["rotations"],
-        s["half_weights"],
-        s["rotation_log_prior"],
-        s["translation_log_prior"],
-        s["candidate_mask"],
-        s["valid_rotation_mask"],
-        jnp.ones(N_IMAGES, dtype=bool),
-        jnp.zeros(N_IMAGES, dtype=jnp.float32),
-        jnp.arange(N_HALF, dtype=jnp.int32),
-        jnp.arange(N_HALF, dtype=jnp.int32),
-        None,
-        None,
-        None,
-        None,
-        best_argmax,
-        best_score,
-        jnp.asarray(0, dtype=jnp.int32),
-        score_mode="gaussian",
-        zero_dc_for_scoring=False,
-        use_window=False,
-        use_float64_scoring=False,
-        use_float64_normalization=True,
+    result = _run_big_jit(
+        s,
         run_mstep=True,
         winner_take_all=True,
-        image_shape=IMAGE_SHAPE,
-        proj_volume_shape=VOLUME_SHAPE,
-        recon_volume_shape=VOLUME_SHAPE,
-        disc_type="linear_interp",
-        projection_max_r="auto",
-        backprojection_max_r="auto",
-        disable_adjoint_y=False,
-        disable_adjoint_ctf=False,
-        accumulate_noise=False,
-        return_noise_split=False,
-        n_shells=0,
+        wta_argmax=best_argmax,
+        wta_best_score=best_score,
     )
 
     # Image 0 contributes 1.0 of weight, image 1 contributes 0.
