@@ -29,7 +29,7 @@ file. Do not record user-specific absolute paths.
 | C4 Exact-local engine | Complete | Grouped JAX boundary and planning seams retained. |
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
-| C6 Dense/global scoring | In progress | Grouped big-JIT boundary `c379a512`, diagnostics plan `0b6e2bb9`, batch-bound score constraints `77eec9c5`, local score capture grouping `702df30b`, shared pass score-constraint application `3c758d5c`, redundant correction-branch removal `0829d908`, and obsolete JIT-policy-argument removal are validated; five-iteration GPU replay `61007337` reached final merged FSC-AUC `0.9970972713`; dense host-stage separation remains. |
+| C6 Dense/global scoring | Complete | Grouped big-JIT boundary, diagnostics plan, score-constraint ownership, local score capture, correction-branch cleanup, and dense pass-2 host-stage extraction are validated. Final five-iteration GPU replay `61011471` reached merged FSC-AUC `0.9970972997` and correlation `0.9999947703` with the expected size trajectory. |
 | C7--C10 | Not started | Follow the authoritative plan in order. |
 
 ## Current structural scorecard
@@ -39,12 +39,12 @@ Scope: `recovar/em/dense_single_volume/**/*.py`.
 | Measure | Accepted C4.5 | Current C6 | Delta | Result |
 |---|---:|---:|---:|---|
 | Production Python files | 72 | 76 | +4 | Neutral owners added; total lines fell. |
-| Production lines | 69,212 | 69,193 | -19 | Pass |
-| Nonblank production lines | 63,751 | 63,724 | -27 | Pass |
-| Functions/methods | 1,239 | 1,237 | -2 | Pass |
-| Classes | 152 | 154 | +2 | Documented data/settings-contract exception. |
-| Functions with >=20 args | 35 | 33 | -2 | Pass |
-| Calls with >=20 args | 65 | 64 | -1 | Pass |
+| Production lines | 69,212 | 69,205 | -7 | Pass |
+| Nonblank production lines | 63,751 | 63,734 | -17 | Pass |
+| Functions/methods | 1,239 | 1,238 | -1 | Pass |
+| Classes | 152 | 157 | +5 | Documented data/settings-contract exception. |
+| Functions with >=20 args | 35 | 31 | -4 | Pass |
+| Calls with >=20 args | 65 | 62 | -3 | Pass |
 | Largest function span | 5,500 | 5,500 | 0 | Package maximum is outside C5; C5-core maximum fell by 7. |
 
 The C5 core itself fell by 21 production lines, 19 nonblank lines, one

@@ -1,6 +1,6 @@
 # C6 Dense/Global Scoring Inventory
 
-Status: in progress; inventory and baseline gate
+Status: complete; implementation, focused tests, structural ratchet, and GPU quality/performance gate passed
 
 Started: 2026-09-21
 
@@ -153,14 +153,16 @@ use `run_dense_em` and `DenseEMResult`.
 | `3c758d5c` | Shared the dense pass-1/pass-2 score-constraint application helper; both passes retain the same constraint ordering and JAX call while removing duplicated host unpacking. |
 | `0829d908` | Removed the score-mode parameter and duplicate branch from the RELION image-correction helper; Gaussian and normalized-CC routes already used identical correction factors. |
 | `7fb9df0a` | Removed the obsolete winner-take-all argument from dense big-JIT eligibility; winner-take-all is supported by the compiled path and no longer influences fallback selection. |
+| `993ece4d` | Extracted pass-2 omitted-posterior-mass skip-mask planning and sparse-profile accounting into `_dense_pass2_skip_mask`; score, normalization, accumulation, and synchronization order remain unchanged. |
 
-The current structural measurement after this slice is 76 production files,
-69,193 lines, 63,724 nonblank lines, 1,237 functions, 157 classes, 31 long
-signatures, 62 long calls, and a 5,500-line package maximum. The seven-file
-C6 core is 6,026 lines, 5,461 nonblank lines, 104 functions, 27 classes, two
-long signatures, one long call, and a 1,480-line dense-engine maximum. The
-core and package line totals are below the C6 baseline; the added helper is a
-small host-only consolidation and does not add a runtime context layer.
+The final structural measurement is 76 production files, 69,205 lines,
+63,734 nonblank lines, 1,238 functions, 157 classes, 31 long signatures, 62
+long calls, and a 5,500-line package maximum. The seven-file C6 core is 6,038
+lines, 5,471 nonblank lines, 105 functions, 27 classes, two long signatures,
+one long call, and a 1,444-line dense-engine maximum. The package total does
+not increase from the accepted C4.5 checkpoint and the C6 core is smaller than
+its baseline. The final helper is a host-only consolidation and does not add a
+runtime context layer.
 
 ## Initial validation ledger
 
@@ -177,6 +179,7 @@ small host-only consolidation and does not add a runtime context layer.
 | Five-iteration GPU replay at `77eec9c5` | Slurm job `61007337` completed `0:0` in `00:06:39` on one V100 after five numbered iterations. Final merged RECOVAR-vs-RELION FSC-AUC was `0.9970972713`, correlation was `0.999995`, ledger elapsed time was `280.133 s`, and peak batch RSS was `12,691,752 KiB`. Artifact: `$HOME/palmer_scratch/tmp/c6_dense_replay_77eec9c5_20260921`. Jobs `61007076` and `61007106` failed before EM because the first runtime root was unavailable and the second lacked the FFTW module; neither is algorithm evidence. |
 | C5 full replay reference | Accepted same-allocation job `60844838`; use the artifact and quality/performance table in the active progress ledger. |
 | Exact-double post-C5 replay | Job `61006782` completed `0:0` through five iterations with final merged RELION FSC-AUC `0.9946195501`; artifact `$HOME/palmer_scratch/tmp/double_bpref_fix_5c7e7c74_20260921`. |
+| Final C6 host-stage replay | Slurm job `61011471` completed `0:0` in `00:04:56` on a Tesla V100-SXM2-32GB. Five iterations followed size trajectory `[46, 46, 72, 70, 70]`, with ledger elapsed `157.745 s`, final merged FSC-AUC `0.9970972997`, and correlation `0.9999947703`. Artifact: `$HOME/palmer_scratch/tmp/c6_dense_replay_993ece4d_20260921`. |
 
 The host `pixi` wrapper remained alive after pytest reported completion and was
 interrupted only after the final result was printed. No pytest process was
