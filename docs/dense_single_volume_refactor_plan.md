@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: active; C1--C6 complete and accepted, C7 not started
+Status: under review; C1--C6 validated, C7 paused pending the deletion-first plan decision
 
 Created: 2026-09-08
 
@@ -10,6 +10,9 @@ Progress log: [`dense_single_volume_refactor_progress.md`](dense_single_volume_r
 
 C1--C4 audit:
 [`dense_single_volume_refactor_audit_2026-09-11.md`](dense_single_volume_refactor_audit_2026-09-11.md)
+
+C1--C6 plan audit:
+[`dense_single_volume_refactor_audit_2026-09-22.md`](dense_single_volume_refactor_audit_2026-09-22.md)
 
 C4.5 inventory:
 [`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)

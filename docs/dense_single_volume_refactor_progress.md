@@ -12,6 +12,9 @@ C5 inventory: [`dense_single_volume_refactor_c5_inventory.md`](dense_single_volu
 
 C6 inventory: [`dense_single_volume_refactor_c6_inventory.md`](dense_single_volume_refactor_c6_inventory.md)
 
+C1--C6 plan audit:
+[`dense_single_volume_refactor_audit_2026-09-22.md`](dense_single_volume_refactor_audit_2026-09-22.md)
+
 Historical C0--C4 log:
 [`dense_single_volume_refactor_progress_archive_c0_c4.md`](dense_single_volume_refactor_progress_archive_c0_c4.md)
 
@@ -30,7 +33,7 @@ file. Do not record user-specific absolute paths.
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
 | C6 Dense/global scoring | Complete | Grouped big-JIT boundary, diagnostics plan, score-constraint ownership, local score capture, correction-branch cleanup, and dense pass-2 host-stage extraction are validated. Final five-iteration GPU replay `61011471` reached merged FSC-AUC `0.9970972997` and correlation `0.9999947703` with the expected size trajectory. |
-| C7--C10 | Not started | Follow the authoritative plan in order. |
+| C7--C10 | Paused for plan revision | The 2026-09-22 audit found that boundary safety improved but package compression did not. Decide the deletion-first reset before beginning C7. |
 
 ## Current structural scorecard
 
