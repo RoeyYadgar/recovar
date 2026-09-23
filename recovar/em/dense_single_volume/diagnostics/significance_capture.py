@@ -69,12 +69,6 @@ def write_tree_rescore(path: str | Path, **payload: Any) -> None:
     np.savez_compressed(path, **payload)
 
 
-def write_single_class_significance(path: str | Path, **payload: Any) -> None:
-    """Write the stable single-class significance schema."""
-
-    np.savez_compressed(path, **payload)
-
-
 def write_kclass_significance(
     path: str | Path,
     payload: Mapping[str, Any],

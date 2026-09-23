@@ -15,9 +15,7 @@ import numpy as np
 
 from recovar.em.dense_single_volume.diagnostics.significance_capture import (
     SignificanceTarget,
-    stop_after_significance_dump,
     write_kclass_significance,
-    write_single_class_significance,
     write_tree_rescore,
 )
 from recovar.em.dense_single_volume.helpers import relion_fine_scoring
@@ -84,27 +82,6 @@ def _compact_projection_window_positions(compact_indices, window_indices) -> np.
 def _relion_acc_double_floorf_quirk_enabled() -> bool:
     """Match RELION's texture-free ACC projector coordinate flooring."""
     return current_algorithm_settings().relion_acc_double_floorf_quirk
-
-
-def _maybe_stop_after_significance_dump(
-    dump_path: str,
-    *,
-    dump_dir: str,
-    target_original_indices: set[int],
-    current_size: int | None,
-    debug_iteration: int | None,
-) -> None:
-    """Compatibility wrapper for the diagnostics-owned stop policy."""
-
-    stop_after_significance_dump(
-        dump_path,
-        SignificanceTarget(
-            dump_dir=dump_dir,
-            original_indices=frozenset(target_original_indices),
-            current_size=current_size,
-            debug_iteration=debug_iteration,
-        ),
-    )
 
 
 def _k1_coarse_gaussian_ffi_enabled(*, default: bool = False) -> bool:
@@ -723,155 +700,6 @@ def _maybe_dump_tree_rescore_batch(
             current_size=np.int64(current_size),
             padding_factor=np.int64(padding_factor),
             projector_max_r=np.int64(projector_max_r),
-        )
-
-
-def _maybe_dump_significance_batch(
-    *,
-    experiment_dataset,
-    indices,
-    batch_weights,
-    batch_sig_mask,
-    batch_n_sig,
-    hard_assignment_batch,
-    log_z,
-    best_score,
-    max_posterior,
-    rotations,
-    translations,
-    rotation_log_prior,
-    batch_translation_log_prior,
-    current_size,
-    adaptive_fraction,
-    max_significants,
-    scores_pre_prior_full=None,
-    scores_with_prior_full=None,
-    dump_target_positions=None,
-    shifted_data=None,
-    ctf2_data=None,
-    batch_norm=None,
-    window_indices=None,
-    half_weights_used=None,
-    debug_iteration=None,
-):
-    """Env-gated debug dump for RELION pass-1 significance parity."""
-    import os
-
-    if not _significance_debug_dump_matches(
-        current_size=current_size,
-        debug_iteration=debug_iteration,
-    ):
-        return
-    dump_dir = _runtime_environment()["RECOVAR_SIGNIFICANCE_DUMP_DIR"]
-    target_original_indices = parse_env_int_set("RECOVAR_SIGNIFICANCE_DUMP_ORIGINAL_INDICES")
-    target_iteration = _runtime_environment().get("RECOVAR_SIGNIFICANCE_DUMP_ITERATION")
-
-    local_indices = np.asarray(indices, dtype=np.int64)
-    original_indices = _original_indices_for_local(experiment_dataset, local_indices)
-
-    os.makedirs(dump_dir, exist_ok=True)
-    n_trans = int(translations.shape[0])
-    n_candidates = int(batch_weights.shape[1])
-    flat_indices = np.arange(n_candidates, dtype=np.int32)
-    rot_indices = (flat_indices // n_trans).astype(np.int32)
-    trans_indices = (flat_indices % n_trans).astype(np.int32)
-
-    for local_pos, original_idx in enumerate(original_indices):
-        if int(original_idx) not in target_original_indices:
-            continue
-        weights = np.asarray(batch_weights[local_pos], dtype=np.float64)
-        sig_mask = np.asarray(batch_sig_mask[local_pos], dtype=bool)
-        trans_prior = None
-        if batch_translation_log_prior is not None:
-            prior_arr = np.asarray(batch_translation_log_prior)
-            trans_prior = prior_arr if prior_arr.ndim == 1 else prior_arr[local_pos]
-        dump_row = None
-        if dump_target_positions is not None:
-            matches = np.flatnonzero(np.asarray(dump_target_positions, dtype=np.int64) == int(local_pos))
-            if matches.size:
-                dump_row = int(matches[0])
-        image_rows = slice(local_pos * n_trans, (local_pos + 1) * n_trans)
-        ctf2_arr = None if ctf2_data is None else np.asarray(ctf2_data)
-        if ctf2_arr is not None and ctf2_arr.shape[0] == local_indices.shape[0]:
-            ctf2_target = ctf2_arr[local_pos : local_pos + 1]
-        elif ctf2_arr is not None:
-            ctf2_target = ctf2_arr[image_rows]
-        else:
-            ctf2_target = None
-        iteration_suffix = "" if not target_iteration else f"_it{int(debug_iteration):03d}"
-        out_path = os.path.join(
-            dump_dir,
-            f"significance_orig{int(original_idx):06d}{iteration_suffix}_cs"
-            f"{(-1 if current_size is None else int(current_size)):03d}.npz",
-        )
-        write_single_class_significance(
-            out_path,
-            original_index=np.int64(original_idx),
-            local_index=np.int64(local_indices[local_pos]),
-            debug_iteration=np.int64(-1 if debug_iteration is None else int(debug_iteration)),
-            one_based_iteration=np.int64(-1 if debug_iteration is None else int(debug_iteration)),
-            current_size=np.int64(-1 if current_size is None else int(current_size)),
-            adaptive_fraction=np.float64(adaptive_fraction),
-            max_significants=np.int64(max_significants),
-            n_rot=np.int64(rotations.shape[0]),
-            n_trans=np.int64(n_trans),
-            weights_full=weights,
-            significant_mask=sig_mask,
-            significant_indices=np.flatnonzero(sig_mask).astype(np.int32),
-            n_significant=np.int64(batch_n_sig[local_pos]),
-            hard_assignment=np.int64(hard_assignment_batch[local_pos]),
-            normalization_log_z=np.float64(log_z[local_pos]),
-            best_score=np.float64(best_score[local_pos]),
-            max_posterior=np.float64(max_posterior[local_pos]),
-            rotations=np.asarray(rotations),
-            translations=np.asarray(translations),
-            rot_indices=rot_indices,
-            trans_indices=trans_indices,
-            rotation_log_prior=(
-                np.asarray(rotation_log_prior, dtype=np.float64)
-                if rotation_log_prior is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            translation_log_prior=(
-                np.asarray(trans_prior, dtype=np.float64)
-                if trans_prior is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            scores_pre_prior_full=(
-                np.asarray(scores_pre_prior_full[dump_row], dtype=np.float64)
-                if scores_pre_prior_full is not None and dump_row is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            scores_with_prior_full=(
-                np.asarray(scores_with_prior_full[dump_row], dtype=np.float64)
-                if scores_with_prior_full is not None and dump_row is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            shifted_data=(
-                np.asarray(shifted_data[image_rows], dtype=np.complex128)
-                if shifted_data is not None
-                else np.empty((0,), dtype=np.complex128)
-            ),
-            ctf2_data=(
-                np.asarray(ctf2_target, dtype=np.float64)
-                if ctf2_target is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            batch_norm=(
-                np.asarray(batch_norm[local_pos], dtype=np.float64)
-                if batch_norm is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
-            window_indices=(
-                np.asarray(window_indices, dtype=np.int32)
-                if window_indices is not None
-                else np.empty((0,), dtype=np.int32)
-            ),
-            half_weights=(
-                np.asarray(half_weights_used, dtype=np.float64)
-                if half_weights_used is not None
-                else np.empty((0,), dtype=np.float64)
-            ),
         )
 
 

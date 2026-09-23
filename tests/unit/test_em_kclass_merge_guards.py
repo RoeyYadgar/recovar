@@ -729,12 +729,14 @@ def test_kclass_significance_stop_without_iteration_uses_unsuffixed_path(monkeyp
     monkeypatch.delenv("RECOVAR_SIGNIFICANCE_DUMP_ITERATION", raising=False)
 
     with pytest.raises(significance_capture_mod.SignificanceDumpComplete):
-        sig_mod._maybe_stop_after_significance_dump(
+        significance_capture_mod.stop_after_significance_dump(
             str(dump_path),
-            dump_dir=str(dump_dir),
-            target_original_indices={42},
-            current_size=14,
-            debug_iteration=1,
+            significance_capture_mod.SignificanceTarget(
+                dump_dir=str(dump_dir),
+                original_indices=frozenset({42}),
+                current_size=14,
+                debug_iteration=1,
+            ),
         )
 
 
@@ -783,22 +785,22 @@ def test_significance_stop_waits_for_complete_target_set(monkeypatch, tmp_path):
     second_path = dump_dir / "significance_orig000043_it002_cs014.npz"
     first_path.touch()
 
-    sig_mod._maybe_stop_after_significance_dump(
-        str(first_path),
+    target = significance_capture_mod.SignificanceTarget(
         dump_dir=str(dump_dir),
-        target_original_indices={42, 43},
+        original_indices=frozenset({42, 43}),
         current_size=14,
         debug_iteration=2,
+    )
+    significance_capture_mod.stop_after_significance_dump(
+        str(first_path),
+        target,
     )
 
     second_path.touch()
     with pytest.raises(significance_capture_mod.SignificanceDumpComplete):
-        sig_mod._maybe_stop_after_significance_dump(
+        significance_capture_mod.stop_after_significance_dump(
             str(second_path),
-            dump_dir=str(dump_dir),
-            target_original_indices={42, 43},
-            current_size=14,
-            debug_iteration=2,
+            target,
         )
 
 
