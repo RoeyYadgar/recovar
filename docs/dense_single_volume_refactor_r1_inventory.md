@@ -2,7 +2,7 @@
 
 Date: 2026-09-23
 
-Status: complete; first three R2 deletion slices landed
+Status: complete; first five R2 deletion slices landed
 
 Baseline checkout: `20df1bcf`
 
@@ -117,6 +117,12 @@ Two further dead surfaces became visible immediately after that deletion:
   `_compute_k_class_significance_batched`. It had no production or script
   caller; only tests invoked it. Commit `3b41d735` migrates those tests to the
   class-aware engine used by production K=1 and deletes the duplicate.
+- The deleted engine left behind a single-class dump builder/schema and stop
+  wrapper with no caller; `87d482ce` removes them while preserving the active
+  K-class capture schema.
+- `_build_fine_grid_significance_mask` was a dense test oracle for the lazy
+  production mask and had no runtime caller. Commit `40031dd5` removes it and
+  tests the lazy block-mask behavior directly.
 
 ## Numerical and execution variants
 
@@ -204,7 +210,7 @@ R1 covers the requested surface families, lists all 50 K-class raw option
 keys, records the compatibility uncertainty, and identifies a deletion whose
 deadness is demonstrated by every implementation of the sink protocol.
 
-R2 currently stands at 68,305 production lines, down 900 from this inventory's
+R2 currently stands at 68,055 production lines, down 1,150 from this inventory's
 baseline, with no numerical path, JAX tree, output, artifact schema, or active
 diagnostic effect changed. The next action is continued proven-dead residue
 removal and the controller dump audit.

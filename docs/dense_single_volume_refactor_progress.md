@@ -37,7 +37,7 @@ file. Do not record user-specific absolute paths.
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
 | C6 Dense/global scoring | Complete | Grouped big-JIT boundary, diagnostics plan, score-constraint ownership, local score capture, correction-branch cleanup, and dense pass-2 host-stage extraction are validated. Final five-iteration GPU replay `61011471` reached merged FSC-AUC `0.9970972997` and correlation `0.9999947703` with the expected size trajectory. |
 | R1 Retention/deletion inventory | Complete | Compatibility, diagnostic, numerical-variant, type/plan, and all 50 raw K-class `engine_kwargs` fields are classified; five no-op lifecycle event families are the first proven deletion. |
-| R2 Delete stale diagnostics and compatibility residue | In progress | Three proven-dead slices are complete: no-op lifecycle events, unused trace-specification scaffolding, and the superseded single-class significance engine. Continue to the 66,000-line R2 gate. |
+| R2 Delete stale diagnostics and compatibility residue | In progress | Five proven-dead slices are complete, including removal of two superseded dense/reference significance implementations. Continue to the 66,000-line R2 gate. |
 | R3--R6 Structural simplification and acceptance | Pending | Start only after R2 reaches its deletion gate without changing numerical behavior. |
 
 ## Current structural scorecard
@@ -47,17 +47,17 @@ Scope: `recovar/em/dense_single_volume/**/*.py`.
 | Measure | R1 baseline | Current R2 | R2 delta | Result |
 |---|---:|---:|---:|---|
 | Production Python files | 76 | 76 | 0 | Pass; no new owner module. |
-| Production lines | 69,205 | 68,305 | -900 | In progress toward the R2 gate of at most 66,000. |
-| Nonblank production lines | 63,734 | 62,931 | -803 | Pass |
-| Functions/methods | 1,238 | 1,213 | -25 | Pass |
+| Production lines | 69,205 | 68,055 | -1,150 | In progress toward the R2 gate of at most 66,000. |
+| Nonblank production lines | 63,734 | 62,700 | -1,034 | Pass |
+| Functions/methods | 1,238 | 1,209 | -29 | Pass |
 | Classes | 157 | 150 | -7 | Pass |
-| Functions with >=20 args | 31 | 30 | -1 | Pass |
-| Calls with >=20 args | 62 | 61 | -1 | Pass |
+| Functions with >=20 args | 31 | 29 | -2 | Pass |
+| Calls with >=20 args | 62 | 60 | -2 | Pass |
 | Largest function span | 5,500 | 5,459 | -41 | Improved, but the controller remains the package maximum. |
 
-R2 has reduced production source by 1.30% from the R1 baseline without adding
-a production file or class. The five largest files still contain 39,405 lines
-(57.7% of the package), so the concentration problem remains and the next
+R2 has reduced production source by 1.66% from the R1 baseline without adding
+a production file or class. The five largest files still contain 39,161 lines
+(57.5% of the package), so the concentration problem remains and the next
 slices must continue deleting inside existing hotspots.
 
 ## R2 completed deletion slices
@@ -67,9 +67,11 @@ slices must continue deleting inside existing hotspots.
 | `6d77f4ce` | No-op lifecycle events | Removed five event classes, fifteen sink/protocol methods, and four inert controller emission sites. |
 | `24cdb6d4` | Unused trace specification | Removed two classes and the environment-name-to-trace mapping that no kernel or engine consumed; retained passive/shadow/invasive routing. |
 | `3b41d735` | Superseded single-class significance engine | Deleted the 677-line production-unreachable implementation and migrated its remaining tests to the canonical class-aware engine used by K=1, K-class, scripts, and the initial-model adapter. |
+| `87d482ce` | Orphaned single-class capture | Deleted the 178-line serializer, batch builder, and compatibility stop wrapper reachable only from the removed engine; retained the canonical K-class artifact schema and stop policy. |
+| `40031dd5` | Dense significance-mask oracle | Deleted the 70-line test-only dense materializer and made tests exercise the production lazy block mask directly. |
 
-The three slices together remove 900 production lines, 25 functions/methods,
-seven classes, one long signature, and one long call. The first slice also
+The five slices together remove 1,150 production lines, 29 functions/methods,
+seven classes, two long signatures, and two long calls. The first slice also
 includes repository-required formatting in the controller; the 677-line
 significance deletion is direct duplicate-code removal.
 
@@ -80,8 +82,10 @@ significance deletion is direct duplicate-code removal.
 | Diagnostic sink, structure, timing, and runtime routing | 51 passed after lifecycle deletion; 50 passed after trace-spec deletion. |
 | Significance/pass-1 focused selection | 67 passed with one expected GPU-only skip. |
 | Adaptive oversampling and K-class merge guards | 101 passed with four host-only exclusions; the excluded tests require the unavailable `libfftw3.so.3` RELION binding. A direct full-file attempt reached 38 passes before those same four dependency failures. |
-| CPU EM fast guard | 16 passed after the diagnostic slices and again after the significance deletion (`50.80 s` final run). |
-| GPU/performance gate | Not run: all three slices delete production-unreachable or no-op host scaffolding, so no numerical/JAX/HLO path changes. |
+| Canonical K-class significance capture | 63 merge-guard tests passed after deleting the orphaned single-class capture. |
+| Lazy significance mask and sparse pass 2 | 222 passed with two expected GPU-only skips after deleting the dense oracle. |
+| CPU EM fast guard | 16 passed after the diagnostic slices, after the engine deletion, and after the final two slices (`50.44 s` final run). |
+| GPU/performance gate | Not run: all five slices delete production-unreachable or no-op host scaffolding, so no numerical/JAX/HLO path changes. |
 
 ## C4.5 completed implementation slices
 
