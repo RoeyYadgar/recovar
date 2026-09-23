@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Plan
 
-Status: under review; C1--C6 validated, C7 paused pending the deletion-first plan decision
+Status: active; C1--C6 validated and the deletion-first R1--R6 reset accepted
 
 Created: 2026-09-08
 
@@ -13,6 +13,9 @@ C1--C4 audit:
 
 C1--C6 plan audit:
 [`dense_single_volume_refactor_audit_2026-09-22.md`](dense_single_volume_refactor_audit_2026-09-22.md)
+
+R1 retention/deletion inventory:
+[`dense_single_volume_refactor_r1_inventory.md`](dense_single_volume_refactor_r1_inventory.md)
 
 C4.5 inventory:
 [`dense_single_volume_refactor_c45_inventory.md`](dense_single_volume_refactor_c45_inventory.md)
@@ -690,92 +693,115 @@ Exit criteria:
 - no in-package caller invokes the long compatibility signature or consumes a
   flag-dependent tuple, and the touched dense subsystem is net smaller.
 
-### C7. Decompose half-step and iteration control
+### R1. Retention and deletion inventory
 
 Deliverables:
 
-- make `_score_half_dense` and `_score_half_local` consume `HalfStepRequest` and
-  return the same `HalfScoreResult` contract;
-- retain the canonical typed local-search boundary and move its request
-  assembly into the appropriate iteration/session stages without reintroducing
-  a parallel long-signature implementation;
-- split `_run_relion_iteration_loop` into initialization, plan derivation,
-  replay application, per-half scoring, map/noise/prior/correction updates,
-  convergence, history/reporting, and finalization;
-- introduce a host-side `RefinementSession` or equivalent owner so shared
-  immutable inputs are attributes rather than repeated arguments;
-- keep each state transition as a pure or narrowly mutating function whose
-  inputs and outputs are testable;
-- keep final-all-data and restart paths explicit, not special cases scattered
-  through the ordinary iteration body.
+- enumerate compatibility facades, reference backends, diagnostic families,
+  numerical variants, settings/planning records, and every raw K-class
+  `engine_kwargs` field;
+- record real production, script, test, and potential external consumers;
+- classify each surface as canonical, required numerical variant, public
+  compatibility, active diagnostic, merge candidate, or dead;
+- identify deletion conditions and the first safe removal slice;
+- add no production abstraction.
 
 Exit criteria:
 
-- the main iteration body reads as a stage sequence;
-- `_run_relion_iteration_loop` is below 1,000 lines and delegates to named,
-  independently testable lifecycle stages;
-- carried state has one definition and one update boundary;
-- convergence iteration, current-size/healpix trajectories, finalization route,
-  particle state, maps, and histories match the baseline.
+- the inventory covers every named family and all raw `engine_kwargs` keys;
+- dead behavior is supported by call-site evidence rather than inference from
+  a name;
+- unresolved external compatibility decisions are explicit;
+- the first R2 deletion is independently testable.
 
-### C8. Clarify K-class, replay, and variant routing
+### R2. Delete stale diagnostics and compatibility residue
 
 Deliverables:
 
-- separate K-class joint-normalization orchestration from per-class engine
-  adapters;
-- replace raw `engine_kwargs` dictionaries with typed dense/local/sparse
-  requests and class views;
-- express dense/sparse/fused/local route choice as a named plan decided before
-  engine invocation;
-- split RELION STAR reading, validation, override construction, and state
-  application in `relion_replay.py`;
-- ensure replay and state-swap diagnostics are adapters around the controller,
-  not alternate copies of iteration logic.
+- delete dead lifecycle events, expired parity experiments, unused capture
+  schemas, and obsolete test-hook ownership;
+- remove compatibility facades only after their production/script consumers
+  migrate or an intentional external API removal is approved;
+- finish the C2 ownership boundary by removing lower-level environment lookup;
+- merge or inline one-lifecycle plan/cache/result records that do not cross a
+  meaningful module or JAX boundary.
 
 Exit criteria:
 
+- production deletions exceed additions in every slice unless a documented
+  same-phase deletion commit pays temporary debt;
+- production file and class counts do not increase;
+- every retained diagnostic and compatibility path has a consumer and
+  rationale;
+- production source is at or below 66,000 lines before R3 begins.
+
+### R3. Simplify sparse and significance implementations
+
+Deliverables:
+
+- remove duplicated preparation, diagnostic, route, and option-forwarding
+  code before creating any new sparse abstraction;
+- consolidate only primitives proven equivalent in ordering, dtype, reduction,
+  and output by focused tests;
+- retain distinct K=1 and joint K-class normalization where semantics differ;
+- reduce large diagnostic signatures and raw route branching in the canonical
+  sparse bodies.
+
+Exit criteria:
+
+- neither canonical sparse function exceeds 2,000 lines;
+- the sparse/significance subsystem is materially smaller, not merely split;
+- bucket topology, candidates, outputs, HLO, runtime, and memory remain within
+  their accepted gates.
+
+### R4. Simplify controller state transitions
+
+Deliverables:
+
+- define one host-side refinement state and one immutable data/settings owner;
+- make the iteration loop a stage sequence covering initialization, plan
+  derivation, replay, half scoring, updates, convergence, history, and
+  finalization;
+- require every extraction to remove duplicated assembly, branching, or state
+  mutation; moving a block alone does not count;
+- keep final-all-data, restart, and replay as explicit routes;
+- keep numerical stages functional and JAX-style rather than turning the host
+  owner into an algorithmic context object.
+
+Exit criteria:
+
+- `_run_relion_iteration_loop` is below 1,000 lines;
+- no other production function exceeds 2,000 lines;
+- `run_dense_em` is below 900 lines and `run_local_em` below 1,500;
+- convergence, size/healpix trajectories, finalization, particle state, maps,
+  and histories match the baseline.
+
+### R5. Remove raw K-class routing and clarify replay
+
+Deliverables:
+
+- decide dense/sparse/fused/local routing once before engine invocation;
+- replace copied and mutated `engine_kwargs` with existing typed engine views
+  or a smaller representation that deletes more surface than it adds;
+- separate joint K-class normalization from per-class engine adaptation;
+- separate STAR reading, validation, override construction, and state
+  application without duplicating controller logic.
+
+Exit criteria:
+
+- all 50 inventoried `engine_kwargs` keys have explicit typed ownership or are
+  deleted;
 - class-axis ownership and joint normalization are explicit;
-- per-class FSC/state tests pass and no class is hidden by aggregate metrics;
-- replay cutoff and native-ownership transitions remain exact.
-
-Package-wide C8 structural gate:
-
-- production Python is at or below the 67,999-line baseline;
-- no phase after C4.5 has increased production lines, classes, long signatures,
-  or long calls without an explicit user-approved exception;
+- replay cutoff and native-ownership transitions remain exact;
 - functions with at least 20 arguments are at most 20 and calls with at least
-  20 arguments are at most 35;
-- all remaining compatibility and duplicate paths are itemized before C9.
+  20 arguments are at most 35.
 
-### C9. Remove obsolete compatibility and duplicate paths
-
-Deliverables:
-
-- inventory every remaining duplicate implementation and classify it as
-  canonical, required numeric backend, compatibility wrapper, diagnostic
-  shadow, or dead;
-- delete wrappers only after all production callers have migrated and direct
-  compatibility tests exist or an intentional API removal is approved;
-- delete shadow/debug implementations that have no remaining experiment;
-- rename ambiguous `helpers` modules according to responsibility;
-- add a dependency-layer test and enforce no new import cycles;
-- ratchet argument/call/environment metrics downward.
-
-C9 is a final residue audit, not the phase where earlier additive migrations
-are finally paid down. Each of C4.5--C8 must remove the representation it
-supersedes before advancing.
-
-Exit criteria:
-
-- no unexplained duplicate algorithm remains;
-- every retained variant has a named policy, owner, test, and rationale;
-- compatibility code is absent from hot loops.
-
-### C10. Final quality and performance acceptance
+### R6. Final residue and quality/performance acceptance
 
 Deliverables:
 
+- inventory every remaining numerical variant and compatibility surface;
+- delete any residue without a named policy, owner, test, and rationale;
 - run the focused suite for every changed component and the CPU fast guard;
 - run GPU fast parity on the Slurm `gpu` partition;
 - run the user-specified multi-iteration K=1 command from a clean output path;
@@ -787,6 +813,10 @@ Deliverables:
 
 Exit criteria:
 
+- production source is between 63,000 and 65,000 lines unless the retention
+  inventory proves a specific lower bound that the user accepts;
+- production classes are at or below 145 and the top five files contain fewer
+  than 35,000 combined lines;
 - no unexplained output or trajectory difference;
 - no accepted quality metric regresses;
 - no material performance or memory regression;

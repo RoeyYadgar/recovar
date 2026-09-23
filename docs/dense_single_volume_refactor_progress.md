@@ -15,6 +15,9 @@ C6 inventory: [`dense_single_volume_refactor_c6_inventory.md`](dense_single_volu
 C1--C6 plan audit:
 [`dense_single_volume_refactor_audit_2026-09-22.md`](dense_single_volume_refactor_audit_2026-09-22.md)
 
+R1 retention/deletion inventory:
+[`dense_single_volume_refactor_r1_inventory.md`](dense_single_volume_refactor_r1_inventory.md)
+
 Historical C0--C4 log:
 [`dense_single_volume_refactor_progress_archive_c0_c4.md`](dense_single_volume_refactor_progress_archive_c0_c4.md)
 
@@ -33,7 +36,8 @@ file. Do not record user-specific absolute paths.
 | C4.5 Foundation consolidation | Complete | Accepted at `d6bf42da`: all structural, focused-test, CPU, and paired GPU quality/performance gates pass. |
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
 | C6 Dense/global scoring | Complete | Grouped big-JIT boundary, diagnostics plan, score-constraint ownership, local score capture, correction-branch cleanup, and dense pass-2 host-stage extraction are validated. Final five-iteration GPU replay `61011471` reached merged FSC-AUC `0.9970972997` and correlation `0.9999947703` with the expected size trajectory. |
-| C7--C10 | Paused for plan revision | The 2026-09-22 audit found that boundary safety improved but package compression did not. Decide the deletion-first reset before beginning C7. |
+| R1 Retention/deletion inventory | Complete | Compatibility, diagnostic, numerical-variant, type/plan, and all 50 raw K-class `engine_kwargs` fields are classified; five no-op lifecycle event families are the first proven deletion. |
+| R2--R6 Deletion-first simplification | In progress | Begin with dead diagnostic lifecycle scaffolding; production deletions must exceed additions and no production file/class growth is allowed. |
 
 ## Current structural scorecard
 
