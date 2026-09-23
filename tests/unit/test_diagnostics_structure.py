@@ -38,19 +38,9 @@ def test_iteration_lifecycle_uses_one_explicit_sink_and_null_fast_path():
     loop_source = inspect.getsource(iteration_loop._run_relion_iteration_loop)
 
     assert "diagnostics=build_diagnostics_sink(runtime.diagnostics)" in refine_source
-    assert "diagnostics" in inspect.signature(
-        iteration_loop._run_relion_iteration_loop
-    ).parameters
-    assert loop_source.count("if diagnostics is not NULL_DIAGNOSTICS:") == 5
-    for method in (
-        "iteration_started",
-        "half_scored",
-        "mstep_accumulated",
-        "maps_updated",
-        "convergence_updated",
-        "iteration_finished",
-    ):
-        assert f"diagnostics.{method}(" in loop_source
+    assert "diagnostics" in inspect.signature(iteration_loop._run_relion_iteration_loop).parameters
+    assert loop_source.count("if diagnostics is not NULL_DIAGNOSTICS:") == 1
+    assert "diagnostics.iteration_started(" in loop_source
 
 
 def test_iteration_start_precedes_and_does_not_read_current_size_planning():

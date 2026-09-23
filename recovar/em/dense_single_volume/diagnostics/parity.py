@@ -22,15 +22,7 @@ import numpy as np
 
 from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
-from .events import (
-    ConvergenceUpdated,
-    HalfScored,
-    IterationFinished,
-    IterationStarted,
-    MapsUpdated,
-    MstepAccumulated,
-    TraceSpec,
-)
+from .events import IterationStarted, TraceSpec
 from .sinks import NO_TRACE
 
 _E_STEP: dict[int, dict[str, Any]] = {}
@@ -432,21 +424,6 @@ class ParityDiagnostics:
 
     def iteration_started(self, event: IterationStarted) -> None:
         self.start_iteration(event.iteration)
-
-    def half_scored(self, event: HalfScored) -> None:
-        pass
-
-    def mstep_accumulated(self, event: MstepAccumulated) -> None:
-        pass
-
-    def maps_updated(self, event: MapsUpdated) -> None:
-        pass
-
-    def convergence_updated(self, event: ConvergenceUpdated) -> None:
-        pass
-
-    def iteration_finished(self, event: IterationFinished) -> None:
-        pass
 
 
 PARITY_DIAGNOSTICS = ParityDiagnostics()

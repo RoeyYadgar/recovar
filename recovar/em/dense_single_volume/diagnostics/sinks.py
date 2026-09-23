@@ -7,15 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
-from .events import (
-    ConvergenceUpdated,
-    HalfScored,
-    IterationFinished,
-    IterationStarted,
-    MapsUpdated,
-    MstepAccumulated,
-    TraceSpec,
-)
+from .events import IterationStarted, TraceSpec
 
 if TYPE_CHECKING:
     from .config import DiagnosticsPlan
@@ -33,16 +25,6 @@ class DiagnosticsSink(Protocol):
 
     def iteration_started(self, event: IterationStarted) -> None: ...
 
-    def half_scored(self, event: HalfScored) -> None: ...
-
-    def mstep_accumulated(self, event: MstepAccumulated) -> None: ...
-
-    def maps_updated(self, event: MapsUpdated) -> None: ...
-
-    def convergence_updated(self, event: ConvergenceUpdated) -> None: ...
-
-    def iteration_finished(self, event: IterationFinished) -> None: ...
-
 
 class NullDiagnostics:
     """Production sink that performs no inspection, conversion, or I/O."""
@@ -54,21 +36,6 @@ class NullDiagnostics:
         return NO_TRACE
 
     def iteration_started(self, event: IterationStarted) -> None:
-        pass
-
-    def half_scored(self, event: HalfScored) -> None:
-        pass
-
-    def mstep_accumulated(self, event: MstepAccumulated) -> None:
-        pass
-
-    def maps_updated(self, event: MapsUpdated) -> None:
-        pass
-
-    def convergence_updated(self, event: ConvergenceUpdated) -> None:
-        pass
-
-    def iteration_finished(self, event: IterationFinished) -> None:
         pass
 
 

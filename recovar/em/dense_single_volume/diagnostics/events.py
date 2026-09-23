@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 
 class DiagnosticEffect(str, Enum):
@@ -58,39 +57,3 @@ class IterationStarted:
     # event is emitted.  Keep the field optional for compatibility with sinks
     # that may attach a size when emitting the event at a later boundary.
     current_size: int | None = None
-
-
-@dataclass(frozen=True)
-class HalfScored:
-    iteration: int
-    half: int
-    result: Any
-
-
-@dataclass(frozen=True)
-class MstepAccumulated:
-    iteration: int
-    half: int
-    accumulators: Any
-
-
-@dataclass(frozen=True)
-class MapsUpdated:
-    iteration: int
-    means: tuple[Any, ...]
-    unregularized_means: tuple[Any, ...]
-
-
-@dataclass(frozen=True)
-class ConvergenceUpdated:
-    iteration: int
-    fsc: Any
-    average_max_posterior: float
-    converged: bool
-
-
-@dataclass(frozen=True)
-class IterationFinished:
-    iteration: int
-    relion_iteration: int
-    wall_time_s: float | None = None
