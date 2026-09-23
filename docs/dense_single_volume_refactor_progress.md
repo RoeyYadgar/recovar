@@ -1,6 +1,6 @@
 # Dense Single-Volume EM Refactor Progress
 
-Last updated: 2026-09-21
+Last updated: 2026-09-23
 
 Plan: [`dense_single_volume_refactor_plan.md`](dense_single_volume_refactor_plan.md)
 
@@ -37,30 +37,51 @@ file. Do not record user-specific absolute paths.
 | C5 Sparse pass 2 | Complete | Accepted at `80737456`: typed sparse boundaries, ownership cleanup, focused/CPU gates, and paired warm/full GPU gates pass. Post-acceptance double-BPref correction: `5c7e7c74`. |
 | C6 Dense/global scoring | Complete | Grouped big-JIT boundary, diagnostics plan, score-constraint ownership, local score capture, correction-branch cleanup, and dense pass-2 host-stage extraction are validated. Final five-iteration GPU replay `61011471` reached merged FSC-AUC `0.9970972997` and correlation `0.9999947703` with the expected size trajectory. |
 | R1 Retention/deletion inventory | Complete | Compatibility, diagnostic, numerical-variant, type/plan, and all 50 raw K-class `engine_kwargs` fields are classified; five no-op lifecycle event families are the first proven deletion. |
-| R2--R6 Deletion-first simplification | In progress | Begin with dead diagnostic lifecycle scaffolding; production deletions must exceed additions and no production file/class growth is allowed. |
+| R2 Delete stale diagnostics and compatibility residue | In progress | Three proven-dead slices are complete: no-op lifecycle events, unused trace-specification scaffolding, and the superseded single-class significance engine. Continue to the 66,000-line R2 gate. |
+| R3--R6 Structural simplification and acceptance | Pending | Start only after R2 reaches its deletion gate without changing numerical behavior. |
 
 ## Current structural scorecard
 
 Scope: `recovar/em/dense_single_volume/**/*.py`.
 
-| Measure | Accepted C4.5 | Current C6 | Delta | Result |
+| Measure | R1 baseline | Current R2 | R2 delta | Result |
 |---|---:|---:|---:|---|
-| Production Python files | 72 | 76 | +4 | Neutral owners added; total lines fell. |
-| Production lines | 69,212 | 69,205 | -7 | Pass |
-| Nonblank production lines | 63,751 | 63,734 | -17 | Pass |
-| Functions/methods | 1,239 | 1,238 | -1 | Pass |
-| Classes | 152 | 157 | +5 | Documented data/settings-contract exception. |
-| Functions with >=20 args | 35 | 31 | -4 | Pass |
-| Calls with >=20 args | 65 | 62 | -3 | Pass |
-| Largest function span | 5,500 | 5,500 | 0 | Package maximum is outside C5; C5-core maximum fell by 7. |
+| Production Python files | 76 | 76 | 0 | Pass; no new owner module. |
+| Production lines | 69,205 | 68,305 | -900 | In progress toward the R2 gate of at most 66,000. |
+| Nonblank production lines | 63,734 | 62,931 | -803 | Pass |
+| Functions/methods | 1,238 | 1,213 | -25 | Pass |
+| Classes | 157 | 150 | -7 | Pass |
+| Functions with >=20 args | 31 | 30 | -1 | Pass |
+| Calls with >=20 args | 62 | 61 | -1 | Pass |
+| Largest function span | 5,500 | 5,459 | -41 | Improved, but the controller remains the package maximum. |
 
-The C5 core itself fell by 21 production lines, 19 nonblank lines, one
-function, two long signatures, one long call, and seven lines from its largest
-function. C5 added shared data/settings and stable K=1 result contracts while
-deleting an invasive diagnostic policy class, for a net increase of two. The
-class exception is explicit because removing those semantic boundaries to
-improve one aggregate metric would restore raw dictionary, variable-tuple, and
-duplicated-record debt.
+R2 has reduced production source by 1.30% from the R1 baseline without adding
+a production file or class. The five largest files still contain 39,405 lines
+(57.7% of the package), so the concentration problem remains and the next
+slices must continue deleting inside existing hotspots.
+
+## R2 completed deletion slices
+
+| Commit | Slice | Structural outcome |
+|---|---|---|
+| `6d77f4ce` | No-op lifecycle events | Removed five event classes, fifteen sink/protocol methods, and four inert controller emission sites. |
+| `24cdb6d4` | Unused trace specification | Removed two classes and the environment-name-to-trace mapping that no kernel or engine consumed; retained passive/shadow/invasive routing. |
+| `3b41d735` | Superseded single-class significance engine | Deleted the 677-line production-unreachable implementation and migrated its remaining tests to the canonical class-aware engine used by K=1, K-class, scripts, and the initial-model adapter. |
+
+The three slices together remove 900 production lines, 25 functions/methods,
+seven classes, one long signature, and one long call. The first slice also
+includes repository-required formatting in the controller; the 677-line
+significance deletion is direct duplicate-code removal.
+
+## R2 validation ledger
+
+| Scope | Result |
+|---|---|
+| Diagnostic sink, structure, timing, and runtime routing | 51 passed after lifecycle deletion; 50 passed after trace-spec deletion. |
+| Significance/pass-1 focused selection | 67 passed with one expected GPU-only skip. |
+| Adaptive oversampling and K-class merge guards | 101 passed with four host-only exclusions; the excluded tests require the unavailable `libfftw3.so.3` RELION binding. A direct full-file attempt reached 38 passes before those same four dependency failures. |
+| CPU EM fast guard | 16 passed after the diagnostic slices and again after the significance deletion (`50.80 s` final run). |
+| GPU/performance gate | Not run: all three slices delete production-unreachable or no-op host scaffolding, so no numerical/JAX/HLO path changes. |
 
 ## C4.5 completed implementation slices
 
@@ -242,9 +263,10 @@ introduces no material quality, runtime, transfer, or memory regression.
 
 ## Immediate next actions
 
-1. Separate dense preprocessing, planning, normalization, M-step/noise,
-   finalization, and diagnostics only at independently testable boundaries.
-2. Keep every compiled variant exact against jobs `61006843`/`61006876` while
-   simplifying the host controller; do not add a legacy internal adapter.
-3. Run the prescribed focused files and CPU guard before the paired full GPU
-   quality/performance acceptance.
+1. Continue R2 with private definitions that have no production consumer;
+   verify decorators, aliases, scripts, and tests before each deletion.
+2. Audit direct controller dump families against the active parity program;
+   delete only expired routes and preserve accepted artifact schemas.
+3. Reach at most 66,000 production lines before beginning the R3 sparse and
+   significance simplification. Run GPU quality/performance gates only when a
+   slice can reach a numerical or compiled path.

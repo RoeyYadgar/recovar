@@ -2,7 +2,7 @@
 
 Date: 2026-09-23
 
-Status: complete; first deletion slice identified
+Status: complete; first three R2 deletion slices landed
 
 Baseline checkout: `20df1bcf`
 
@@ -105,7 +105,18 @@ controller branches without observing or persisting anything.
 
 `IterationStarted` is different: `ParityDiagnostics.iteration_started` starts
 the parity timer. It stays until timing ownership is redesigned. Removing only
-the five no-op event families is the first R2 slice.
+the five no-op event families was the first R2 slice (`6d77f4ce`).
+
+Two further dead surfaces became visible immediately after that deletion:
+
+- `TraceKind`/`TraceSpec` classified environment names, but no numerical
+  kernel, engine, or diagnostic capture consulted the result. The only
+  consumer printed the names in a startup log. Commit `24cdb6d4` deletes that
+  unused future-facing abstraction while retaining the real effect routes.
+- `_compute_significance_batched` was a 677-line single-class predecessor to
+  `_compute_k_class_significance_batched`. It had no production or script
+  caller; only tests invoked it. Commit `3b41d735` migrates those tests to the
+  class-aware engine used by production K=1 and deletes the duplicate.
 
 ## Numerical and execution variants
 
@@ -168,22 +179,23 @@ fields.
 
 ## Ordered deletion queue
 
-1. Remove the five no-op lifecycle event families and their controller calls.
-   This is behavior-free, independently testable, and reduces classes and main
-   loop branches immediately.
-2. Audit direct controller dump families against the current parity program;
+1. **Complete:** remove the five no-op lifecycle event families and their
+   controller calls.
+2. **Complete:** remove unused trace-specification scaffolding and the
+   production-unreachable single-class significance engine.
+3. Audit direct controller dump families against the current parity program;
    delete expired routes and move only retained persistence to diagnostics.
-3. Merge/in-line the smallest one-lifecycle local cache/planning records where
+4. Merge/in-line the smallest one-lifecycle local cache/planning records where
    focused tests already cover the derived decision.
-4. Migrate repository scripts from `run_em` and
+5. Migrate repository scripts from `run_em` and
    `compute_pass2_stats_sparse`; decide whether undocumented external imports
    remain supported.
-5. If external source compatibility is not required, delete
+6. If external source compatibility is not required, delete
    `run_local_em_exact` first because it has no package or repository-script
    consumer, then delete its tuple serializer and migrate direct tests.
-6. Replace live per-image sparse reference comparisons with frozen focused
+7. Replace live per-image sparse reference comparisons with frozen focused
    fixtures, then remove or relocate the reference implementation.
-7. Start the large sparse/significance and controller reductions only after
+8. Start the large sparse/significance and controller reductions only after
    the residue above is removed.
 
 ## R1 exit result
@@ -192,7 +204,7 @@ R1 covers the requested surface families, lists all 50 K-class raw option
 keys, records the compatibility uncertainty, and identifies a deletion whose
 deadness is demonstrated by every implementation of the sink protocol.
 
-The next action is the no-op lifecycle deletion. It changes no numerical path,
-array, JAX tree, output, artifact schema, or diagnostic effect. Focused
-diagnostic structure/sink tests and the CPU fast guard are sufficient before
-continuing to the next deletion candidate.
+R2 currently stands at 68,305 production lines, down 900 from this inventory's
+baseline, with no numerical path, JAX tree, output, artifact schema, or active
+diagnostic effect changed. The next action is continued proven-dead residue
+removal and the controller dump audit.
