@@ -165,7 +165,7 @@ from recovar.em.dense_single_volume.helpers.sparse_pass2_bucketed import (
     _winner_take_all_bucket_probs_from_global_argmax,
 )
 from recovar.em.dense_single_volume.k_class import (
-    _build_fine_grid_significance_mask,
+    _ClassFineGridSignificanceMask,
     _fine_support_stats,
     _k_class_fused_relion_fine_mstep_prune_mode_override,
     _run_sparse_k_class_adaptive_pass2,
@@ -9474,30 +9474,29 @@ def test_kclass_fine_mask_complement_matches_explicit_dense_support():
         total_size=int(full_mask.size),
     )
 
-    explicit_mask = _build_fine_grid_significance_mask(
-        [explicit],
-        n_rot_coarse,
-        n_trans_coarse,
-        n_rot_fine,
-        n_trans_fine,
-        rot_oversampling_factor=1,
-        trans_oversampling_factor=1,
-        rot_parent_map=rot_parent_map,
-        trans_parent_map=trans_parent_map,
-        n_images=1,
-    )
-    complement_mask = _build_fine_grid_significance_mask(
-        [complement],
-        n_rot_coarse,
-        n_trans_coarse,
-        n_rot_fine,
-        n_trans_fine,
-        rot_oversampling_factor=1,
-        trans_oversampling_factor=1,
-        rot_parent_map=rot_parent_map,
-        trans_parent_map=trans_parent_map,
-        n_images=1,
-    )
+    def materialize(significant):
+        lazy = _ClassFineGridSignificanceMask(
+            significant_sample_indices_by_class=[[significant]],
+            n_rot_coarse=n_rot_coarse,
+            n_trans_coarse=n_trans_coarse,
+            n_rot_fine=n_rot_fine,
+            n_trans_fine=n_trans_fine,
+            rot_parent_map=rot_parent_map,
+            trans_parent_map=trans_parent_map,
+            n_images=1,
+            n_classes=1,
+        )
+        return lazy.for_class(0).block_mask(
+            r0=0,
+            r1=n_rot_fine,
+            start=0,
+            end=1,
+            batch_count=1,
+            rotation_block_size=n_rot_fine,
+        )
+
+    explicit_mask = materialize(explicit)
+    complement_mask = materialize(complement)
     np.testing.assert_array_equal(complement_mask, explicit_mask)
 
     explicit_stats = _fine_support_stats(

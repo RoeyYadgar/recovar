@@ -24,7 +24,6 @@ from recovar.em.dense_single_volume.iteration_loop import (
 )
 from recovar.em.dense_single_volume.k_class import (
     _assemble_result,
-    _build_fine_grid_significance_mask,
     _ClassFineGridSignificanceMask,
     _compact_sparse_pass2_preferred_over_dense,
     _dense_options_for_class,
@@ -1466,18 +1465,14 @@ def test_lazy_k_class_adaptive_mask_matches_dense_blocks_without_materializing()
         np.asarray(selected)
 
     for class_index in range(n_classes):
-        dense = _build_fine_grid_significance_mask(
-            significant_by_class[class_index],
-            n_rot_coarse=n_rot_coarse,
-            n_trans_coarse=n_trans_coarse,
-            n_rot_fine=n_rot_fine,
-            n_trans_fine=n_trans_fine,
-            rot_oversampling_factor=2,
-            trans_oversampling_factor=2,
-            rot_parent_map=rot_parent_map,
-            trans_parent_map=trans_parent_map,
-            n_images=n_images,
-        )
+        dense = np.zeros((n_images, n_rot_fine, n_trans_fine), dtype=bool)
+        for image_index, significant in enumerate(significant_by_class[class_index]):
+            if significant is None:
+                dense[image_index] = True
+                continue
+            coarse_pair = np.zeros((n_rot_coarse, n_trans_coarse), dtype=bool)
+            coarse_pair[significant // n_trans_coarse, significant % n_trans_coarse] = True
+            dense[image_index] = coarse_pair[rot_parent_map][:, trans_parent_map]
         dense[global_winner != class_index, :, :] = False
         per_class = lazy.for_class(class_index)
         for start, end, r0, rotation_block_size, batch_count in (
