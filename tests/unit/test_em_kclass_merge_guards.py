@@ -1728,10 +1728,6 @@ def test_k_class_pass1_priors_follow_scoring_precision():
     assert "prior = np.asarray(rotation_log_prior, dtype=score_real_dtype)" in dense_source
     assert "translation_log_prior = np.asarray(translation_log_prior, dtype=score_real_dtype)" in dense_source
 
-    single_source = inspect.getsource(sig_mod._compute_significance_batched)
-    assert "translation_log_prior = np.asarray(translation_log_prior, dtype=score_real_dtype)" in single_source
-    assert "rotation_log_prior = np.asarray(rotation_log_prior, dtype=score_real_dtype)" in single_source
-
 
 def test_stats_constructors_preserve_double_precision_by_default():
     from recovar.em.dense_single_volume.helpers.types import make_noise_stats, make_relion_stats

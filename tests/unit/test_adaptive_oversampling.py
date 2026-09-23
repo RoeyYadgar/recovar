@@ -11,6 +11,9 @@ Tests:
    Verify it completes, produces valid output, resolution does not collapse.
 """
 
+# Importing JAX after ``pytest.importorskip`` is intentional in this optional-dependency test module.
+# ruff: noqa: E402
+
 import numpy as np
 import pytest
 
@@ -187,9 +190,9 @@ class TestSignificanceMaskFraction:
         for i in range(n_images):
             kept_weight = float(jnp.sum(w[i] * mask[i]))
             total_weight = float(jnp.sum(w[i]))
-            assert kept_weight / total_weight >= 0.999 - 1e-6, (
-                f"Image {i}: kept weight fraction {kept_weight / total_weight:.6f} < 0.999"
-            )
+            assert (
+                kept_weight / total_weight >= 0.999 - 1e-6
+            ), f"Image {i}: kept weight fraction {kept_weight / total_weight:.6f} < 0.999"
 
     def test_fraction_0_5_keeps_about_half(self):
         """With adaptive_fraction=0.5, should keep roughly the top 50%."""
@@ -669,7 +672,7 @@ class TestSignificantCountsReasonable:
 
     def test_batched_significance_returns_sparse_sample_lists(self):
         """The batched coarse pass should preserve per-image significant samples."""
-        from recovar.em.dense_single_volume.helpers.significance import _compute_significance_batched
+        from recovar.em.dense_single_volume.helpers.significance import _compute_k_class_significance_batched
 
         n_images = 6
         n_rot = 12
@@ -702,21 +705,21 @@ class TestSignificantCountsReasonable:
             max_significants=500,
         )
 
-        sig_rot_any, n_sig_b, hard_b, sparse_sig, full_stats = _compute_significance_batched(
+        sig_rot_any, n_sig_b, hard_b, _, sparse_by_class, full_stats = _compute_k_class_significance_batched(
             ds,
-            volume,
+            volume[None, :],
             noise_variance,
             rotations,
             translations,
             "linear_interp",
+            class_log_priors=np.zeros(1, dtype=np.float64),
             adaptive_fraction=0.999,
             max_significants=500,
             image_batch_size=3,
             rotation_block_size=5,
             current_size=None,
-            return_significant_sample_indices=True,
-            return_full_stats=True,
         )
+        sparse_sig = sparse_by_class[0]
 
         np.testing.assert_array_equal(np.asarray(hard_b), np.asarray(hard_assignments))
         np.testing.assert_array_equal(np.asarray(n_sig_b), np.asarray(n_sig))
@@ -727,7 +730,7 @@ class TestSignificantCountsReasonable:
             atol=1e-6,
         )
         assert np.all(np.isfinite(full_stats["normalization_log_z"]))
-        assert np.any(sig_rot_any)
+        assert np.any(sig_rot_any[0])
         for i in range(n_images):
             np.testing.assert_array_equal(
                 np.asarray(sparse_sig[i]),
@@ -801,9 +804,9 @@ class TestOversampledGridGeneration:
 
         children = get_healpix_children(parent_pixels, nside_level)
 
-        assert len(children) == 4 * len(parent_pixels), (
-            f"Expected {4 * len(parent_pixels)} children, got {len(children)}"
-        )
+        assert len(children) == 4 * len(
+            parent_pixels
+        ), f"Expected {4 * len(parent_pixels)} children, got {len(children)}"
 
     def test_oversampled_rotation_grid_size(self):
         """get_oversampled_rotation_grid should produce the right number of matrices."""
@@ -890,13 +893,13 @@ class TestOversampledGridGeneration:
     def test_oversampled_rotation_grid_from_samples_matches_relion_binding(self):
         """Child orientations should match RELION's oversampled local-search grid."""
         import healpy as hp
-        from recovar.relion_bind._relion_bind_core import get_oversampled_orientations
 
         from recovar import utils
         from recovar.em.sampling import (
             get_oversampled_rotation_grid_from_samples,
             rotation_grid_n_in_planes,
         )
+        from recovar.relion_bind._relion_bind_core import get_oversampled_orientations
 
         nside_level = 2
         parent_rotations = np.array([0, 5, 10, 193], dtype=np.int64)
@@ -949,10 +952,10 @@ class TestOversampledGridGeneration:
     def test_oversampled_rotation_grid_from_samples_matches_relion_binding_with_perturbation(self):
         """RELION perturbation must also be applied to oversampled child orientations."""
         import healpy as hp
-        from recovar.relion_bind._relion_bind_core import get_oversampled_orientations
 
         from recovar import utils
         from recovar.em.sampling import get_oversampled_rotation_grid_from_samples
+        from recovar.relion_bind._relion_bind_core import get_oversampled_orientations
 
         nside_level = 3
         parent_rotations = np.array([0, 1, 777, 1025], dtype=np.int64)
