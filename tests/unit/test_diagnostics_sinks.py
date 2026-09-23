@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
-
 import numpy as np
-import pytest
 
 from recovar.em.dense_single_volume.diagnostics import (
     NPZ_DIAGNOSTICS,
@@ -11,25 +8,12 @@ from recovar.em.dense_single_volume.diagnostics import (
     DiagnosticsPlan,
     IterationStarted,
     ParityDiagnostics,
-    TraceKind,
-    TraceSpec,
     build_diagnostics_sink,
 )
 
 
 def test_null_diagnostics_has_no_trace_or_payload_side_effects():
-    assert NULL_DIAGNOSTICS.trace_spec.is_empty
     assert NULL_DIAGNOSTICS.iteration_started(IterationStarted(1, 4)) is None
-
-
-def test_trace_spec_is_frozen_and_names_only_extra_kernel_outputs():
-    trace = TraceSpec(frozenset({TraceKind.SCORES, TraceKind.OPERANDS}))
-
-    assert trace.requests(TraceKind.SCORES)
-    assert trace.requests(TraceKind.OPERANDS)
-    assert not trace.requests(TraceKind.POSTERIOR)
-    with pytest.raises(FrozenInstanceError):
-        trace.outputs = frozenset()
 
 
 def test_iteration_start_does_not_require_size_planning():

@@ -13,7 +13,7 @@ from recovar.em.dense_single_volume.runtime_options import (
     environment_scope,
 )
 
-from .events import DiagnosticEffect, TraceKind, TraceSpec
+from .events import DiagnosticEffect
 
 
 class EnvironmentVariableClass(str, Enum):
@@ -91,23 +91,6 @@ _SHADOW_PREFIXES = (
 )
 
 
-def _trace_kind_for_name(name: str) -> frozenset[TraceKind]:
-    kinds: set[TraceKind] = set()
-    if any(token in name for token in ("SCORE", "SIGNIFICANCE", "PASS2_DUMP")):
-        kinds.add(TraceKind.SCORES)
-    if "POSTERIOR" in name:
-        kinds.add(TraceKind.POSTERIOR)
-    if any(token in name for token in ("OPERAND", "NORM_RESIDUAL", "SIGNIFICANCE")):
-        kinds.add(TraceKind.OPERANDS)
-    if "MEMBERSHIP" in name:
-        kinds.add(TraceKind.MEMBERSHIP)
-    if "PROJECTOR" in name:
-        kinds.add(TraceKind.PROJECTOR)
-    if "BPREF" in name:
-        kinds.add(TraceKind.BPREF)
-    return frozenset(kinds)
-
-
 @dataclass(frozen=True)
 class DiagnosticRoutes:
     """Resolved diagnostics partitioned by behavioral effect."""
@@ -115,7 +98,6 @@ class DiagnosticRoutes:
     passive: EnvironmentSnapshot
     shadow: EnvironmentSnapshot
     invasive: EnvironmentSnapshot
-    trace_spec: TraceSpec
 
     @property
     def production_authoritative(self) -> bool:
@@ -181,14 +163,10 @@ class DiagnosticsPlan:
             tuple((name, self.passive[name]) for name in self.passive if name not in shadow_names)
         )
         shadow = EnvironmentSnapshot(tuple((name, self.passive[name]) for name in self.passive if name in shadow_names))
-        trace_kinds: set[TraceKind] = set()
-        for name in (*passive, *shadow, *self.invasive):
-            trace_kinds.update(_trace_kind_for_name(name))
         return DiagnosticRoutes(
             passive=passive,
             shadow=shadow,
             invasive=self.invasive,
-            trace_spec=TraceSpec(frozenset(trace_kinds)),
         )
 
     @classmethod

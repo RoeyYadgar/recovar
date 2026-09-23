@@ -22,8 +22,7 @@ import numpy as np
 
 from recovar.em.dense_single_volume.diagnostics.config import diagnostics_environment as _runtime_environment
 
-from .events import IterationStarted, TraceSpec
-from .sinks import NO_TRACE
+from .events import IterationStarted
 
 _E_STEP: dict[int, dict[str, Any]] = {}
 
@@ -396,10 +395,6 @@ class ParityDiagnostics:
     """
 
     __slots__ = ()
-
-    @property
-    def trace_spec(self) -> TraceSpec:
-        return NO_TRACE
 
     def is_active(self) -> bool:
         return is_active()

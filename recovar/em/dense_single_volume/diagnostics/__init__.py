@@ -5,8 +5,6 @@ from .config import DiagnosticsPlan as DiagnosticsPlan
 from .config import EnvironmentVariableClass as EnvironmentVariableClass
 from .events import DiagnosticEffect as DiagnosticEffect
 from .events import IterationStarted as IterationStarted
-from .events import TraceKind as TraceKind
-from .events import TraceSpec as TraceSpec
 from .parity import PARITY_DIAGNOSTICS as PARITY_DIAGNOSTICS
 from .parity import ParityDiagnostics as ParityDiagnostics
 from .sinks import NPZ_DIAGNOSTICS as NPZ_DIAGNOSTICS

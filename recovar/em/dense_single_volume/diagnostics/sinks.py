@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
-from .events import IterationStarted, TraceSpec
+from .events import IterationStarted
 
 if TYPE_CHECKING:
     from .config import DiagnosticsPlan
@@ -20,9 +20,6 @@ class DiagnosticsSink(Protocol):
     production values but cannot replace or select algorithm outputs.
     """
 
-    @property
-    def trace_spec(self) -> TraceSpec: ...
-
     def iteration_started(self, event: IterationStarted) -> None: ...
 
 
@@ -30,10 +27,6 @@ class NullDiagnostics:
     """Production sink that performs no inspection, conversion, or I/O."""
 
     __slots__ = ()
-
-    @property
-    def trace_spec(self) -> TraceSpec:
-        return NO_TRACE
 
     def iteration_started(self, event: IterationStarted) -> None:
         pass
@@ -66,7 +59,6 @@ class NpzDiagnostics:
         self.write_fields(path, compressed=compressed, **payload)
 
 
-NO_TRACE = TraceSpec.none()
 NULL_DIAGNOSTICS = NullDiagnostics()
 NPZ_DIAGNOSTICS = NpzDiagnostics()
 

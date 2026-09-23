@@ -8,7 +8,7 @@ JAX array to the host.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -18,35 +18,6 @@ class DiagnosticEffect(str, Enum):
     PASSIVE = "passive"
     SHADOW = "shadow"
     INVASIVE = "invasive"
-
-
-class TraceKind(str, Enum):
-    """Additional values that a numerical kernel may be asked to return."""
-
-    SCORES = "scores"
-    POSTERIOR = "posterior"
-    OPERANDS = "operands"
-    MEMBERSHIP = "membership"
-    PROJECTOR = "projector"
-    BPREF = "bpref"
-
-
-@dataclass(frozen=True)
-class TraceSpec:
-    """Static identity of extra kernel outputs requested by diagnostics."""
-
-    outputs: frozenset[TraceKind] = field(default_factory=frozenset)
-
-    @classmethod
-    def none(cls) -> TraceSpec:
-        return cls()
-
-    def requests(self, kind: TraceKind) -> bool:
-        return kind in self.outputs
-
-    @property
-    def is_empty(self) -> bool:
-        return not self.outputs
 
 
 @dataclass(frozen=True)

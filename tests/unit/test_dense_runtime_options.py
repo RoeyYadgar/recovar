@@ -14,7 +14,7 @@ from recovar.em.dense_single_volume.diagnostics.config import (
     diagnostic_environment_overrides,
     diagnostics_environment,
 )
-from recovar.em.dense_single_volume.diagnostics.events import DiagnosticEffect, TraceKind
+from recovar.em.dense_single_volume.diagnostics.events import DiagnosticEffect
 from recovar.em.dense_single_volume.diagnostics.local_capture import DenseDiagnosticsPlan
 from recovar.em.dense_single_volume.firstiter_cc import _safe_firstiter_cc_image_batch_size
 from recovar.em.dense_single_volume.local_caches import (
@@ -156,8 +156,6 @@ def test_diagnostics_routes_separate_passive_shadow_and_invasive_effects():
     assert routes.effect_for("RECOVAR_PARITY_TIMING_DIR") is DiagnosticEffect.PASSIVE
     assert routes.effect_for("RECOVAR_DEBUG_CC_COMPONENT_DUMP_DIR") is DiagnosticEffect.SHADOW
     assert routes.effect_for("RECOVAR_PASS2_DUMP_STOP_AFTER_TARGET") is DiagnosticEffect.INVASIVE
-    assert routes.trace_spec.requests(TraceKind.SCORES)
-    assert routes.trace_spec.requests(TraceKind.MEMBERSHIP)
     assert not routes.production_authoritative
 
 
